@@ -8,10 +8,15 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(
-    bind=engine,
-    autoflush=False,
     autocommit=False,
+    autoflush=False,
+    bind=engine,
 )
-from backend.db.models import Base
 
-Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

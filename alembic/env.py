@@ -6,22 +6,25 @@ from sqlalchemy import engine_from_config, pool
 from backend.core.config import settings
 from backend.db.models import Base
 
+
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+database_url = config.get_main_option("sqlalchemy.url")
+
+if not database_url or database_url.startswith("driver://"):
+    database_url = settings.database_url
+
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = settings.database_url
-
     context.configure(
-        url=url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -33,7 +36,10 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        {
+            **config.get_section(config.config_ini_section, {}),
+            "sqlalchemy.url": database_url,
+        },
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

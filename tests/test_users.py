@@ -219,3 +219,60 @@ def test_get_user_not_found_returns_404(client):
 
     assert response.status_code == 404
     assert response.json() == {"detail": "User not found"}
+
+
+def test_invalid_user_id_returns_400(client):
+    response = client.get("/users/0")
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "User ID must be a positive integer"
+    }
+
+
+def test_negative_user_id_returns_400(client):
+    response = client.get("/users/-1")
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "detail": "User ID must be a positive integer"
+    }
+
+
+def test_non_integer_user_id_returns_422(client):
+    response = client.get("/users/not-an-integer")
+
+    assert response.status_code == 422
+
+
+def test_unexpected_error_returns_500_and_logs(monkeypatch):
+    logged_messages = []
+
+    def fake_logger_exception(message, **kwargs):
+        logged_messages.append(message)
+
+    monkeypatch.setattr(
+        "backend.main.logger.exception",
+        fake_logger_exception,
+    )
+
+    def broken_get_db():
+        raise RuntimeError("simulated internal failure")
+
+    app.dependency_overrides[get_db] = broken_get_db
+
+    try:
+        with TestClient(
+            app,
+            raise_server_exceptions=False,
+        ) as test_client:
+            response = test_client.get("/users")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "Internal server error"
+    }
+
+    assert "Unhandled application error" in logged_messages

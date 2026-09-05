@@ -276,3 +276,24 @@ def test_unexpected_error_returns_500_and_logs(monkeypatch):
     }
 
     assert "Unhandled application error" in logged_messages
+
+
+def test_versioned_get_users_works(client):
+    response = client.get("/api/v1/users")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_versioned_create_user_works(client):
+    response = client.post(
+        "/api/v1/users",
+        json={
+            "email": "versioned@example.com",
+            "full_name": "Versioned User",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["email"] == "versioned@example.com"
+    assert response.json()["full_name"] == "Versioned User"

@@ -1,17 +1,13 @@
 ﻿from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from backend.core.exceptions import (
-    InvalidUserIdError,
-    UserNotFoundError,
-)
 from backend.dependencies.database import get_db
-from backend.repositories.user_repository import (
-    get_all_users,
-    get_user_by_id,
-)
 from backend.schemas.user import UserCreate, UserResponse
-from backend.services.user_service import create_user_service
+from backend.services.user_service import (
+    create_user_service,
+    get_user_service,
+    get_users_service,
+)
 
 
 router = APIRouter(
@@ -27,7 +23,7 @@ router = APIRouter(
 def get_users(
     db: Session = Depends(get_db),
 ):
-    return get_all_users(db)
+    return get_users_service(db)
 
 
 @router.post(
@@ -54,14 +50,7 @@ def get_user(
     user_id: int,
     db: Session = Depends(get_db),
 ):
-    if user_id <= 0:
-        raise InvalidUserIdError(
-            "User ID must be a positive integer"
-        )
-
-    user = get_user_by_id(db, user_id)
-
-    if not user:
-        raise UserNotFoundError("User not found")
-
-    return user
+    return get_user_service(
+        db=db,
+        user_id=user_id,
+    )

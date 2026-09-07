@@ -38,8 +38,15 @@ def migration_engine():
 
 def reset_migration_database(migration_engine):
     with migration_engine.begin() as connection:
-        connection.exec_driver_sql("DROP TABLE IF EXISTS users")
-        connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
+        connection.exec_driver_sql(
+            "DROP TABLE IF EXISTS refresh_tokens"
+        )
+        connection.exec_driver_sql(
+            "DROP TABLE IF EXISTS users"
+        )
+        connection.exec_driver_sql(
+            "DROP TABLE IF EXISTS alembic_version"
+        )
 
 
 def test_migration_upgrade_creates_users_table(

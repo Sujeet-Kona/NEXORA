@@ -1,10 +1,9 @@
-import os
+﻿import os
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
-
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
@@ -14,7 +13,9 @@ def migration_config():
     config = Config("alembic.ini")
 
     if not TEST_DATABASE_URL:
-        pytest.fail("TEST_DATABASE_URL must point to the dedicated migration test database")
+        pytest.fail(
+            "TEST_DATABASE_URL must point to the dedicated migration test database"
+        )
 
     config.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
 
@@ -24,7 +25,9 @@ def migration_config():
 @pytest.fixture()
 def migration_engine():
     if not TEST_DATABASE_URL:
-        pytest.fail("TEST_DATABASE_URL must point to the dedicated migration test database")
+        pytest.fail(
+            "TEST_DATABASE_URL must point to the dedicated migration test database"
+        )
 
     engine = create_engine(TEST_DATABASE_URL)
 
@@ -61,6 +64,7 @@ def test_migration_upgrade_creates_users_table(
         "email",
         "full_name",
         "created_at",
+        "password_hash",
     }
 
     primary_key = inspector.get_pk_constraint("users")
@@ -82,7 +86,6 @@ def test_migration_downgrade_removes_users_table(
     command.upgrade(migration_config, "head")
 
     assert "users" in inspect(migration_engine).get_table_names()
-
 
     command.downgrade(migration_config, "base")
 

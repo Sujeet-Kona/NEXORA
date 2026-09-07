@@ -12,3 +12,7 @@ class UserNotFoundError(NexoraError):
 
 class UserAlreadyExistsError(NexoraError):
     """Raised when attempting to create a user with an existing email."""
+
+class InvalidCredentialsError(NexoraError):
+    """Raised when authentication credentials are invalid."""
+

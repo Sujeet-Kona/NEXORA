@@ -2,10 +2,21 @@
 from fastapi.responses import JSONResponse
 
 from backend.core.exceptions import (
+    InvalidCredentialsError,
     InvalidUserIdError,
     UserAlreadyExistsError,
     UserNotFoundError,
 )
+
+
+async def invalid_credentials_handler(
+    request: Request,
+    exc: InvalidCredentialsError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={"detail": str(exc)},
+    )
 
 
 async def invalid_user_id_handler(
@@ -39,6 +50,11 @@ async def user_already_exists_handler(
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(
+        InvalidCredentialsError,
+        invalid_credentials_handler,
+    )
+
     app.add_exception_handler(
         InvalidUserIdError,
         invalid_user_id_handler,

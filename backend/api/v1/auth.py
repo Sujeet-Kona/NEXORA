@@ -2,9 +2,16 @@
 from sqlalchemy.orm import Session
 
 from backend.dependencies.database import get_db
-from backend.schemas.auth import AuthRegisterRequest
+from backend.schemas.auth import (
+    AuthLoginRequest,
+    AuthRegisterRequest,
+    TokenResponse,
+)
 from backend.schemas.user import UserResponse
-from backend.services.auth_service import register_user_service
+from backend.services.auth_service import (
+    login_user_service,
+    register_user_service,
+)
 
 
 router = APIRouter(
@@ -27,4 +34,23 @@ def register_user(
         email=request.email,
         full_name=request.full_name,
         password=request.password,
+    )
+
+
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+)
+def login_user(
+    request: AuthLoginRequest,
+    db: Session = Depends(get_db),
+):
+    access_token = login_user_service(
+        db=db,
+        email=request.email,
+        password=request.password,
+    )
+
+    return TokenResponse(
+        access_token=access_token,
     )

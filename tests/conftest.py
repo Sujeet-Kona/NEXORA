@@ -25,11 +25,25 @@ TestingSessionLocal = sessionmaker(
 
 
 @pytest.fixture()
+def db():
+    Base.metadata.create_all(bind=engine)
+
+    session = TestingSessionLocal()
+
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture()
 def client():
     Base.metadata.create_all(bind=engine)
 
     def override_get_db():
         db = TestingSessionLocal()
+
         try:
             yield db
         finally:

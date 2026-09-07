@@ -34,10 +34,12 @@ def create_user(
     db: Session,
     email: str,
     full_name: str,
+    password_hash: str | None = None,
 ) -> User:
     user = User(
         email=email,
         full_name=full_name,
+        password_hash=password_hash,
     )
 
     db.add(user)

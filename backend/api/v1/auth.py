@@ -1,7 +1,7 @@
 ﻿from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from backend.dependencies.auth import get_current_user
+from backend.dependencies.auth import CurrentUser
 from backend.dependencies.database import get_db
 from backend.schemas.auth import (
     AuthLoginRequest,
@@ -62,6 +62,6 @@ def login_user(
     response_model=UserResponse,
 )
 def get_current_user_profile(
-    current_user=Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     return current_user

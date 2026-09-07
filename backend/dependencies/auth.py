@@ -1,8 +1,9 @@
-﻿from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
+﻿from typing import Annotated
 
 import jwt
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
 
 from backend.core.security import decode_access_token
 from backend.db.models import User
@@ -67,3 +68,6 @@ def get_current_user(
         )
 
     return user
+
+
+CurrentUser = Annotated[User, Depends(get_current_user)]

@@ -1,16 +1,24 @@
-﻿from sqlalchemy.exc import IntegrityError
+﻿from datetime import datetime, timedelta, timezone
+
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.core.exceptions import (
     InvalidCredentialsError,
     UserAlreadyExistsError,
 )
 from backend.core.security import (
     create_access_token,
+    create_refresh_token,
     hash_password,
+    hash_refresh_token,
     verify_password,
 )
 from backend.db.models import User
+from backend.repositories.refresh_token_repository import (
+    create_refresh_token as create_refresh_token_record,
+)
 from backend.repositories.user_repository import (
     create_user,
     get_user_by_email,
@@ -52,7 +60,7 @@ def login_user_service(
     db: Session,
     email: str,
     password: str,
-) -> str:
+) -> tuple[str, str]:
     user = get_user_by_email(
         db,
         email,
@@ -71,6 +79,28 @@ def login_user_service(
             "Invalid email or password"
         )
 
-    return create_access_token(
+    access_token = create_access_token(
         str(user.id),
     )
+
+    refresh_token = create_refresh_token()
+
+    refresh_token_hash = hash_refresh_token(
+        refresh_token,
+    )
+
+    expires_at = (
+        datetime.now(timezone.utc)
+        + timedelta(
+            days=settings.refresh_token_expire_days,
+        )
+    )
+
+    create_refresh_token_record(
+        db=db,
+        user_id=user.id,
+        token_hash=refresh_token_hash,
+        expires_at=expires_at,
+    )
+
+    return access_token, refresh_token

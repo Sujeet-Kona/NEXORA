@@ -35,8 +35,10 @@ def test_login_request_rejects_empty_password():
 
 def test_token_response_defaults_to_bearer():
     response = TokenResponse(
-        access_token="test-token",
+        access_token="test-access-token",
+        refresh_token="test-refresh-token",
     )
 
-    assert response.access_token == "test-token"
+    assert response.access_token == "test-access-token"
+    assert response.refresh_token == "test-refresh-token"
     assert response.token_type == "bearer"

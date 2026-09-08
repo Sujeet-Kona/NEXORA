@@ -1,4 +1,4 @@
-﻿def test_login_endpoint_returns_access_token(client):
+﻿def test_login_endpoint_returns_access_and_refresh_tokens(client):
     registration_response = client.post(
         "/api/v1/auth/register",
         json={
@@ -23,6 +23,7 @@
     body = login_response.json()
 
     assert body["access_token"]
+    assert body["refresh_token"]
     assert body["token_type"] == "bearer"
 
 

@@ -1,15 +1,23 @@
-﻿import pytest
+﻿import jwt
+import pytest
 
+from backend.core.config import settings
 from backend.core.exceptions import InvalidCredentialsError
-from backend.core.security import verify_password
-from backend.db.models import Base
+from backend.core.security import (
+    hash_refresh_token,
+    verify_password,
+)
+from backend.db.models import RefreshToken, User
+from backend.repositories.refresh_token_repository import (
+    get_refresh_token_by_hash,
+)
 from backend.services.auth_service import (
     login_user_service,
     register_user_service,
 )
 
 
-def test_login_user_service_returns_jwt_for_valid_credentials(db):
+def test_login_user_service_returns_access_and_refresh_tokens(db):
     user = register_user_service(
         db=db,
         email="login@example.com",
@@ -17,19 +25,32 @@ def test_login_user_service_returns_jwt_for_valid_credentials(db):
         password="MySecret123!",
     )
 
-    token = login_user_service(
+    access_token, refresh_token = login_user_service(
         db=db,
         email="login@example.com",
         password="MySecret123!",
     )
 
-    assert isinstance(token, str)
-    assert token
+    assert access_token
+    assert refresh_token
     assert user.password_hash is not None
-    assert verify_password(
-        "MySecret123!",
-        user.password_hash,
+
+    payload = jwt.decode(
+        access_token,
+        settings.jwt_secret_key,
+        algorithms=[settings.jwt_algorithm],
     )
+
+    assert payload["sub"] == str(user.id)
+
+    stored_token = get_refresh_token_by_hash(
+        db=db,
+        token_hash=hash_refresh_token(refresh_token),
+    )
+
+    assert stored_token is not None
+    assert stored_token.user_id == user.id
+    assert stored_token.revoked_at is None
 
 
 def test_login_user_service_rejects_unknown_email(db):
@@ -62,8 +83,6 @@ def test_login_user_service_rejects_wrong_password(db):
 
 
 def test_login_user_service_rejects_user_without_password_hash(db):
-    from backend.db.models import User
-
     user = User(
         email="legacy@example.com",
         full_name="Legacy User",

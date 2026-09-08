@@ -46,7 +46,7 @@ def login_user(
     request: AuthLoginRequest,
     db: Session = Depends(get_db),
 ):
-    access_token = login_user_service(
+    access_token, refresh_token = login_user_service(
         db=db,
         email=request.email,
         password=request.password,
@@ -54,6 +54,7 @@ def login_user(
 
     return TokenResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
     )
 
 

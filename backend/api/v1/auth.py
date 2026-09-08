@@ -6,12 +6,16 @@ from backend.dependencies.database import get_db
 from backend.schemas.auth import (
     AuthLoginRequest,
     AuthRegisterRequest,
+    RefreshTokenRequest,
     TokenResponse,
 )
 from backend.schemas.user import UserResponse
 from backend.services.auth_service import (
     login_user_service,
     register_user_service,
+)
+from backend.services.refresh_token_service import (
+    refresh_access_token_service,
 )
 
 
@@ -55,6 +59,27 @@ def login_user(
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+    )
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+)
+def refresh_token(
+    request: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+):
+    access_token, new_refresh_token = (
+        refresh_access_token_service(
+            db=db,
+            refresh_token=request.refresh_token,
+        )
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
     )
 
 

@@ -12,6 +12,7 @@ from backend.core.security import (
 from backend.repositories.refresh_token_repository import (
     get_refresh_token_by_hash,
     rotate_refresh_token,
+    revoke_refresh_token,
 )
 
 
@@ -81,3 +82,31 @@ def refresh_access_token_service(
     )
 
     return new_access_token, new_refresh_token
+
+
+def logout_user_service(
+    db: Session,
+    refresh_token: str,
+) -> None:
+    token_hash = hash_refresh_token(refresh_token)
+
+    stored_token = get_refresh_token_by_hash(
+        db,
+        token_hash,
+    )
+
+    if not stored_token:
+        raise InvalidCredentialsError(
+            "Invalid refresh token"
+        )
+
+    if stored_token.revoked_at is not None:
+        raise InvalidCredentialsError(
+            "Invalid refresh token"
+        )
+
+    revoke_refresh_token(
+        db=db,
+        refresh_token=stored_token,
+        revoked_at=datetime.now(timezone.utc),
+    )

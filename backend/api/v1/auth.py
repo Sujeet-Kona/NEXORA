@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends
+﻿from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from backend.dependencies.auth import CurrentUser
@@ -15,6 +15,7 @@ from backend.services.auth_service import (
     register_user_service,
 )
 from backend.services.refresh_token_service import (
+    logout_user_service,
     refresh_access_token_service,
 )
 
@@ -81,6 +82,22 @@ def refresh_token(
         access_token=access_token,
         refresh_token=new_refresh_token,
     )
+
+
+@router.post(
+    "/logout",
+    status_code=204,
+)
+def logout_user(
+    request: RefreshTokenRequest,
+    db: Session = Depends(get_db),
+):
+    logout_user_service(
+        db=db,
+        refresh_token=request.refresh_token,
+    )
+
+    return Response(status_code=204)
 
 
 @router.get(

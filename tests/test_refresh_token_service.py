@@ -151,3 +151,79 @@ def test_refresh_access_token_service_rejects_missing_user(
         )
 
     assert str(exc_info.value) == "Invalid refresh token"
+
+def test_logout_user_service_revokes_refresh_token(db):
+    user = User(
+        email="logout-service@example.com",
+        full_name="Logout Service User",
+        password_hash="test-hash",
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    raw_token = create_refresh_token()
+
+    stored_token = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_refresh_token(raw_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    db.add(stored_token)
+    db.commit()
+    db.refresh(stored_token)
+
+    from backend.services.refresh_token_service import logout_user_service
+
+    logout_user_service(
+        db=db,
+        refresh_token=raw_token,
+    )
+
+    db.refresh(stored_token)
+
+    assert stored_token.revoked_at is not None
+
+
+def test_logout_user_service_rejects_unknown_token(db):
+    from backend.services.refresh_token_service import logout_user_service
+
+    with pytest.raises(InvalidCredentialsError):
+        logout_user_service(
+            db=db,
+            refresh_token="unknown-logout-token",
+        )
+
+
+def test_logout_user_service_rejects_already_revoked_token(db):
+    user = User(
+        email="logout-revoked@example.com",
+        full_name="Logout Revoked User",
+        password_hash="test-hash",
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    raw_token = create_refresh_token()
+
+    stored_token = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_refresh_token(raw_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        revoked_at=datetime.now(timezone.utc),
+    )
+
+    db.add(stored_token)
+    db.commit()
+
+    from backend.services.refresh_token_service import logout_user_service
+
+    with pytest.raises(InvalidCredentialsError):
+        logout_user_service(
+            db=db,
+            refresh_token=raw_token,
+        )

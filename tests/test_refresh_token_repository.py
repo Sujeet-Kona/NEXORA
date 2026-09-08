@@ -5,6 +5,7 @@ from backend.repositories.refresh_token_repository import (
     create_refresh_token,
     get_refresh_token_by_hash,
     revoke_refresh_token,
+    rotate_refresh_token,
 )
 
 
@@ -106,4 +107,57 @@ def test_revoke_refresh_token_sets_revoked_at(db):
 
     assert found is not None
     assert found.revoked_at == revoked_at.replace(tzinfo=None)
+
+
+def test_rotate_refresh_token_revokes_old_and_creates_new(db):
+    user = User(
+        email="refresh-rotate@example.com",
+        full_name="Refresh Rotate User",
+        password_hash="test-hash",
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    old_expires_at = datetime.now(timezone.utc) + timedelta(days=30)
+
+    old_token = create_refresh_token(
+        db=db,
+        user_id=user.id,
+        token_hash="e" * 64,
+        expires_at=old_expires_at,
+    )
+
+    revoked_at = datetime.now(timezone.utc)
+
+    new_token = rotate_refresh_token(
+        db=db,
+        current_refresh_token=old_token,
+        new_user_id=user.id,
+        new_token_hash="f" * 64,
+        new_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        revoked_at=revoked_at,
+    )
+
+    assert old_token.revoked_at is not None
+    assert new_token.id != old_token.id
+    assert new_token.user_id == user.id
+    assert new_token.token_hash == "f" * 64
+    assert new_token.revoked_at is None
+
+    found_old = get_refresh_token_by_hash(
+        db=db,
+        token_hash="e" * 64,
+    )
+
+    found_new = get_refresh_token_by_hash(
+        db=db,
+        token_hash="f" * 64,
+    )
+
+    assert found_old is not None
+    assert found_old.revoked_at is not None
+    assert found_new is not None
+    assert found_new.id == new_token.id
 

@@ -6,12 +6,13 @@ from backend.core.exceptions import (
     UserAlreadyExistsError,
     UserNotFoundError,
 )
-from backend.db.models import User
+from backend.db.models import User, UserRole
 from backend.repositories.user_repository import (
     create_user,
     get_all_users,
     get_user_by_email,
     get_user_by_id,
+    update_user_role,
 )
 
 
@@ -68,3 +69,30 @@ def create_user_service(
         raise UserAlreadyExistsError(
             "Email already registered"
         ) from exc
+
+
+def update_user_role_service(
+    db: Session,
+    user_id: int,
+    role: UserRole,
+) -> User:
+    if user_id <= 0:
+        raise InvalidUserIdError(
+            "User ID must be a positive integer"
+        )
+
+    user = get_user_by_id(
+        db,
+        user_id,
+    )
+
+    if not user:
+        raise UserNotFoundError(
+            "User not found"
+        )
+
+    return update_user_role(
+        db=db,
+        user=user,
+        role=role,
+    )

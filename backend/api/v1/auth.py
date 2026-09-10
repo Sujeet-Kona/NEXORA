@@ -1,7 +1,8 @@
-﻿from fastapi import APIRouter, Depends, Response
+﻿from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from backend.dependencies.auth import CurrentUser
+from backend.dependencies.authorization import require_admin
 from backend.dependencies.database import get_db
 from backend.schemas.auth import (
     AuthLoginRequest,
@@ -97,7 +98,7 @@ def logout_user(
         refresh_token=request.refresh_token,
     )
 
-    return Response(status_code=204)
+    return None
 
 
 @router.get(
@@ -108,3 +109,17 @@ def get_current_user_profile(
     current_user: CurrentUser,
 ):
     return current_user
+
+
+@router.get(
+    "/admin-check",
+)
+def admin_check(
+    current_user: CurrentUser,
+):
+    require_admin(current_user)
+
+    return {
+        "status": "ok",
+        "message": "Admin access granted",
+    }

@@ -1,7 +1,7 @@
 ﻿from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.db.models import User
+from backend.db.models import User, UserRole
 
 
 def get_all_users(db: Session) -> list[User]:
@@ -50,5 +50,17 @@ def create_user(
     except IntegrityError:
         db.rollback()
         raise
+
+    return user
+
+
+def update_user_role(
+    db: Session,
+    user: User,
+    role: UserRole,
+) -> User:
+    user.role = role
+    db.commit()
+    db.refresh(user)
 
     return user

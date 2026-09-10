@@ -72,6 +72,7 @@ def test_migration_upgrade_creates_users_table(
         "full_name",
         "created_at",
         "password_hash",
+        "role",
     }
 
     primary_key = inspector.get_pk_constraint("users")
@@ -103,3 +104,4 @@ def test_migration_downgrade_removes_users_table(
     command.upgrade(migration_config, "head")
 
     assert "users" in inspect(migration_engine).get_table_names()
+

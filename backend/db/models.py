@@ -1,4 +1,5 @@
 ﻿from datetime import datetime, timezone
+from enum import StrEnum
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -6,6 +7,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
+
+
+class UserRole(StrEnum):
+    ADMIN = "admin"
+    MEMBER = "member"
 
 
 class User(Base):
@@ -29,6 +35,12 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(
         String(255),
         nullable=True,
+    )
+
+    role: Mapped[UserRole] = mapped_column(
+        String(50),
+        default=UserRole.MEMBER,
+        nullable=False,
     )
 
     created_at: Mapped[datetime] = mapped_column(

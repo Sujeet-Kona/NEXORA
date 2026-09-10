@@ -30,6 +30,8 @@ class OrganizationResponse(BaseModel):
 class OrganizationMemberCreate(BaseModel):
     user_id: int = Field(gt=0)
     role: OrganizationRole
+
+
 class OrganizationMemberResponse(BaseModel):
     id: int
     organization_id: int
@@ -38,3 +40,7 @@ class OrganizationMemberResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OrganizationMemberRoleUpdate(BaseModel):
+    role: OrganizationRole

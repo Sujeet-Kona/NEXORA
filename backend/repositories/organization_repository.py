@@ -76,3 +76,23 @@ def get_organization_members(
         )
         .all()
     )
+
+
+def update_membership_role(
+    db: Session,
+    membership: OrganizationMembership,
+    role: OrganizationRole,
+) -> OrganizationMembership:
+    membership.role = role
+    db.commit()
+    db.refresh(membership)
+
+    return membership
+
+
+def delete_membership(
+    db: Session,
+    membership: OrganizationMembership,
+) -> None:
+    db.delete(membership)
+    db.commit()

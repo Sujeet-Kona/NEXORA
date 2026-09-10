@@ -9,6 +9,7 @@ from backend.repositories.organization_repository import (
     create_organization_membership,
     get_membership,
     get_organization_by_id,
+    get_organization_members,
 )
 
 
@@ -129,3 +130,61 @@ def test_get_membership_returns_none_when_missing(db):
     )
 
     assert found is None
+
+
+def test_get_organization_members_returns_all_members(db):
+    first_user = User(
+        email="organization-member-one@example.com",
+        full_name="Organization Member One",
+        password_hash="test-hash",
+    )
+
+    second_user = User(
+        email="organization-member-two@example.com",
+        full_name="Organization Member Two",
+        password_hash="test-hash",
+    )
+
+    db.add_all([first_user, second_user])
+    db.commit()
+    db.refresh(first_user)
+    db.refresh(second_user)
+
+    organization = create_organization(
+        db=db,
+        name="Members Company",
+    )
+
+    first_membership = create_organization_membership(
+        db=db,
+        organization_id=organization.id,
+        user_id=first_user.id,
+        role=OrganizationRole.OWNER,
+    )
+
+    second_membership = create_organization_membership(
+        db=db,
+        organization_id=organization.id,
+        user_id=second_user.id,
+        role=OrganizationRole.MEMBER,
+    )
+
+    db.commit()
+
+    members = get_organization_members(
+        db=db,
+        organization_id=organization.id,
+    )
+
+    member_ids = {
+        membership.user_id
+        for membership in members
+    }
+
+    assert member_ids == {
+        first_user.id,
+        second_user.id,
+    }
+
+    assert first_membership.role == OrganizationRole.OWNER
+    assert second_membership.role == OrganizationRole.MEMBER

@@ -4,7 +4,6 @@ from backend.db.models import (
     Organization,
     OrganizationMembership,
     OrganizationRole,
-    User,
 )
 
 
@@ -62,4 +61,18 @@ def get_membership(
             OrganizationMembership.user_id == user_id,
         )
         .first()
+    )
+
+
+def get_organization_members(
+    db: Session,
+    organization_id: int,
+) -> list[OrganizationMembership]:
+    return (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id
+            == organization_id,
+        )
+        .all()
     )

@@ -111,15 +111,3 @@ def get_current_user_profile(
     return current_user
 
 
-@router.get(
-    "/admin-check",
-)
-def admin_check(
-    current_user: CurrentUser,
-):
-    require_admin(current_user)
-
-    return {
-        "status": "ok",
-        "message": "Admin access granted",
-    }

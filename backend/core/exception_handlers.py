@@ -4,6 +4,10 @@ from fastapi.responses import JSONResponse
 from backend.core.exceptions import (
     InvalidCredentialsError,
     InvalidUserIdError,
+    OrganizationAccessDeniedError,
+    OrganizationMembershipAlreadyExistsError,
+    OrganizationMembershipRequiredError,
+    OrganizationNotFoundError,
     UserAlreadyExistsError,
     UserNotFoundError,
 )
@@ -49,6 +53,46 @@ async def user_already_exists_handler(
     )
 
 
+async def organization_not_found_handler(
+    request: Request,
+    exc: OrganizationNotFoundError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
+    )
+
+
+async def organization_membership_required_handler(
+    request: Request,
+    exc: OrganizationMembershipRequiredError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={"detail": str(exc)},
+    )
+
+
+async def organization_access_denied_handler(
+    request: Request,
+    exc: OrganizationAccessDeniedError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={"detail": str(exc)},
+    )
+
+
+async def organization_membership_already_exists_handler(
+    request: Request,
+    exc: OrganizationMembershipAlreadyExistsError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": str(exc)},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidCredentialsError,
@@ -68,4 +112,24 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         UserAlreadyExistsError,
         user_already_exists_handler,
+    )
+
+    app.add_exception_handler(
+        OrganizationNotFoundError,
+        organization_not_found_handler,
+    )
+
+    app.add_exception_handler(
+        OrganizationMembershipRequiredError,
+        organization_membership_required_handler,
+    )
+
+    app.add_exception_handler(
+        OrganizationAccessDeniedError,
+        organization_access_denied_handler,
+    )
+
+    app.add_exception_handler(
+        OrganizationMembershipAlreadyExistsError,
+        organization_membership_already_exists_handler,
     )

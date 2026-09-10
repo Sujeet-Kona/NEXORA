@@ -13,6 +13,22 @@ class UserNotFoundError(NexoraError):
 class UserAlreadyExistsError(NexoraError):
     """Raised when attempting to create a user with an existing email."""
 
+
 class InvalidCredentialsError(NexoraError):
     """Raised when authentication credentials are invalid."""
 
+
+class OrganizationNotFoundError(NexoraError):
+    """Raised when an organization does not exist."""
+
+
+class OrganizationMembershipRequiredError(NexoraError):
+    """Raised when a user is not a member of an organization."""
+
+
+class OrganizationAccessDeniedError(NexoraError):
+    """Raised when a user lacks sufficient organization privileges."""
+
+
+class OrganizationMembershipAlreadyExistsError(NexoraError):
+    """Raised when a user is already a member of an organization."""

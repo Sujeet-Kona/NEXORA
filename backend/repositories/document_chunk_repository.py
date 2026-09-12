@@ -103,3 +103,20 @@ def replace_document_chunks(
     db.flush()
 
     return records
+
+def get_chunks_by_ids_for_organization(
+    db: Session,
+    chunk_ids: list[int],
+    organization_id: int,
+) -> list[DocumentChunk]:
+    if not chunk_ids:
+        return []
+
+    return (
+        db.query(DocumentChunk)
+        .filter(
+            DocumentChunk.id.in_(chunk_ids),
+            DocumentChunk.organization_id == organization_id,
+        )
+        .all()
+    )

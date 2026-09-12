@@ -1,4 +1,4 @@
-﻿from datetime import datetime, timezone
+from datetime import datetime, timezone
 from enum import StrEnum
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
@@ -214,6 +214,20 @@ class Document(Base):
     name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+
+    storage_key: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+    )
+
+    file_size: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    content_type: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
     )
 
     status: Mapped[DocumentStatus] = mapped_column(

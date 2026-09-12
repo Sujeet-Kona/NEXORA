@@ -1,4 +1,4 @@
-﻿from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session
 
 from backend.db.models import Document, DocumentStatus
 
@@ -8,11 +8,17 @@ def create_document(
     organization_id: int,
     uploaded_by: int,
     name: str,
+    storage_key: str | None = None,
+    file_size: int | None = None,
+    content_type: str | None = None,
 ) -> Document:
     document = Document(
         organization_id=organization_id,
         uploaded_by=uploaded_by,
         name=name,
+        storage_key=storage_key,
+        file_size=file_size,
+        content_type=content_type,
         status=DocumentStatus.PENDING,
     )
 

@@ -195,3 +195,32 @@ def test_delete_document(db):
     )
 
     assert found is None
+
+def test_create_document_stores_file_metadata(db):
+    user = create_user(
+        db,
+        "document-metadata@example.com",
+        "Document Metadata",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Metadata Company",
+        user_id=user.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=user.id,
+        name="policy.pdf",
+        storage_key="organizations/1/documents/1/file.pdf",
+        file_size=12345,
+        content_type="application/pdf",
+    )
+
+    assert document.storage_key == (
+        "organizations/1/documents/1/file.pdf"
+    )
+    assert document.file_size == 12345
+    assert document.content_type == "application/pdf"

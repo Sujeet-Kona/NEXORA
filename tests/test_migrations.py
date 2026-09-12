@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 import pytest
 from alembic import command
@@ -94,6 +94,9 @@ def test_migration_upgrade_creates_users_table(
         "organization_id",
         "uploaded_by",
         "name",
+        "storage_key",
+        "file_size",
+        "content_type",
         "status",
         "created_at",
         "updated_at",
@@ -150,4 +153,3 @@ def test_migration_downgrade_removes_users_table(
     command.upgrade(migration_config, "head")
 
     assert "users" in inspect(migration_engine).get_table_names()
-

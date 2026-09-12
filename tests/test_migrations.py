@@ -82,6 +82,44 @@ def test_migration_upgrade_creates_users_table(
         "password_hash",
         "role",
     }
+    assert "documents" in inspector.get_table_names()
+
+    document_columns = {
+        column["name"]
+        for column in inspector.get_columns("documents")
+    }
+
+    assert document_columns == {
+        "id",
+        "organization_id",
+        "uploaded_by",
+        "name",
+        "status",
+        "created_at",
+        "updated_at",
+    }
+
+    document_foreign_keys = {
+        (
+            tuple(foreign_key["constrained_columns"]),
+            foreign_key["referred_table"],
+            tuple(foreign_key["referred_columns"]),
+        )
+        for foreign_key in inspector.get_foreign_keys("documents")
+    }
+
+    assert document_foreign_keys == {
+        (
+            ("organization_id",),
+            "organizations",
+            ("id",),
+        ),
+        (
+            ("uploaded_by",),
+            "users",
+            ("id",),
+        ),
+    }
 
     primary_key = inspector.get_pk_constraint("users")
     assert primary_key["constrained_columns"] == ["id"]

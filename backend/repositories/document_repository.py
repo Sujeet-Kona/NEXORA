@@ -1,0 +1,72 @@
+﻿from sqlalchemy.orm import Session
+
+from backend.db.models import Document, DocumentStatus
+
+
+def create_document(
+    db: Session,
+    organization_id: int,
+    uploaded_by: int,
+    name: str,
+) -> Document:
+    document = Document(
+        organization_id=organization_id,
+        uploaded_by=uploaded_by,
+        name=name,
+        status=DocumentStatus.PENDING,
+    )
+
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
+def get_document_by_id(
+    db: Session,
+    document_id: int,
+    organization_id: int,
+) -> Document | None:
+    return (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.organization_id == organization_id,
+        )
+        .first()
+    )
+
+
+def get_documents_for_organization(
+    db: Session,
+    organization_id: int,
+) -> list[Document]:
+    return (
+        db.query(Document)
+        .filter(
+            Document.organization_id == organization_id,
+        )
+        .order_by(Document.id)
+        .all()
+    )
+
+
+def update_document_status(
+    db: Session,
+    document: Document,
+    status: DocumentStatus,
+) -> Document:
+    document.status = status
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
+def delete_document(
+    db: Session,
+    document: Document,
+) -> None:
+    db.delete(document)
+    db.commit()

@@ -20,6 +20,12 @@ class OrganizationRole(StrEnum):
     MEMBER = "member"
 
 
+class DocumentStatus(StrEnum):
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -65,6 +71,10 @@ class User(Base):
     ] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="uploaded_by_user",
     )
 
 
@@ -132,6 +142,11 @@ class Organization(Base):
         cascade="all, delete-orphan",
     )
 
+    documents: Mapped[list["Document"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+
 
 class OrganizationMembership(Base):
     __tablename__ = "organization_memberships"
@@ -176,4 +191,54 @@ class OrganizationMembership(Base):
 
     user: Mapped[User] = relationship(
         back_populates="organization_memberships",
+    )
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id"),
+        nullable=False,
+    )
+
+    uploaded_by: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    status: Mapped[DocumentStatus] = mapped_column(
+        String(50),
+        default=DocumentStatus.PENDING,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    organization: Mapped[Organization] = relationship(
+        back_populates="documents",
+    )
+
+    uploaded_by_user: Mapped[User] = relationship(
+        back_populates="documents",
     )

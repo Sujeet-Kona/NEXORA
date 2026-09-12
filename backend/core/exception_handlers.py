@@ -2,6 +2,7 @@
 from fastapi.responses import JSONResponse
 
 from backend.core.exceptions import (
+    DocumentNotFoundError,
     InvalidCredentialsError,
     InvalidUserIdError,
     OrganizationAccessDeniedError,
@@ -93,6 +94,16 @@ async def organization_membership_already_exists_handler(
     )
 
 
+async def document_not_found_handler(
+    request: Request,
+    exc: DocumentNotFoundError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=404,
+        content={"detail": str(exc)},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidCredentialsError,
@@ -132,4 +143,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         OrganizationMembershipAlreadyExistsError,
         organization_membership_already_exists_handler,
+    )
+
+    app.add_exception_handler(
+        DocumentNotFoundError,
+        document_not_found_handler,
     )

@@ -146,6 +146,10 @@ class Organization(Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
+    document_chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
 
 
 class OrganizationMembership(Base):
@@ -194,6 +198,46 @@ class OrganizationMembership(Base):
     )
 
 
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id"),
+        nullable=False,
+    )
+
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id"),
+        nullable=False,
+    )
+
+    chunk_index: Mapped[int] = mapped_column(
+        nullable=False,
+    )
+
+    text: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    document: Mapped["Document"] = relationship(
+        back_populates="chunks",
+    )
+
+    organization: Mapped[Organization] = relationship(
+        back_populates="document_chunks",
+    )
 class Document(Base):
     __tablename__ = "documents"
 
@@ -255,4 +299,9 @@ class Document(Base):
 
     uploaded_by_user: Mapped[User] = relationship(
         back_populates="documents",
+    )
+
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
     )

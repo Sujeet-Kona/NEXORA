@@ -28,3 +28,5 @@ PyJWT==2.13.0
 python-multipart
 pymupdf
 python-docx
+langchain==1.4.0
+langchain-text-splitters==1.1.2

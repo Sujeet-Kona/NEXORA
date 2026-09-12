@@ -39,6 +39,9 @@ def migration_engine():
 def reset_migration_database(migration_engine):
     with migration_engine.begin() as connection:
         connection.exec_driver_sql(
+            "DROP TABLE IF EXISTS document_chunks"
+        )
+        connection.exec_driver_sql(
             "DROP TABLE IF EXISTS documents"
         )
         connection.exec_driver_sql(

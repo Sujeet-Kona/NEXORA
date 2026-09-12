@@ -32,3 +32,7 @@ class OrganizationAccessDeniedError(NexoraError):
 
 class OrganizationMembershipAlreadyExistsError(NexoraError):
     """Raised when a user is already a member of an organization."""
+
+
+class DocumentNotFoundError(NexoraError):
+    """Raised when a requested document does not exist."""

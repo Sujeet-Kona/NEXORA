@@ -1,7 +1,10 @@
-﻿from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.dependencies.auth import CurrentUser
+from backend.core.config import settings
+from backend.core.exceptions import InvalidDocumentUploadError
 from backend.dependencies.database import get_db
 from backend.schemas.document import (
     DocumentCreate,
@@ -14,6 +17,7 @@ from backend.services.document_service import (
     get_document_service,
     list_documents_service,
     update_document_status_service,
+    upload_document_service,
 )
 
 
@@ -42,6 +46,45 @@ def create_document(
     )
 
 
+@router.post(
+    "/{organization_id}/documents/upload",
+    response_model=DocumentResponse,
+    status_code=201,
+)
+async def upload_document(
+    organization_id: int,
+    current_user: CurrentUser,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    chunks = []
+    total_size = 0
+
+    while True:
+        chunk = await file.read(1024 * 1024)
+
+        if not chunk:
+            break
+
+        total_size += len(chunk)
+
+        if total_size > settings.max_upload_size_bytes:
+            raise InvalidDocumentUploadError(
+                "Uploaded file exceeds the maximum allowed size"
+            )
+
+        chunks.append(chunk)
+
+    content = b"".join(chunks)
+
+    return upload_document_service(
+        db=db,
+        organization_id=organization_id,
+        filename=file.filename or "",
+        content=content,
+        content_type=file.content_type,
+        current_user=current_user,
+    )
 @router.get(
     "/{organization_id}/documents",
     response_model=list[DocumentResponse],

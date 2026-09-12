@@ -3,7 +3,9 @@ from fastapi.responses import JSONResponse
 
 from backend.core.exceptions import (
     DocumentNotFoundError,
+    DocumentUploadFailedError,
     InvalidCredentialsError,
+    InvalidDocumentUploadError,
     InvalidUserIdError,
     OrganizationAccessDeniedError,
     OrganizationMembershipAlreadyExistsError,
@@ -104,6 +106,26 @@ async def document_not_found_handler(
     )
 
 
+async def invalid_document_upload_handler(
+    request: Request,
+    exc: InvalidDocumentUploadError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc)},
+    )
+
+
+async def document_upload_failed_handler(
+    request: Request,
+    exc: DocumentUploadFailedError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Document upload failed"},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidCredentialsError,
@@ -148,4 +170,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         DocumentNotFoundError,
         document_not_found_handler,
+    )
+
+    app.add_exception_handler(
+        InvalidDocumentUploadError,
+        invalid_document_upload_handler,
+    )
+
+    app.add_exception_handler(
+        DocumentUploadFailedError,
+        document_upload_failed_handler,
     )

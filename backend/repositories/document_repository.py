@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+﻿from sqlalchemy.orm import Session
 
 from backend.db.models import Document, DocumentStatus
 
@@ -23,6 +23,42 @@ def create_document(
     )
 
     db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
+def create_document_pending(
+    db: Session,
+    organization_id: int,
+    uploaded_by: int,
+    name: str,
+) -> Document:
+    document = Document(
+        organization_id=organization_id,
+        uploaded_by=uploaded_by,
+        name=name,
+        status=DocumentStatus.PENDING,
+    )
+
+    db.add(document)
+    db.flush()
+
+    return document
+
+
+def finalize_document_upload(
+    db: Session,
+    document: Document,
+    storage_key: str,
+    file_size: int,
+    content_type: str,
+) -> Document:
+    document.storage_key = storage_key
+    document.file_size = file_size
+    document.content_type = content_type
+
     db.commit()
     db.refresh(document)
 

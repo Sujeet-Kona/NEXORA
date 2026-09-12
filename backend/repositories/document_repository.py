@@ -1,4 +1,4 @@
-﻿from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session
 
 from backend.db.models import Document, DocumentStatus
 
@@ -112,3 +112,15 @@ def delete_document(
 ) -> None:
     db.delete(document)
     db.commit()
+
+def get_document_by_id_unscoped(
+    db: Session,
+    document_id: int,
+) -> Document | None:
+    return (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+        )
+        .first()
+    )

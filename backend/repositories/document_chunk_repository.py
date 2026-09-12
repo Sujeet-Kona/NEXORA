@@ -1,4 +1,4 @@
-﻿from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session
 
 from backend.db.models import DocumentChunk
 
@@ -73,3 +73,33 @@ def delete_chunks_for_document(
         )
         .delete(synchronize_session=False)
     )
+
+def replace_document_chunks(
+    db: Session,
+    document_id: int,
+    organization_id: int,
+    chunks: list[str],
+) -> list[DocumentChunk]:
+    (
+        db.query(DocumentChunk)
+        .filter(
+            DocumentChunk.document_id == document_id,
+            DocumentChunk.organization_id == organization_id,
+        )
+        .delete(synchronize_session=False)
+    )
+
+    records = [
+        DocumentChunk(
+            document_id=document_id,
+            organization_id=organization_id,
+            chunk_index=index,
+            text=text,
+        )
+        for index, text in enumerate(chunks)
+    ]
+
+    db.add_all(records)
+    db.flush()
+
+    return records

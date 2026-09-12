@@ -50,3 +50,6 @@ class InvalidDocumentUploadError(NexoraError):
 
 class DocumentUploadFailedError(NexoraError):
     """Raised when document storage/finalization fails."""
+
+class DocumentExtractionError(NexoraError):
+    """Raised when document text extraction fails."""

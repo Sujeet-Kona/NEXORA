@@ -1,4 +1,4 @@
-﻿from io import BytesIO
+from io import BytesIO
 
 import fitz
 from docx import Document as DocxDocument
@@ -44,6 +44,16 @@ def make_docx() -> bytes:
     document.add_paragraph(
         "All employees must use MFA."
     )
+
+    table = document.add_table(
+        rows=2,
+        cols=2,
+    )
+
+    table.cell(0, 0).text = "Component"
+    table.cell(0, 1).text = "Purpose"
+    table.cell(1, 0).text = "MFA"
+    table.cell(1, 1).text = "Account protection"
 
     buffer = BytesIO()
 
@@ -113,3 +123,13 @@ def test_unsupported_format_raises():
             content_type="application/octet-stream",
             content=b"bad",
         )
+
+def test_extract_docx_table_text():
+    content = make_docx()
+
+    text = extract_docx_text(content)
+
+    assert "Component" in text
+    assert "Purpose" in text
+    assert "MFA" in text
+    assert "Account protection" in text

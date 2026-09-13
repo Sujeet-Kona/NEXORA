@@ -32,13 +32,46 @@ def extract_docx_text(content: bytes) -> str:
             BytesIO(content)
         )
 
-        paragraphs = [
-            paragraph.text
-            for paragraph in document.paragraphs
-            if paragraph.text.strip()
-        ]
+        parts = []
 
-        return "\n".join(paragraphs).strip()
+        paragraphs_by_element = {
+            paragraph._p: paragraph
+            for paragraph in document.paragraphs
+        }
+
+        tables_by_element = {
+            table._tbl: table
+            for table in document.tables
+        }
+
+        for element in document.element.body:
+            if element in paragraphs_by_element:
+                paragraph = paragraphs_by_element[element]
+
+                if paragraph.text.strip():
+                    parts.append(
+                        paragraph.text.strip()
+                    )
+
+            elif element in tables_by_element:
+                table = tables_by_element[element]
+
+                for row in table.rows:
+                    cells = [
+                        cell.text.strip()
+                        for cell in row.cells
+                    ]
+
+                    row_text = " | ".join(
+                        cell
+                        for cell in cells
+                        if cell
+                    )
+
+                    if row_text:
+                        parts.append(row_text)
+
+        return "\n".join(parts).strip()
 
     except Exception as exc:
         raise DocumentExtractionError(

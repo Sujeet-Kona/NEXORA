@@ -8,7 +8,7 @@ class OllamaLLMClient:
         self,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: float = 120.0,
+        timeout: float = 300.0,
     ):
         self.base_url = (
             base_url
@@ -71,3 +71,4 @@ class OllamaLLMClient:
             )
 
         return content.strip()
+

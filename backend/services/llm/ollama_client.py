@@ -9,6 +9,7 @@ class OllamaLLMClient:
         base_url: str | None = None,
         model: str | None = None,
         timeout: float = 300.0,
+        num_predict: int = 96,
     ):
         self.base_url = (
             base_url
@@ -21,6 +22,7 @@ class OllamaLLMClient:
         )
 
         self.timeout = timeout
+        self.num_predict = num_predict
 
     def generate(
         self,
@@ -48,6 +50,10 @@ class OllamaLLMClient:
                     },
                 ],
                 "stream": False,
+                "options": {
+                    "num_predict": self.num_predict,
+                },
+                "keep_alive": "5m",
             },
             timeout=self.timeout,
         )
@@ -71,4 +77,3 @@ class OllamaLLMClient:
             )
 
         return content.strip()
-

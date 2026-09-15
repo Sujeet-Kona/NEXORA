@@ -1,4 +1,5 @@
 ﻿import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -7,6 +8,11 @@ from backend.api.router import router as api_router
 from backend.api.v1.users import router as users_router
 from backend.core.exception_handlers import register_exception_handlers
 from backend.core.logging import LOGGER_NAME, configure_logging
+from backend.dependencies.rag import (
+    get_embedding_service,
+    get_ollama_client,
+    get_qdrant_repository,
+)
 
 
 configure_logging()
@@ -14,10 +20,26 @@ configure_logging()
 logger = logging.getLogger(LOGGER_NAME)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing shared RAG services")
+
+    app.state.embedding_service = get_embedding_service()
+    app.state.qdrant_repository = get_qdrant_repository()
+    app.state.ollama_client = get_ollama_client()
+
+    logger.info("Shared RAG services initialized")
+
+    yield
+
+    logger.info("Shutting down shared RAG services")
+
+
 app = FastAPI(
     title="Nexora API",
     description="Secure Enterprise AI Knowledge Platform",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 

@@ -22,24 +22,11 @@ class GeneratedAnswer:
 def _build_context(
     chunks: list[RetrievedChunk],
 ) -> str:
-    parts = []
-
-    for index, chunk in enumerate(
-        chunks,
-        start=1,
-    ):
-        parts.append(
-            "\n".join(
-                [
-                    f"[Source {index}]",
-                    f"Document ID: {chunk.document_id}",
-                    f"Chunk index: {chunk.chunk_index}",
-                    chunk.text,
-                ]
-            )
-        )
-
-    return "\n\n".join(parts)
+    return "\n\n".join(
+        chunk.text.strip()
+        for chunk in chunks
+        if chunk.text.strip()
+    )
 
 
 def generate_answer(

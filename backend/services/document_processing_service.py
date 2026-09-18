@@ -14,6 +14,7 @@ from backend.repositories.document_repository import (
     get_document_by_id_unscoped,
     update_document_status,
 )
+from backend.services.bm25_service import invalidate_bm25_index
 from backend.services.document_chunking import split_text
 from backend.services.document_extraction import extract_text
 from backend.services.document_indexing_service import (
@@ -79,6 +80,10 @@ def process_document(
 
         db.commit()
 
+        invalidate_bm25_index(
+            document.organization_id,
+        )
+
         index_document_chunks(
             db=db,
             organization_id=document.organization_id,
@@ -110,5 +115,8 @@ def process_document(
             )
 
         raise
+
+
+
 
 

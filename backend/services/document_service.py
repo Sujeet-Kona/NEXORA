@@ -28,6 +28,7 @@ from backend.repositories.organization_repository import (
     get_membership,
     get_organization_by_id,
 )
+from backend.services.bm25_service import invalidate_bm25_index
 from backend.services.storage import LocalStorage
 
 
@@ -357,5 +358,10 @@ def delete_document_service(
         document=document,
     )
 
+    invalidate_bm25_index(
+        organization_id,
+    )
+
     if storage_key:
         storage.delete(storage_key)
+

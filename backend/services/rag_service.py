@@ -6,11 +6,11 @@ from sqlalchemy.orm import Session
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService
 from backend.services.generation_service import generate_answer
-from backend.services.llm.base import LLMClient
-from backend.services.retrieval_service import (
-    RetrievedChunk,
-    retrieve_chunks,
+from backend.services.hybrid_retrieval_service import (
+    hybrid_retrieve_chunks,
 )
+from backend.services.llm.base import LLMClient
+from backend.services.retrieval_service import RetrievedChunk
 
 
 @dataclass(frozen=True)
@@ -28,8 +28,11 @@ def answer_question(
     qdrant_repository: QdrantRepository,
     llm_client: LLMClient,
     retrieval_limit: int = 5,
-    retrieve_fn: Callable = retrieve_chunks,
+    retrieve_fn: Callable = hybrid_retrieve_chunks,
 ) -> RAGResponse:
+    if not question.strip():
+        raise ValueError("Question cannot be empty")
+
     chunks = retrieve_fn(
         db=db,
         organization_id=organization_id,

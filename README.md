@@ -1,6 +1,6 @@
 ﻿# Nexora
 
-Secure Enterprise AI Knowledge Platform with hybrid search
+Secure Enterprise AI Knowledge Platform with hybrid search and ground citations 
 
 ## Backend
 

@@ -7,11 +7,9 @@ from sqlalchemy.orm import Session
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService
 from backend.services.generation_service import generate_answer
+from backend.services.hybrid_retrieval_service import hybrid_retrieve_chunks
 from backend.services.llm.base import LLMClient
-from backend.services.retrieval_service import (
-    RetrievedChunk,
-    retrieve_chunks,
-)
+from backend.services.retrieval_service import RetrievedChunk
 
 
 @dataclass(frozen=True)
@@ -33,8 +31,15 @@ class RAGState(TypedDict, total=False):
     answer: str
 
 
-def _retrieve_node(state: RAGState) -> dict:
-    chunks = state.get("retrieve_fn", retrieve_chunks)(
+def _retrieve_node(
+    state: RAGState,
+) -> dict:
+    retrieve_fn = state.get(
+        "retrieve_fn",
+        hybrid_retrieve_chunks,
+    )
+
+    chunks = retrieve_fn(
         db=state["db"],
         organization_id=state["organization_id"],
         query=state["question"],
@@ -46,7 +51,9 @@ def _retrieve_node(state: RAGState) -> dict:
     return {"chunks": chunks}
 
 
-def _generate_node(state: RAGState) -> dict:
+def _generate_node(
+    state: RAGState,
+) -> dict:
     generated = generate_answer(
         question=state["question"],
         chunks=state["chunks"],
@@ -58,7 +65,7 @@ def _generate_node(state: RAGState) -> dict:
     }
 
 
-def _build_rag_graph():
+def build_rag_graph():
     graph = StateGraph(RAGState)
 
     graph.add_node("retrieve", _retrieve_node)
@@ -71,7 +78,7 @@ def _build_rag_graph():
     return graph.compile()
 
 
-rag_graph = _build_rag_graph()
+rag_graph = build_rag_graph()
 
 
 def answer_question(
@@ -83,10 +90,12 @@ def answer_question(
     qdrant_repository: QdrantRepository,
     llm_client: LLMClient,
     retrieval_limit: int = 5,
-    retrieve_fn: Callable = retrieve_chunks,
+    retrieve_fn: Callable = hybrid_retrieve_chunks,
 ) -> RAGResponse:
     if not question.strip():
-        raise ValueError("Question cannot be empty")
+        raise ValueError(
+            "Question cannot be empty"
+        )
 
     result = rag_graph.invoke(
         {

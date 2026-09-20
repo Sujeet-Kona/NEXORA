@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+﻿from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from backend.dependencies.auth import CurrentUser
+from backend.dependencies.rag import (
+    get_embedding_service,
+    get_qdrant_repository,
+)
 from backend.core.config import settings
 from backend.core.exceptions import InvalidDocumentUploadError
 from backend.dependencies.database import get_db
@@ -10,6 +14,9 @@ from backend.schemas.document import (
     DocumentCreate,
     DocumentResponse,
     DocumentStatusUpdate,
+)
+from backend.services.document_processing_worker import (
+    process_document_background,
 )
 from backend.services.document_service import (
     create_document_service,
@@ -54,6 +61,7 @@ def create_document(
 async def upload_document(
     organization_id: int,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -77,7 +85,7 @@ async def upload_document(
 
     content = b"".join(chunks)
 
-    return upload_document_service(
+    document = upload_document_service(
         db=db,
         organization_id=organization_id,
         filename=file.filename or "",
@@ -85,6 +93,15 @@ async def upload_document(
         content_type=file.content_type,
         current_user=current_user,
     )
+
+    background_tasks.add_task(
+        process_document_background,
+        document.id,
+        get_embedding_service(),
+        get_qdrant_repository(),
+    )
+
+    return document
 @router.get(
     "/{organization_id}/documents",
     response_model=list[DocumentResponse],
@@ -157,3 +174,5 @@ def delete_document(
     )
 
     return Response(status_code=204)
+
+

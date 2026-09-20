@@ -4,13 +4,10 @@ from typing import Callable
 from sqlalchemy.orm import Session
 
 from backend.repositories.qdrant_repository import QdrantRepository
-from backend.services.embedding_service import EmbeddingService
-from backend.services.generation_service import generate_answer
-from backend.services.hybrid_retrieval_service import (
-    hybrid_retrieve_chunks,
-)
 from backend.services.llm.base import LLMClient
+from backend.services.rag_graph_service import rag_graph
 from backend.services.retrieval_service import RetrievedChunk
+from backend.services.embedding_service import EmbeddingService
 
 
 @dataclass(frozen=True)
@@ -28,27 +25,29 @@ def answer_question(
     qdrant_repository: QdrantRepository,
     llm_client: LLMClient,
     retrieval_limit: int = 5,
-    retrieve_fn: Callable = hybrid_retrieve_chunks,
+    retrieve_fn: Callable = None,
 ) -> RAGResponse:
     if not question.strip():
-        raise ValueError("Question cannot be empty")
+        raise ValueError(
+            "Question cannot be empty"
+        )
 
-    chunks = retrieve_fn(
-        db=db,
-        organization_id=organization_id,
-        query=question,
-        embedding_service=embedding_service,
-        qdrant_repository=qdrant_repository,
-        limit=retrieval_limit,
-    )
+    state = {
+        "db": db,
+        "organization_id": organization_id,
+        "question": question.strip(),
+        "embedding_service": embedding_service,
+        "qdrant_repository": qdrant_repository,
+        "llm_client": llm_client,
+        "retrieval_limit": retrieval_limit,
+    }
 
-    generated = generate_answer(
-        question=question,
-        chunks=chunks,
-        llm_client=llm_client,
-    )
+    if retrieve_fn is not None:
+        state["retrieve_fn"] = retrieve_fn
+
+    result = rag_graph.invoke(state)
 
     return RAGResponse(
-        answer=generated.answer,
-        sources=generated.sources,
+        answer=result["answer"],
+        sources=result["chunks"],
     )

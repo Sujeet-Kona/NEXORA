@@ -2,7 +2,6 @@
 from sqlalchemy.orm import Session
 
 from backend.dependencies.auth import CurrentUser
-from backend.dependencies.authorization import require_admin
 from backend.dependencies.database import get_db
 from backend.schemas.auth import (
     AuthLoginRequest,

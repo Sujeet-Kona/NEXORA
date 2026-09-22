@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from backend.dependencies.auth import CurrentUser
-from backend.dependencies.authorization import require_admin
+from backend.dependencies.authorization import AdminUser
 from backend.dependencies.database import get_db
 from backend.schemas.user import (
     UserResponse,
@@ -26,11 +25,9 @@ router = APIRouter(
     response_model=list[UserResponse],
 )
 def get_users(
-    current_user: CurrentUser,
+    admin: AdminUser,
     db: Session = Depends(get_db),
 ):
-    require_admin(current_user)
-
     return get_users_service(db)
 
 
@@ -40,11 +37,9 @@ def get_users(
 )
 def get_user(
     user_id: int,
-    current_user: CurrentUser,
+    admin: AdminUser,
     db: Session = Depends(get_db),
 ):
-    require_admin(current_user)
-
     return get_user_service(
         db=db,
         user_id=user_id,
@@ -58,11 +53,9 @@ def get_user(
 def update_user_role(
     user_id: int,
     request: UserRoleUpdate,
-    current_user: CurrentUser,
+    admin: AdminUser,
     db: Session = Depends(get_db),
 ):
-    require_admin(current_user)
-
     return update_user_role_service(
         db=db,
         user_id=user_id,

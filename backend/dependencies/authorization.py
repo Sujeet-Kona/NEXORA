@@ -1,6 +1,9 @@
-﻿from fastapi import HTTPException, status
+from typing import Annotated
+
+from fastapi import Depends, HTTPException, status
 
 from backend.db.models import User, UserRole
+from backend.dependencies.auth import CurrentUser
 
 
 def require_admin(
@@ -13,3 +16,12 @@ def require_admin(
         )
 
     return current_user
+
+
+def get_current_admin(
+    current_user: CurrentUser,
+) -> User:
+    return require_admin(current_user)
+
+
+AdminUser = Annotated[User, Depends(get_current_admin)]

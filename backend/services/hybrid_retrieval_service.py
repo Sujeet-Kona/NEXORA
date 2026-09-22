@@ -6,6 +6,9 @@ from sqlalchemy.orm import Session
 
 from backend.db.models import DocumentChunk
 from backend.repositories.qdrant_repository import QdrantRepository
+from backend.services.bm25_service import (
+    get_bm25_index,
+)
 from backend.services.embedding_service import EmbeddingService
 from backend.services.retrieval_service import (
     RetrievedChunk,

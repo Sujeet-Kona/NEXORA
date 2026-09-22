@@ -14,8 +14,14 @@ from backend.repositories.user_repository import (
 
 def get_users_service(
     db: Session,
+    limit: int,
+    offset: int,
 ) -> list[User]:
-    return get_all_users(db)
+    return get_all_users(
+        db=db,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def get_user_service(

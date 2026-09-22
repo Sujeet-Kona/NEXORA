@@ -4,8 +4,18 @@ from sqlalchemy.orm import Session
 from backend.db.models import User, UserRole
 
 
-def get_all_users(db: Session) -> list[User]:
-    return db.query(User).all()
+def get_all_users(
+    db: Session,
+    limit: int,
+    offset: int,
+) -> list[User]:
+    return (
+        db.query(User)
+        .order_by(User.id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 
 def get_user_by_id(

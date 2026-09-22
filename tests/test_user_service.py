@@ -67,7 +67,11 @@ def test_get_users_service_returns_users(db):
         "Bob Jones",
     )
 
-    users = get_users_service(db)
+    users = get_users_service(
+        db=db,
+        limit=50,
+        offset=0,
+    )
 
     assert len(users) == 2
     assert users[0].email == "alice@example.com"

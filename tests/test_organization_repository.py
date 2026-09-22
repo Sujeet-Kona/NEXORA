@@ -174,6 +174,8 @@ def test_get_organization_members_returns_all_members(db):
     members = get_organization_members(
         db=db,
         organization_id=organization.id,
+        limit=50,
+        offset=0,
     )
 
     member_ids = {

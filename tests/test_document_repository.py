@@ -159,6 +159,8 @@ def test_get_documents_for_organization_is_tenant_scoped(
     documents = get_documents_for_organization(
         db=db,
         organization_id=organization_a.id,
+        limit=50,
+        offset=0,
     )
 
     assert [document.id for document in documents] == [

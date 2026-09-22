@@ -52,7 +52,11 @@ def test_get_all_users_returns_users(db):
         full_name="Bob Jones",
     )
 
-    users = get_all_users(db)
+    users = get_all_users(
+        db=db,
+        limit=50,
+        offset=0,
+    )
 
     assert len(users) == 2
     assert users[0].email == "alice@example.com"

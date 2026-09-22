@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.dependencies.authorization import AdminUser
 from backend.dependencies.database import get_db
+from backend.dependencies.pagination import Pagination
 from backend.schemas.user import (
     UserResponse,
     UserRoleUpdate,
@@ -26,9 +27,14 @@ router = APIRouter(
 )
 def get_users(
     admin: AdminUser,
+    pagination: Pagination,
     db: Session = Depends(get_db),
 ):
-    return get_users_service(db)
+    return get_users_service(
+        db=db,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
 
 
 @router.get(

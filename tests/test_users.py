@@ -280,7 +280,7 @@ def test_unexpected_error_returns_500_and_logs(
         "error-admin@example.com",
     )
 
-    def broken_get_users_service(db):
+    def broken_get_users_service(db, limit, offset):
         raise RuntimeError("simulated internal failure")
 
     monkeypatch.setattr(

@@ -83,6 +83,8 @@ def get_document_by_id(
 def get_documents_for_organization(
     db: Session,
     organization_id: int,
+    limit: int,
+    offset: int,
 ) -> list[Document]:
     return (
         db.query(Document)
@@ -90,6 +92,8 @@ def get_documents_for_organization(
             Document.organization_id == organization_id,
         )
         .order_by(Document.id)
+        .offset(offset)
+        .limit(limit)
         .all()
     )
 

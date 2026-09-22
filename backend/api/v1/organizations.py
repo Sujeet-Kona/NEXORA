@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.dependencies.auth import CurrentUser
 from backend.dependencies.database import get_db
+from backend.dependencies.pagination import Pagination
 from backend.schemas.organization import (
     OrganizationCreate,
     OrganizationMemberCreate,
@@ -71,12 +72,15 @@ def add_organization_member(
 def list_organization_members(
     organization_id: int,
     current_user: CurrentUser,
+    pagination: Pagination,
     db: Session = Depends(get_db),
 ):
     return list_organization_members_service(
         db=db,
         organization_id=organization_id,
         acting_user=current_user,
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
 
 

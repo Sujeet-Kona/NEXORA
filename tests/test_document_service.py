@@ -192,6 +192,8 @@ def test_member_can_list_organization_documents(db):
         db=db,
         organization_id=organization.id,
         current_user=user,
+        limit=50,
+        offset=0,
     )
 
     assert len(documents) == 2

@@ -83,6 +83,8 @@ def test_member_can_list_organization_members(db):
         db=db,
         organization_id=organization.id,
         acting_user=member,
+        limit=50,
+        offset=0,
     )
 
     assert len(members) == 2

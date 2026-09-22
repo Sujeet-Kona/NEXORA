@@ -67,6 +67,8 @@ def get_membership(
 def get_organization_members(
     db: Session,
     organization_id: int,
+    limit: int,
+    offset: int,
 ) -> list[OrganizationMembership]:
     return (
         db.query(OrganizationMembership)
@@ -74,6 +76,9 @@ def get_organization_members(
             OrganizationMembership.organization_id
             == organization_id,
         )
+        .order_by(OrganizationMembership.id)
+        .offset(offset)
+        .limit(limit)
         .all()
     )
 

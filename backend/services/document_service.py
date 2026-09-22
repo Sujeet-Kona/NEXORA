@@ -426,6 +426,8 @@ def list_documents_service(
     db: Session,
     organization_id: int,
     current_user: User,
+    limit: int,
+    offset: int,
 ) -> list[Document]:
     organization = get_organization_by_id(
         db,
@@ -446,6 +448,8 @@ def list_documents_service(
     return get_documents_for_organization(
         db=db,
         organization_id=organization_id,
+        limit=limit,
+        offset=offset,
     )
 
 

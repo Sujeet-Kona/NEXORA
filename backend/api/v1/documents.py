@@ -11,6 +11,7 @@ from backend.dependencies.database import (
     get_db,
     get_session_factory,
 )
+from backend.dependencies.pagination import Pagination
 from backend.dependencies.rag import get_qdrant_repository
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.schemas.document import (
@@ -162,12 +163,15 @@ async def upload_document_version(
 def list_documents(
     organization_id: int,
     current_user: CurrentUser,
+    pagination: Pagination,
     db: Session = Depends(get_db),
 ):
     return list_documents_service(
         db=db,
         organization_id=organization_id,
         current_user=current_user,
+        limit=pagination.limit,
+        offset=pagination.offset,
     )
 
 

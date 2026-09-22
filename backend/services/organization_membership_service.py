@@ -138,6 +138,8 @@ def list_organization_members_service(
     db: Session,
     organization_id: int,
     acting_user: User,
+    limit: int,
+    offset: int,
 ) -> list[OrganizationMembership]:
     organization = get_organization_by_id(
         db,
@@ -156,8 +158,10 @@ def list_organization_members_service(
     )
 
     return get_organization_members(
-        db,
-        organization_id,
+        db=db,
+        organization_id=organization_id,
+        limit=limit,
+        offset=offset,
     )
 
 

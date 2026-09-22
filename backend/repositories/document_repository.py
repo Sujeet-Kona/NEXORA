@@ -106,6 +106,27 @@ def update_document_status(
     return document
 
 
+def replace_document_file(
+    db: Session,
+    document: Document,
+    name: str,
+    storage_key: str,
+    file_size: int,
+    content_type: str,
+) -> Document:
+    document.name = name
+    document.storage_key = storage_key
+    document.file_size = file_size
+    document.content_type = content_type
+    document.version = document.version + 1
+    document.status = DocumentStatus.PENDING
+
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
 def delete_document(
     db: Session,
     document: Document,

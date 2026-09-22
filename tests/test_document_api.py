@@ -1,9 +1,13 @@
-﻿from backend.db.models import (
+﻿from unittest.mock import Mock
+
+from backend.db.models import (
     Document,
     OrganizationMembership,
     OrganizationRole,
     User,
 )
+from backend.dependencies.rag import get_qdrant_repository
+from backend.main import app
 
 
 def register_and_login(
@@ -409,7 +413,7 @@ def test_admin_can_update_document_status(
     response = client.patch(
         f"/api/v1/organizations/{organization_id}/documents/{document_id}",
         json={
-            "status": "ready",
+            "status": "processing",
         },
         headers={
             "Authorization": f"Bearer {admin_token}",
@@ -417,7 +421,7 @@ def test_admin_can_update_document_status(
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    assert response.json()["status"] == "processing"
 
 
 def test_member_cannot_delete_document(
@@ -522,6 +526,12 @@ def test_admin_can_delete_document(
 
     document_id = create_response.json()["id"]
 
+    qdrant = Mock()
+
+    app.dependency_overrides[get_qdrant_repository] = (
+        lambda: qdrant
+    )
+
     response = client.delete(
         f"/api/v1/organizations/{organization_id}/documents/{document_id}",
         headers={
@@ -531,3 +541,17 @@ def test_admin_can_delete_document(
 
     assert response.status_code == 204
     assert response.content == b""
+
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document_id,
+        organization_id=organization_id,
+    )
+
+    db.expire_all()
+
+    assert (
+        db.query(Document)
+        .filter(Document.id == document_id)
+        .first()
+        is None
+    )

@@ -2,9 +2,11 @@
 from fastapi.responses import JSONResponse
 
 from backend.core.exceptions import (
+    DocumentDeletionFailedError,
     DocumentNotFoundError,
     DocumentUploadFailedError,
     InvalidCredentialsError,
+    InvalidDocumentStatusTransitionError,
     InvalidDocumentUploadError,
     InvalidUserIdError,
     OrganizationAccessDeniedError,
@@ -126,6 +128,26 @@ async def document_upload_failed_handler(
     )
 
 
+async def document_deletion_failed_handler(
+    request: Request,
+    exc: DocumentDeletionFailedError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+    )
+
+
+async def invalid_document_status_transition_handler(
+    request: Request,
+    exc: InvalidDocumentStatusTransitionError,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=409,
+        content={"detail": str(exc)},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidCredentialsError,
@@ -180,4 +202,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         DocumentUploadFailedError,
         document_upload_failed_handler,
+    )
+
+    app.add_exception_handler(
+        DocumentDeletionFailedError,
+        document_deletion_failed_handler,
+    )
+
+    app.add_exception_handler(
+        InvalidDocumentStatusTransitionError,
+        invalid_document_status_transition_handler,
     )

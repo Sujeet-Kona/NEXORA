@@ -99,6 +99,7 @@ def test_migration_upgrade_creates_users_table(
         "file_size",
         "content_type",
         "status",
+        "version",
         "created_at",
         "updated_at",
     }

@@ -48,3 +48,11 @@ class DocumentUploadFailedError(NexoraError):
 
 class DocumentExtractionError(NexoraError):
     """Raised when document text extraction fails."""
+
+
+class DocumentDeletionFailedError(NexoraError):
+    """Raised when document vectors cannot be purged during deletion."""
+
+
+class InvalidDocumentStatusTransitionError(NexoraError):
+    """Raised when a document status change is not a valid transition."""

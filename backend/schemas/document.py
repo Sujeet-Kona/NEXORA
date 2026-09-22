@@ -32,6 +32,7 @@ class DocumentResponse(BaseModel):
     file_size: int | None
     content_type: str | None
     status: DocumentStatus
+    version: int
     created_at: datetime
     updated_at: datetime
 

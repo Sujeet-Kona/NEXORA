@@ -281,6 +281,11 @@ class Document(Base):
         nullable=False,
     )
 
+    version: Mapped[int] = mapped_column(
+        default=1,
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc),

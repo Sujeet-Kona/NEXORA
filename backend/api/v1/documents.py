@@ -11,6 +11,8 @@ from backend.dependencies.database import (
     get_db,
     get_session_factory,
 )
+from backend.dependencies.rag import get_qdrant_repository
+from backend.repositories.qdrant_repository import QdrantRepository
 from backend.schemas.document import (
     DocumentCreate,
     DocumentResponse,
@@ -26,6 +28,7 @@ from backend.services.document_service import (
     list_documents_service,
     update_document_status_service,
     upload_document_service,
+    upload_document_version_service,
 )
 
 
@@ -33,6 +36,28 @@ router = APIRouter(
     prefix="/organizations",
     tags=["documents"],
 )
+
+
+async def _read_upload(file: UploadFile) -> bytes:
+    chunks = []
+    total_size = 0
+
+    while True:
+        chunk = await file.read(1024 * 1024)
+
+        if not chunk:
+            break
+
+        total_size += len(chunk)
+
+        if total_size > settings.max_upload_size_bytes:
+            raise InvalidDocumentUploadError(
+                "Uploaded file exceeds the maximum allowed size"
+            )
+
+        chunks.append(chunk)
+
+    return b"".join(chunks)
 
 
 @router.post(
@@ -69,25 +94,7 @@ async def upload_document(
         get_session_factory,
     ),
 ):
-    chunks = []
-    total_size = 0
-
-    while True:
-        chunk = await file.read(1024 * 1024)
-
-        if not chunk:
-            break
-
-        total_size += len(chunk)
-
-        if total_size > settings.max_upload_size_bytes:
-            raise InvalidDocumentUploadError(
-                "Uploaded file exceeds the maximum allowed size"
-            )
-
-        chunks.append(chunk)
-
-    content = b"".join(chunks)
+    content = await _read_upload(file)
 
     document = upload_document_service(
         db=db,
@@ -96,6 +103,47 @@ async def upload_document(
         content=content,
         content_type=file.content_type,
         current_user=current_user,
+    )
+
+    background_tasks.add_task(
+        process_document_background,
+        document.id,
+        session_factory,
+    )
+
+    return document
+
+
+@router.post(
+    "/{organization_id}/documents/{document_id}/versions",
+    response_model=DocumentResponse,
+    status_code=201,
+)
+async def upload_document_version(
+    organization_id: int,
+    document_id: int,
+    current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    session_factory: Callable[[], Session] = Depends(
+        get_session_factory,
+    ),
+    qdrant_repository: QdrantRepository = Depends(
+        get_qdrant_repository,
+    ),
+):
+    content = await _read_upload(file)
+
+    document = upload_document_version_service(
+        db=db,
+        organization_id=organization_id,
+        document_id=document_id,
+        filename=file.filename or "",
+        content=content,
+        content_type=file.content_type,
+        current_user=current_user,
+        qdrant_repository=qdrant_repository,
     )
 
     background_tasks.add_task(
@@ -170,12 +218,16 @@ def delete_document(
     document_id: int,
     current_user: CurrentUser,
     db: Session = Depends(get_db),
+    qdrant_repository: QdrantRepository = Depends(
+        get_qdrant_repository,
+    ),
 ):
     delete_document_service(
         db=db,
         organization_id=organization_id,
         document_id=document_id,
         current_user=current_user,
+        qdrant_repository=qdrant_repository,
     )
 
     return Response(status_code=204)

@@ -1,19 +1,27 @@
-﻿from sqlalchemy.orm import Session
+﻿import logging
+
+from sqlalchemy.orm import Session
 
 from backend.core.config import settings
 from backend.core.exceptions import (
+    DocumentDeletionFailedError,
     DocumentNotFoundError,
     DocumentUploadFailedError,
+    InvalidDocumentStatusTransitionError,
     InvalidDocumentUploadError,
     OrganizationAccessDeniedError,
     OrganizationMembershipRequiredError,
     OrganizationNotFoundError,
 )
+from backend.core.logging import LOGGER_NAME
 from backend.db.models import (
     Document,
     DocumentStatus,
     OrganizationRole,
     User,
+)
+from backend.repositories.document_chunk_repository import (
+    delete_chunks_for_document,
 )
 from backend.repositories.document_repository import (
     create_document,
@@ -22,19 +30,39 @@ from backend.repositories.document_repository import (
     finalize_document_upload,
     get_document_by_id,
     get_documents_for_organization,
+    replace_document_file,
     update_document_status,
 )
 from backend.repositories.organization_repository import (
     get_membership,
     get_organization_by_id,
 )
+from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.bm25_service import invalidate_bm25_index
 from backend.services.storage import LocalStorage
+
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+ALLOWED_STATUS_TRANSITIONS = {
+    DocumentStatus.PENDING: {
+        DocumentStatus.PROCESSING,
+        DocumentStatus.FAILED,
+    },
+    DocumentStatus.PROCESSING: {
+        DocumentStatus.READY,
+        DocumentStatus.FAILED,
+    },
+    DocumentStatus.READY: set(),
+    DocumentStatus.FAILED: {
+        DocumentStatus.PENDING,
+    },
 }
 
 
@@ -66,6 +94,70 @@ def _require_admin_or_owner(
     }:
         raise OrganizationAccessDeniedError(
             "Organization admin access required"
+        )
+
+
+def _validate_upload(
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+) -> str:
+    safe_name = filename.strip()
+
+    if not safe_name:
+        raise InvalidDocumentUploadError(
+            "Filename cannot be empty"
+        )
+
+    if len(content) == 0:
+        raise InvalidDocumentUploadError(
+            "Uploaded file is empty"
+        )
+
+    if len(content) > settings.max_upload_size_bytes:
+        raise InvalidDocumentUploadError(
+            "Uploaded file exceeds the maximum allowed size"
+        )
+
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        raise InvalidDocumentUploadError(
+            "Unsupported document type"
+        )
+
+    if content_type == "application/pdf":
+        if not content.startswith(b"%PDF-"):
+            raise InvalidDocumentUploadError(
+                "Uploaded content is not a valid PDF"
+            )
+
+    if (
+        content_type
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ):
+        if not content.startswith(b"PK"):
+            raise InvalidDocumentUploadError(
+                "Uploaded content is not a valid DOCX file"
+            )
+
+    return safe_name
+
+
+def _validate_status_transition(
+    current_status: DocumentStatus,
+    new_status: DocumentStatus,
+) -> None:
+    if new_status == current_status:
+        return
+
+    allowed = ALLOWED_STATUS_TRANSITIONS.get(
+        DocumentStatus(current_status),
+        set(),
+    )
+
+    if new_status not in allowed:
+        raise InvalidDocumentStatusTransitionError(
+            f"Cannot change document status from "
+            f"'{current_status}' to '{new_status}'"
         )
 
 
@@ -129,42 +221,11 @@ def upload_document_service(
         user_id=current_user.id,
     )
 
-    safe_name = filename.strip()
-
-    if not safe_name:
-        raise InvalidDocumentUploadError(
-            "Filename cannot be empty"
-        )
-
-    if len(content) == 0:
-        raise InvalidDocumentUploadError(
-            "Uploaded file is empty"
-        )
-
-    if len(content) > settings.max_upload_size_bytes:
-        raise InvalidDocumentUploadError(
-            "Uploaded file exceeds the maximum allowed size"
-        )
-
-    if content_type not in ALLOWED_CONTENT_TYPES:
-        raise InvalidDocumentUploadError(
-            "Unsupported document type"
-        )
-
-    if content_type == "application/pdf":
-        if not content.startswith(b"%PDF-"):
-            raise InvalidDocumentUploadError(
-                "Uploaded content is not a valid PDF"
-            )
-
-    if (
-        content_type
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ):
-        if not content.startswith(b"PK"):
-            raise InvalidDocumentUploadError(
-                "Uploaded content is not a valid DOCX file"
-            )
+    safe_name = _validate_upload(
+        filename=filename,
+        content=content,
+        content_type=content_type,
+    )
 
     storage = LocalStorage(
         settings.storage_path,
@@ -204,6 +265,125 @@ def upload_document_service(
         raise DocumentUploadFailedError(
             "Document upload failed"
         ) from exc
+
+
+def upload_document_version_service(
+    db: Session,
+    organization_id: int,
+    document_id: int,
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+    current_user: User,
+    qdrant_repository: QdrantRepository,
+) -> Document:
+    organization = get_organization_by_id(
+        db,
+        organization_id,
+    )
+
+    if not organization:
+        raise OrganizationNotFoundError(
+            "Organization not found"
+        )
+
+    membership = _get_organization_membership(
+        db=db,
+        organization_id=organization_id,
+        user_id=current_user.id,
+    )
+
+    _require_admin_or_owner(membership)
+
+    document = get_document_by_id(
+        db=db,
+        document_id=document_id,
+        organization_id=organization_id,
+    )
+
+    if not document:
+        raise DocumentNotFoundError(
+            "Document not found"
+        )
+
+    safe_name = _validate_upload(
+        filename=filename,
+        content=content,
+        content_type=content_type,
+    )
+
+    storage = LocalStorage(
+        settings.storage_path,
+    )
+
+    previous_storage_key = document.storage_key
+    new_storage_key = None
+
+    try:
+        new_storage_key = storage.save(
+            organization_id=organization_id,
+            document_id=document.id,
+            filename=safe_name,
+            content=content,
+        )
+
+        try:
+            qdrant_repository.delete_document_chunks(
+                document_id=document.id,
+                organization_id=document.organization_id,
+            )
+        except Exception as exc:
+            raise DocumentDeletionFailedError(
+                "Existing document vectors could not be purged"
+            ) from exc
+
+        delete_chunks_for_document(
+            db=db,
+            document_id=document.id,
+            organization_id=document.organization_id,
+        )
+
+        updated_document = replace_document_file(
+            db=db,
+            document=document,
+            name=safe_name,
+            storage_key=new_storage_key,
+            file_size=len(content),
+            content_type=content_type,
+        )
+
+    except DocumentDeletionFailedError:
+        db.rollback()
+
+        if new_storage_key:
+            storage.delete(new_storage_key)
+
+        raise
+
+    except Exception as exc:
+        db.rollback()
+
+        if new_storage_key:
+            storage.delete(new_storage_key)
+
+        raise DocumentUploadFailedError(
+            "Document upload failed"
+        ) from exc
+
+    invalidate_bm25_index(
+        organization_id,
+    )
+
+    if previous_storage_key:
+        try:
+            storage.delete(previous_storage_key)
+        except Exception:
+            logger.warning(
+                "Previous document version file could not be deleted",
+                extra={"document_id": document.id},
+            )
+
+    return updated_document
 
 
 def get_document_service(
@@ -305,6 +485,11 @@ def update_document_status_service(
             "Document not found"
         )
 
+    _validate_status_transition(
+        current_status=document.status,
+        new_status=status,
+    )
+
     return update_document_status(
         db=db,
         document=document,
@@ -317,6 +502,7 @@ def delete_document_service(
     organization_id: int,
     document_id: int,
     current_user: User,
+    qdrant_repository: QdrantRepository,
 ) -> None:
     organization = get_organization_by_id(
         db,
@@ -346,6 +532,16 @@ def delete_document_service(
         raise DocumentNotFoundError(
             "Document not found"
         )
+
+    try:
+        qdrant_repository.delete_document_chunks(
+            document_id=document.id,
+            organization_id=document.organization_id,
+        )
+    except Exception as exc:
+        raise DocumentDeletionFailedError(
+            "Document vectors could not be purged"
+        ) from exc
 
     storage = LocalStorage(
         settings.storage_path,

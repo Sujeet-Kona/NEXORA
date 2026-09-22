@@ -1,4 +1,6 @@
-﻿import pytest
+﻿from unittest.mock import Mock
+
+import pytest
 
 from backend.core.exceptions import (
     DocumentNotFoundError,
@@ -275,11 +277,11 @@ def test_admin_can_update_document_status(db):
         db=db,
         organization_id=organization.id,
         document_id=document.id,
-        status=DocumentStatus.READY,
+        status=DocumentStatus.PROCESSING,
         current_user=admin,
     )
 
-    assert updated.status == DocumentStatus.READY
+    assert updated.status == DocumentStatus.PROCESSING
 
 
 def test_member_cannot_delete_document(db):
@@ -315,13 +317,18 @@ def test_member_cannot_delete_document(db):
         name="delete.pdf",
     )
 
+    qdrant = Mock()
+
     with pytest.raises(OrganizationAccessDeniedError):
         delete_document_service(
             db=db,
             organization_id=organization.id,
             document_id=document.id,
             current_user=member,
+            qdrant_repository=qdrant,
         )
+
+    qdrant.delete_document_chunks.assert_not_called()
 
 
 def test_admin_can_delete_document(db):
@@ -357,11 +364,19 @@ def test_admin_can_delete_document(db):
         name="admin-delete.pdf",
     )
 
+    qdrant = Mock()
+
     delete_document_service(
         db=db,
         organization_id=organization.id,
         document_id=document.id,
         current_user=admin,
+        qdrant_repository=qdrant,
+    )
+
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document.id,
+        organization_id=organization.id,
     )
 
     with pytest.raises(DocumentNotFoundError):

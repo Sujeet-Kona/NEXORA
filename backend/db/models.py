@@ -221,6 +221,14 @@ class DocumentChunk(Base):
         nullable=False,
     )
 
+    page_start: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    page_end: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
     text: Mapped[str] = mapped_column(
         String,
         nullable=False,

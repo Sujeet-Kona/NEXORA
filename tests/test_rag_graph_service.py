@@ -23,6 +23,9 @@ def make_chunk():
         chunk_index=0,
         text="Employees receive 20 days of annual leave per year.",
         score=0.91,
+        page_start=2,
+        page_end=2,
+        document_name="leave_policy.pdf",
     )
 
 

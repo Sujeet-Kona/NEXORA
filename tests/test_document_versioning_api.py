@@ -386,7 +386,10 @@ def test_upload_version_purges_existing_chunks_and_vectors(
         db=db,
         document_id=document_id,
         organization_id=organization_id,
-        chunks=["first chunk", "second chunk"],
+        chunks=[
+            ("first chunk", 1, 1),
+            ("second chunk", 1, 1),
+        ],
     )
 
     db.commit()

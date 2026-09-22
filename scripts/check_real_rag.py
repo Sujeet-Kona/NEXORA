@@ -4,6 +4,9 @@ from backend.db.database import SessionLocal
 from backend.repositories.document_chunk_repository import (
     get_chunks_by_ids_for_organization,
 )
+from backend.repositories.document_repository import (
+    get_document_names,
+)
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService
 from backend.services.generation_service import generate_answer
@@ -74,6 +77,15 @@ def main() -> None:
             for chunk in chunks
         }
 
+        document_names = get_document_names(
+            db=db,
+            document_ids=[
+                chunk.document_id
+                for chunk in chunks
+            ],
+            organization_id=ORGANIZATION_ID,
+        )
+
         retrieved = []
 
         for point in search_result.points:
@@ -92,6 +104,11 @@ def main() -> None:
                     chunk_index=chunk.chunk_index,
                     text=chunk.text,
                     score=float(point.score),
+                    page_start=chunk.page_start,
+                    page_end=chunk.page_end,
+                    document_name=document_names.get(
+                        chunk.document_id
+                    ),
                 )
             )
 

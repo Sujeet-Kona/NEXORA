@@ -16,7 +16,7 @@ from backend.repositories.document_repository import (
     update_document_status,
 )
 from backend.services.bm25_service import invalidate_bm25_index
-from backend.services.document_chunking import split_text
+from backend.services.document_chunking import split_document
 from backend.services.document_extraction import extract_document
 from backend.services.document_indexing_service import (
     index_document_chunks,
@@ -70,13 +70,20 @@ def process_document(
             content=content,
         )
 
-        chunks = split_text(extracted_document.text)
+        chunks = split_document(extracted_document)
 
         replace_document_chunks(
             db=db,
             document_id=document.id,
             organization_id=document.organization_id,
-            chunks=chunks,
+            chunks=[
+                (
+                    chunk.text,
+                    chunk.page_start,
+                    chunk.page_end,
+                )
+                for chunk in chunks
+            ],
         )
 
         update_document_extraction_stats(

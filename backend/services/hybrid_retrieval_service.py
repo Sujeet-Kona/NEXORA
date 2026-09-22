@@ -5,6 +5,9 @@ from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
 
 from backend.db.models import DocumentChunk
+from backend.repositories.document_repository import (
+    get_document_names,
+)
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.bm25_service import (
     get_bm25_index,
@@ -88,6 +91,15 @@ def _bm25_search(
         limit=limit,
     )
 
+    document_names = get_document_names(
+        db=db,
+        document_ids=[
+            chunk.document_id
+            for chunk, _ in results
+        ],
+        organization_id=organization_id,
+    )
+
     return [
         RetrievedChunk(
             chunk_id=chunk.id,
@@ -96,6 +108,11 @@ def _bm25_search(
             chunk_index=chunk.chunk_index,
             text=chunk.text,
             score=float(score),
+            page_start=chunk.page_start,
+            page_end=chunk.page_end,
+            document_name=document_names.get(
+                chunk.document_id
+            ),
         )
         for chunk, score in results
     ]

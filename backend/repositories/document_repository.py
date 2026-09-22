@@ -94,6 +94,32 @@ def get_documents_for_organization(
     )
 
 
+def get_document_names(
+    db: Session,
+    document_ids: list[int],
+    organization_id: int,
+) -> dict[int, str]:
+    if not document_ids:
+        return {}
+
+    rows = (
+        db.query(
+            Document.id,
+            Document.name,
+        )
+        .filter(
+            Document.id.in_(document_ids),
+            Document.organization_id == organization_id,
+        )
+        .all()
+    )
+
+    return {
+        document_id: name
+        for document_id, name in rows
+    }
+
+
 def update_document_status(
     db: Session,
     document: Document,

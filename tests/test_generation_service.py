@@ -35,6 +35,9 @@ def make_chunk(
         chunk_index=0,
         text=text,
         score=0.91,
+        page_start=2,
+        page_end=2,
+        document_name="leave_policy.pdf",
     )
 
 

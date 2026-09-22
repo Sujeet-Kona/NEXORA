@@ -30,6 +30,21 @@ def make_extracted_document():
     )
 
 
+def make_multipage_extracted_document():
+    return ExtractedDocument(
+        pages=(
+            ExtractedPage(
+                page_number=1,
+                text="Alpha " * 700,
+            ),
+            ExtractedPage(
+                page_number=2,
+                text="Beta " * 700,
+            ),
+        ),
+    )
+
+
 def create_user(db, email, name):
     user = User(
         email=email,
@@ -118,6 +133,84 @@ def test_document_transitions_to_processing_then_ready(
     assert document.character_count == len(
         ("Employee leave policy. " * 100).strip()
     )
+
+
+def test_processing_persists_chunk_page_provenance(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-pages@example.com",
+        "Processing Pages",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Processing Pages Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="multipage.pdf",
+        storage_key="documents/multipage.pdf",
+        content_type="application/pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_multipage_extracted_document(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.index_document_chunks",
+        lambda **kwargs: None,
+    )
+
+    embedding = Mock()
+    qdrant = Mock()
+
+    process_document(
+        db=db,
+        document_id=document.id,
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+    )
+
+    db.refresh(document)
+
+    assert document.status == DocumentStatus.READY
+    assert document.page_count == 2
+
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .order_by(DocumentChunk.chunk_index)
+        .all()
+    )
+
+    assert len(chunks) >= 3
+
+    for chunk in chunks:
+        contains_alpha = "Alpha" in chunk.text
+        contains_beta = "Beta" in chunk.text
+
+        assert contains_alpha or contains_beta
+        assert chunk.page_start == (
+            1 if contains_alpha else 2
+        )
+        assert chunk.page_end == (
+            2 if contains_beta else 1
+        )
+        assert chunk.page_start <= chunk.page_end
 
 
 def test_processing_failure_marks_document_failed(

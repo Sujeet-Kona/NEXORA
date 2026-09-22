@@ -15,7 +15,7 @@ from backend.repositories.document_repository import (
 from backend.repositories.organization_repository import (
     get_membership,
 )
-from backend.services.document_chunking import split_text
+from backend.services.document_chunking import split_document
 from backend.services.document_extraction import extract_document
 
 
@@ -79,13 +79,20 @@ def chunk_document_service(
         content=content,
     )
 
-    chunks = split_text(extracted_document.text)
+    chunks = split_document(extracted_document)
 
     return create_document_chunks(
         db=db,
         document_id=document.id,
         organization_id=document.organization_id,
-        chunks=chunks,
+        chunks=[
+            (
+                chunk.text,
+                chunk.page_start,
+                chunk.page_end,
+            )
+            for chunk in chunks
+        ],
     )
 
 

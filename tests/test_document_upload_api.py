@@ -6,6 +6,7 @@ import pytest
 from backend.core.config import settings
 from backend.db.models import (
     Document,
+    DocumentChunk,
     DocumentStatus,
     OrganizationMembership,
     OrganizationRole,
@@ -557,6 +558,7 @@ def make_two_page_pdf() -> bytes:
 
 def test_upload_persists_extraction_stats(
     client,
+    db,
     tmp_path,
     monkeypatch,
 ):
@@ -639,6 +641,19 @@ def test_upload_persists_extraction_stats(
     assert body["page_count"] == 2
     assert body["word_count"] == 6
     assert body["character_count"] > 0
+
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.chunk_index)
+        .all()
+    )
+
+    assert len(chunks) == 1
+    assert "First page content" in chunks[0].text
+    assert "Second page content" in chunks[0].text
+    assert chunks[0].page_start == 1
+    assert chunks[0].page_end == 2
 
 
 def test_upload_file_at_exact_limit_is_accepted(client):

@@ -139,6 +139,24 @@ def test_migration_upgrade_creates_users_table(
         for column in constraint["column_names"]
     } == {"email"}
 
+    assert "document_chunks" in inspector.get_table_names()
+
+    chunk_columns = {
+        column["name"]
+        for column in inspector.get_columns("document_chunks")
+    }
+
+    assert chunk_columns == {
+        "id",
+        "document_id",
+        "organization_id",
+        "chunk_index",
+        "text",
+        "page_start",
+        "page_end",
+        "created_at",
+    }
+
 
 def test_migration_downgrade_removes_users_table(
     migration_config,

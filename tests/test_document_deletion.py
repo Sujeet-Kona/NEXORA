@@ -597,7 +597,7 @@ def test_deleted_document_vectors_stop_starving_retrieval(
         document_id=removed_document_id,
         organization_id=organization.id,
         chunks=[
-            f"removed chunk {index}"
+            (f"removed chunk {index}", 1, 1)
             for index in range(5)
         ],
     )
@@ -606,7 +606,7 @@ def test_deleted_document_vectors_stop_starving_retrieval(
         db=db,
         document_id=kept_document_id,
         organization_id=organization.id,
-        chunks=["kept chunk"],
+        chunks=[("kept chunk", 1, 1)],
     )
 
     db.commit()

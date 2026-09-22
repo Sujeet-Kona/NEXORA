@@ -5,6 +5,9 @@ from sqlalchemy.orm import Session
 from backend.repositories.document_chunk_repository import (
     get_chunks_by_ids_for_organization,
 )
+from backend.repositories.document_repository import (
+    get_document_names,
+)
 from backend.repositories.qdrant_repository import (
     QdrantRepository,
 )
@@ -21,6 +24,9 @@ class RetrievedChunk:
     chunk_index: int
     text: str
     score: float
+    page_start: int | None
+    page_end: int | None
+    document_name: str | None
 
 
 def retrieve_chunks(
@@ -68,6 +74,15 @@ def retrieve_chunks(
         for chunk in chunks
     }
 
+    document_names = get_document_names(
+        db=db,
+        document_ids=[
+            chunk.document_id
+            for chunk in chunks
+        ],
+        organization_id=organization_id,
+    )
+
     results = []
 
     for point in search_result.points:
@@ -84,6 +99,11 @@ def retrieve_chunks(
                 chunk_index=chunk.chunk_index,
                 text=chunk.text,
                 score=float(point.score),
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+                document_name=document_names.get(
+                    chunk.document_id
+                ),
             )
         )
 

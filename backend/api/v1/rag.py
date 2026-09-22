@@ -69,8 +69,11 @@ def query_knowledge_base(
             RAGSourceResponse(
                 chunk_id=source.chunk_id,
                 document_id=source.document_id,
+                document_name=source.document_name,
                 chunk_index=source.chunk_index,
                 score=source.score,
+                page_start=source.page_start,
+                page_end=source.page_end,
             )
             for source in result.sources
         ],

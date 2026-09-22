@@ -32,12 +32,16 @@ def create_chunk(
     organization_id,
     chunk_index,
     text,
+    page_start=None,
+    page_end=None,
 ):
     chunk = DocumentChunk(
         document_id=document_id,
         organization_id=organization_id,
         chunk_index=chunk_index,
         text=text,
+        page_start=page_start,
+        page_end=page_end,
     )
 
     db.add(chunk)
@@ -103,6 +107,133 @@ def test_retrieve_chunks_returns_matching_chunk(db):
         "Employees receive 20 days of annual leave."
     )
     assert results[0].score == 0.95
+
+
+def test_retrieve_chunks_returns_page_provenance_and_document_name(
+    db,
+):
+    owner = create_user(
+        db,
+        "retrieve-citation@example.com",
+        "Retrieve Citation",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Retrieve Citation Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="leave-policy.pdf",
+    )
+
+    chunk = create_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=organization.id,
+        chunk_index=4,
+        text="Employees receive 20 days of annual leave.",
+        page_start=2,
+        page_end=3,
+    )
+
+    embedding = Mock()
+    embedding.embed_query.return_value = [1.0] * 1024
+
+    qdrant = Mock()
+    qdrant.search.return_value.points = [
+        Mock(
+            id=chunk.id,
+            score=0.88,
+        )
+    ]
+
+    results = retrieve_chunks(
+        db=db,
+        organization_id=organization.id,
+        query="annual leave",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+    )
+
+    assert len(results) == 1
+    assert results[0].chunk_index == 4
+    assert results[0].document_name == "leave-policy.pdf"
+    assert results[0].page_start == 2
+    assert results[0].page_end == 3
+
+
+def test_retrieve_chunks_keeps_foreign_document_names_hidden(
+    db,
+):
+    owner_a = create_user(
+        db,
+        "retrieve-name-a@example.com",
+        "Retrieve Name A",
+    )
+
+    owner_b = create_user(
+        db,
+        "retrieve-name-b@example.com",
+        "Retrieve Name B",
+    )
+
+    organization_a = create_organization_service(
+        db=db,
+        name="Retrieve Name Company A",
+        user_id=owner_a.id,
+    )
+
+    organization_b = create_organization_service(
+        db=db,
+        name="Retrieve Name Company B",
+        user_id=owner_b.id,
+    )
+
+    document_b = create_document(
+        db=db,
+        organization_id=organization_b.id,
+        uploaded_by=owner_b.id,
+        name="company-b-secret.pdf",
+    )
+
+    chunk = create_chunk(
+        db=db,
+        document_id=document_b.id,
+        organization_id=organization_a.id,
+        chunk_index=0,
+        text="misowned chunk",
+        page_start=1,
+        page_end=1,
+    )
+
+    embedding = Mock()
+    embedding.embed_query.return_value = [1.0] * 1024
+
+    qdrant = Mock()
+    qdrant.search.return_value.points = [
+        Mock(
+            id=chunk.id,
+            score=0.77,
+        )
+    ]
+
+    results = retrieve_chunks(
+        db=db,
+        organization_id=organization_a.id,
+        query="misowned chunk",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+    )
+
+    assert len(results) == 1
+    assert results[0].document_name is None
+    assert results[0].page_start == 1
+    assert results[0].page_end == 1
 
 
 def test_retrieve_chunks_returns_empty_when_no_results(db):

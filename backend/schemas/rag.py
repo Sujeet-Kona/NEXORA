@@ -8,8 +8,11 @@ class RAGQueryRequest(BaseModel):
 class RAGSourceResponse(BaseModel):
     chunk_id: int
     document_id: int
+    document_name: str | None
     chunk_index: int
     score: float
+    page_start: int | None
+    page_end: int | None
 
 
 class RAGQueryResponse(BaseModel):

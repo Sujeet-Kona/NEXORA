@@ -4,6 +4,7 @@ import pytest
 from backend.core.config import settings
 from backend.core.exceptions import InvalidCredentialsError
 from backend.core.security import (
+    DUMMY_PASSWORD_HASH,
     hash_refresh_token,
     verify_password,
 )
@@ -64,6 +65,31 @@ def test_login_user_service_rejects_unknown_email(db):
     assert str(exc_info.value) == "Invalid email or password"
 
 
+def test_login_user_service_hashes_for_unknown_email(
+    db,
+    monkeypatch,
+):
+    verified_hashes = []
+
+    def spy_verify_password(password, hashed_password):
+        verified_hashes.append(hashed_password)
+        return verify_password(password, hashed_password)
+
+    monkeypatch.setattr(
+        "backend.services.auth_service.verify_password",
+        spy_verify_password,
+    )
+
+    with pytest.raises(InvalidCredentialsError):
+        login_user_service(
+            db=db,
+            email="missing@example.com",
+            password="MySecret123!",
+        )
+
+    assert verified_hashes == [DUMMY_PASSWORD_HASH]
+
+
 def test_login_user_service_rejects_wrong_password(db):
     register_user_service(
         db=db,
@@ -100,3 +126,68 @@ def test_login_user_service_rejects_user_without_password_hash(db):
         )
 
     assert str(exc_info.value) == "Invalid email or password"
+
+
+def test_login_user_service_hashes_for_user_without_password_hash(
+    db,
+    monkeypatch,
+):
+    user = User(
+        email="legacy-hash@example.com",
+        full_name="Legacy Hash User",
+        password_hash=None,
+    )
+
+    db.add(user)
+    db.commit()
+
+    verified_hashes = []
+
+    def spy_verify_password(password, hashed_password):
+        verified_hashes.append(hashed_password)
+        return verify_password(password, hashed_password)
+
+    monkeypatch.setattr(
+        "backend.services.auth_service.verify_password",
+        spy_verify_password,
+    )
+
+    with pytest.raises(InvalidCredentialsError):
+        login_user_service(
+            db=db,
+            email="legacy-hash@example.com",
+            password="MySecret123!",
+        )
+
+    assert verified_hashes == [DUMMY_PASSWORD_HASH]
+
+
+def test_login_user_service_hashes_against_stored_hash(
+    db,
+    monkeypatch,
+):
+    user = register_user_service(
+        db=db,
+        email="stored-hash@example.com",
+        full_name="Stored Hash User",
+        password="MySecret123!",
+    )
+
+    verified_hashes = []
+
+    def spy_verify_password(password, hashed_password):
+        verified_hashes.append(hashed_password)
+        return verify_password(password, hashed_password)
+
+    monkeypatch.setattr(
+        "backend.services.auth_service.verify_password",
+        spy_verify_password,
+    )
+
+    login_user_service(
+        db=db,
+        email="stored-hash@example.com",
+        password="MySecret123!",
+    )
+
+    assert verified_hashes == [user.password_hash]

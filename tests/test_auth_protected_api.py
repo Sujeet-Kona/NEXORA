@@ -75,6 +75,26 @@ def test_protected_me_rejects_token_signed_with_wrong_secret(client):
     }
 
 
+def test_protected_me_rejects_token_without_exp_claim(client):
+    token = jwt.encode(
+        {"sub": "123"},
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": "Invalid authentication credentials"
+    }
+
+
 def test_protected_me_rejects_token_for_missing_user(client):
     token = create_access_token("999999")
 

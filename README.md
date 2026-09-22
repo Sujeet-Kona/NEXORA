@@ -109,6 +109,10 @@ Access tokens are signed JWTs. Passwords are hashed with Argon2. Platform
 administrators (`role=admin`) can manage users; all other users are members and
 can only access organizations they belong to.
 
+An access token must carry an `exp` claim; tokens without one are rejected. Login
+performs one password verification regardless of whether the submitted email is
+registered, so failed logins do not reveal which accounts exist.
+
 ## Run tests
 
     pytest -q

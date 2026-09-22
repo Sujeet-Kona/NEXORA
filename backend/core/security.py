@@ -10,6 +10,12 @@ from backend.core.config import settings
 
 password_hash = PasswordHash.recommended()
 
+# Precomputed at import so a failed login always costs exactly one Argon2
+# verification, whether or not the submitted email belongs to a real user.
+DUMMY_PASSWORD_HASH = password_hash.hash(
+    "nexora-dummy-password",
+)
+
 
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
@@ -49,6 +55,7 @@ def decode_access_token(token: str) -> dict:
         token,
         settings.jwt_secret_key,
         algorithms=[settings.jwt_algorithm],
+        options={"require": ["exp"]},
     )
 
 

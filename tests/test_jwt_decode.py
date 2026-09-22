@@ -19,14 +19,28 @@ def test_decode_access_token_returns_subject():
 
 
 def test_decode_access_token_rejects_wrong_secret():
-    token = create_access_token("123")
+    token = jwt.encode(
+        {
+            "sub": "123",
+            "exp": int(time.time()) + 60,
+        },
+        "this-is-a-different-test-secret-with-32-bytes-or-more",
+        algorithm=settings.jwt_algorithm,
+    )
 
-    with pytest.raises(jwt.InvalidTokenError):
-        jwt.decode(
-            token,
-            "this-is-a-different-test-secret-with-32-bytes-or-more",
-            algorithms=[settings.jwt_algorithm],
-        )
+    with pytest.raises(jwt.InvalidSignatureError):
+        decode_access_token(token)
+
+
+def test_decode_access_token_rejects_token_without_exp_claim():
+    token = jwt.encode(
+        {"sub": "123"},
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    with pytest.raises(jwt.MissingRequiredClaimError):
+        decode_access_token(token)
 
 
 def test_decode_access_token_rejects_expired_token():

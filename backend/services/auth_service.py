@@ -9,6 +9,7 @@ from backend.core.exceptions import (
     UserAlreadyExistsError,
 )
 from backend.core.security import (
+    DUMMY_PASSWORD_HASH,
     create_access_token,
     create_refresh_token,
     hash_password,
@@ -66,15 +67,18 @@ def login_user_service(
         email,
     )
 
-    if not user or not user.password_hash:
-        raise InvalidCredentialsError(
-            "Invalid email or password"
-        )
+    password_hash_to_check = (
+        user.password_hash
+        if user and user.password_hash
+        else DUMMY_PASSWORD_HASH
+    )
 
-    if not verify_password(
+    password_matches = verify_password(
         password,
-        user.password_hash,
-    ):
+        password_hash_to_check,
+    )
+
+    if not user or not user.password_hash or not password_matches:
         raise InvalidCredentialsError(
             "Invalid email or password"
         )

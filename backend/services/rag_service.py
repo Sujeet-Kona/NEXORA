@@ -25,6 +25,7 @@ def answer_question(
     qdrant_repository: QdrantRepository,
     llm_client: LLMClient,
     retrieval_limit: int = 5,
+    document_ids: list[int] | None = None,
     retrieve_fn: Callable = None,
 ) -> RAGResponse:
     if not question.strip():
@@ -40,6 +41,7 @@ def answer_question(
         "qdrant_repository": qdrant_repository,
         "llm_client": llm_client,
         "retrieval_limit": retrieval_limit,
+        "document_ids": document_ids,
     }
 
     if retrieve_fn is not None:

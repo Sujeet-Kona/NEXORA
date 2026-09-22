@@ -56,3 +56,32 @@ def test_langgraph_rag_orchestration():
 
     finally:
         db.close()
+
+
+def test_langgraph_rag_forwards_document_ids():
+    db = SessionLocal()
+
+    captured = {}
+
+    def capture_retrieve(**kwargs):
+        captured.update(kwargs)
+        return [make_chunk()]
+
+    try:
+        result = answer_question(
+            db=db,
+            organization_id=2,
+            question="How many annual leave days do employees receive?",
+            embedding_service=EmbeddingService(),
+            qdrant_repository=QdrantRepository(),
+            llm_client=FakeLLM(),
+            retrieve_fn=capture_retrieve,
+            document_ids=[42],
+        )
+
+        assert result.sources[0].chunk_id == 101
+
+    finally:
+        db.close()
+
+    assert captured["document_ids"] == [42]

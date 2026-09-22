@@ -72,8 +72,51 @@ def test_real_qdrant_upsert_search_and_delete(
             point.id != chunk_id
             for point in wrong_tenant_result.points
         )
+
+        document_filtered_result = real_qdrant.search(
+            query_vector=vector,
+            organization_id=organization_id,
+            limit=5,
+            document_ids=[document_id],
+        )
+
+        assert any(
+            point.id == chunk_id
+            for point in document_filtered_result.points
+        )
+
+        excluded_result = real_qdrant.search(
+            query_vector=vector,
+            organization_id=organization_id,
+            limit=5,
+            document_ids=[document_id + 1],
+        )
+
+        assert all(
+            point.id != chunk_id
+            for point in excluded_result.points
+        )
+
+        real_qdrant.delete_chunk(
+            chunk_id,
+            organization_id=organization_id + 1,
+        )
+
+        cross_tenant_result = real_qdrant.search(
+            query_vector=vector,
+            organization_id=organization_id,
+            limit=5,
+        )
+
+        assert any(
+            point.id == chunk_id
+            for point in cross_tenant_result.points
+        )
     finally:
-        real_qdrant.delete_chunk(chunk_id)
+        real_qdrant.delete_chunk(
+            chunk_id,
+            organization_id=organization_id,
+        )
 
     deleted_result = real_qdrant.search(
         query_vector=vector,

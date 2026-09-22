@@ -1,4 +1,7 @@
-﻿from backend.db.models import User
+﻿from unittest.mock import Mock
+
+from backend.core.config import settings
+from backend.db.models import User
 from backend.repositories.document_chunk_repository import (
     create_document_chunk,
 )
@@ -9,6 +12,7 @@ from backend.services import bm25_service
 from backend.services.hybrid_retrieval_service import (
     _bm25_search,
     _rrf_fuse,
+    hybrid_retrieve_chunks,
 )
 from backend.services.organization_service import (
     create_organization_service,
@@ -127,4 +131,108 @@ def test_bm25_search_attaches_page_provenance_and_document_name(
     assert results[0].document_name == "leave-policy.pdf"
     assert results[0].page_start == 2
     assert results[0].page_end == 4
+
+
+def test_hybrid_retrieve_chunks_applies_document_filter(
+    db,
+    monkeypatch,
+):
+    bm25_service._cache.clear()
+
+    owner = User(
+        email="hybrid-document-filter@example.com",
+        full_name="Hybrid Document Filter",
+        password_hash="test-hash",
+    )
+
+    db.add(owner)
+    db.commit()
+    db.refresh(owner)
+
+    organization = create_organization_service(
+        db=db,
+        name="Hybrid Document Filter Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="leave-policy.pdf",
+    )
+
+    other_document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="security-policy.pdf",
+    )
+
+    chunk = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=organization.id,
+        chunk_index=0,
+        text="annual leave policy details",
+    )
+
+    other_chunk = create_document_chunk(
+        db=db,
+        document_id=other_document.id,
+        organization_id=organization.id,
+        chunk_index=0,
+        text="annual leave accrued during probation",
+    )
+
+    db.commit()
+    db.refresh(chunk)
+    db.refresh(other_chunk)
+
+    embedding = Mock()
+    embedding.embed_query.return_value = (
+        [1.0] * settings.embedding_dimension
+    )
+
+    qdrant = Mock()
+    qdrant.search.return_value.points = [
+        Mock(id=chunk.id, score=0.95),
+        Mock(id=other_chunk.id, score=0.90),
+    ]
+
+    class StubReranker:
+        def rerank(
+            self,
+            query,
+            chunks,
+        ):
+            return chunks
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.get_reranker",
+        lambda: StubReranker(),
+    )
+
+    results = hybrid_retrieve_chunks(
+        db=db,
+        organization_id=organization.id,
+        query="annual leave policy",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+        document_ids=[other_document.id],
+    )
+
+    bm25_service._cache.clear()
+
+    assert [
+        result.document_id
+        for result in results
+    ] == [other_document.id]
+
+    qdrant.search.assert_called_once_with(
+        query_vector=[1.0] * settings.embedding_dimension,
+        organization_id=organization.id,
+        limit=settings.retrieval_dense_top_k,
+        document_ids=[other_document.id],
+    )
 

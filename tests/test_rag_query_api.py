@@ -104,8 +104,7 @@ def build_query_tenant(client, db, email, organization_name):
 
 def stub_query_dependencies(
     monkeypatch,
-    chunk_id=None,
-    score=None,
+    points=None,
 ):
     embedding = Mock()
     embedding.embed_query.return_value = (
@@ -113,16 +112,13 @@ def stub_query_dependencies(
     )
 
     qdrant = Mock()
-    qdrant.search.return_value.points = (
-        []
-        if chunk_id is None
-        else [
-            Mock(
-                id=chunk_id,
-                score=score,
-            )
-        ]
-    )
+    qdrant.search.return_value.points = [
+        Mock(
+            id=chunk_id,
+            score=score,
+        )
+        for chunk_id, score in (points or [])
+    ]
 
     llm = Mock()
     llm.generate.return_value = "stubbed answer"
@@ -151,11 +147,21 @@ def stub_query_dependencies(
     return llm
 
 
-def post_query(client, tenant, question):
+def post_query(
+    client,
+    tenant,
+    question,
+    document_ids=None,
+):
+    payload = {"question": question}
+
+    if document_ids is not None:
+        payload["document_ids"] = document_ids
+
     return client.post(
         f"/api/v1/organizations/{tenant['organization_id']}"
         "/query",
-        json={"question": question},
+        json=payload,
         headers=auth_header(tenant["token"]),
     )
 
@@ -194,8 +200,7 @@ def test_query_sources_include_citation_metadata(
 
     stub_query_dependencies(
         monkeypatch,
-        chunk_id=chunk.id,
-        score=0.93,
+        points=[(chunk.id, 0.93)],
     )
 
     response = post_query(
@@ -254,8 +259,7 @@ def test_query_sources_report_missing_pages_as_null(
 
     stub_query_dependencies(
         monkeypatch,
-        chunk_id=chunk.id,
-        score=0.61,
+        points=[(chunk.id, 0.61)],
     )
 
     response = post_query(
@@ -305,3 +309,226 @@ def test_query_on_organization_without_documents_returns_empty_sources(
     )
 
     llm.generate.assert_not_called()
+
+
+def test_query_filters_sources_by_document_ids(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "document-filter-owner@example.com",
+        "Document Filter Company",
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="leave-policy.pdf",
+    )
+
+    other_document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="security-policy.pdf",
+    )
+
+    chunk = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=0,
+        text="Employees receive 20 days of annual leave.",
+    )
+
+    other_chunk = create_document_chunk(
+        db=db,
+        document_id=other_document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=0,
+        text="Passwords must rotate every 90 days.",
+    )
+
+    db.commit()
+    db.refresh(chunk)
+    db.refresh(other_chunk)
+
+    stub_query_dependencies(
+        monkeypatch,
+        points=[
+            (chunk.id, 0.95),
+            (other_chunk.id, 0.90),
+        ],
+    )
+
+    response = post_query(
+        client,
+        tenant,
+        "How many annual leave days?",
+        document_ids=[other_document.id],
+    )
+
+    assert response.status_code == 200
+
+    sources = response.json()["sources"]
+
+    assert [
+        source["document_id"]
+        for source in sources
+    ] == [other_document.id]
+
+
+def test_query_rejects_empty_document_ids(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "empty-document-filter@example.com",
+        "Empty Document Filter Company",
+    )
+
+    llm = stub_query_dependencies(monkeypatch)
+
+    response = post_query(
+        client,
+        tenant,
+        "How many annual leave days?",
+        document_ids=[],
+    )
+
+    assert response.status_code == 422
+
+    llm.generate.assert_not_called()
+
+
+def test_query_cannot_reach_foreign_document_ids(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant_a = build_query_tenant(
+        client,
+        db,
+        "document-scope-a@example.com",
+        "Document Scope Company A",
+    )
+
+    tenant_b = build_query_tenant(
+        client,
+        db,
+        "document-scope-b@example.com",
+        "Document Scope Company B",
+    )
+
+    document_b = create_document(
+        db=db,
+        organization_id=tenant_b["organization_id"],
+        uploaded_by=tenant_b["user"].id,
+        name="company-b-secret.pdf",
+    )
+
+    chunk_b = create_document_chunk(
+        db=db,
+        document_id=document_b.id,
+        organization_id=tenant_b["organization_id"],
+        chunk_index=0,
+        text="PRIVATE COMPANY B DATA",
+    )
+
+    db.commit()
+    db.refresh(chunk_b)
+
+    stub_query_dependencies(
+        monkeypatch,
+        points=[(chunk_b.id, 0.99)],
+    )
+
+    response = post_query(
+        client,
+        tenant_a,
+        "How many annual leave days?",
+        document_ids=[document_b.id],
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["sources"] == []
+    assert body["answer"] == (
+        "The available documents do not contain "
+        "enough information to answer this question."
+    )
+
+
+def test_query_respects_configured_retrieval_top_k(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "top-k-owner@example.com",
+        "Top K Company",
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="leave-policy.pdf",
+    )
+
+    chunks = [
+        create_document_chunk(
+            db=db,
+            document_id=document.id,
+            organization_id=tenant["organization_id"],
+            chunk_index=index,
+            text=f"annual leave clause number {index}",
+        )
+        for index in range(3)
+    ]
+
+    db.commit()
+
+    for chunk in chunks:
+        db.refresh(chunk)
+
+    stub_query_dependencies(
+        monkeypatch,
+        points=[
+            (chunk.id, 0.9 - index / 10)
+            for index, chunk in enumerate(chunks)
+        ],
+    )
+
+    monkeypatch.setattr(settings, "retrieval_top_k", 1)
+
+    response = post_query(
+        client,
+        tenant,
+        "annual leave clause",
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["sources"]) == 1
+
+    monkeypatch.setattr(settings, "retrieval_top_k", 3)
+
+    response = post_query(
+        client,
+        tenant,
+        "annual leave clause",
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["sources"]) == 3

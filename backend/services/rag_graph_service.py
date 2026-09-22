@@ -26,6 +26,7 @@ class RAGState(TypedDict, total=False):
     qdrant_repository: QdrantRepository
     llm_client: LLMClient
     retrieval_limit: int
+    document_ids: list[int] | None
     retrieve_fn: Callable
     chunks: list[RetrievedChunk]
     answer: str
@@ -46,6 +47,7 @@ def _retrieve_node(
         embedding_service=state["embedding_service"],
         qdrant_repository=state["qdrant_repository"],
         limit=state.get("retrieval_limit", 5),
+        document_ids=state.get("document_ids"),
     )
 
     return {"chunks": chunks}
@@ -90,6 +92,7 @@ def answer_question(
     qdrant_repository: QdrantRepository,
     llm_client: LLMClient,
     retrieval_limit: int = 5,
+    document_ids: list[int] | None = None,
     retrieve_fn: Callable = hybrid_retrieve_chunks,
 ) -> RAGResponse:
     if not question.strip():
@@ -106,6 +109,7 @@ def answer_question(
             "qdrant_repository": qdrant_repository,
             "llm_client": llm_client,
             "retrieval_limit": retrieval_limit,
+            "document_ids": document_ids,
             "retrieve_fn": retrieve_fn,
         }
     )

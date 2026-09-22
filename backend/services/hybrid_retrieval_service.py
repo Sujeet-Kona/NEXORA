@@ -4,6 +4,7 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.db.models import DocumentChunk
 from backend.repositories.document_repository import (
     get_document_names,
@@ -80,6 +81,7 @@ def _bm25_search(
     organization_id: int,
     query: str,
     limit: int,
+    document_ids: list[int] | None = None,
 ) -> list[RetrievedChunk]:
     index = get_bm25_index(
         db=db,
@@ -89,6 +91,7 @@ def _bm25_search(
     results = index.search(
         query=query,
         limit=limit,
+        document_ids=document_ids,
     )
 
     document_names = get_document_names(
@@ -161,19 +164,32 @@ def hybrid_retrieve_chunks(
     query: str,
     embedding_service: EmbeddingService,
     qdrant_repository: QdrantRepository,
-    dense_limit: int = 10,
-    lexical_limit: int = 10,
-    rerank_limit: int = 8,
-    final_limit: int = 2,
+    dense_limit: int | None = None,
+    lexical_limit: int | None = None,
+    rerank_limit: int | None = None,
+    final_limit: int | None = None,
     limit: int | None = None,
+    document_ids: list[int] | None = None,
 ) -> list[RetrievedChunk]:
     if not query.strip():
         raise ValueError("Query cannot be empty")
+
+    if dense_limit is None:
+        dense_limit = settings.retrieval_dense_top_k
+
+    if lexical_limit is None:
+        lexical_limit = settings.retrieval_lexical_top_k
+
+    if rerank_limit is None:
+        rerank_limit = settings.retrieval_rerank_top_k
 
     if limit is not None:
         if limit <= 0:
             raise ValueError("Limit must be greater than zero")
         final_limit = limit
+
+    if final_limit is None:
+        final_limit = settings.retrieval_top_k
 
     if final_limit <= 0:
         raise ValueError(
@@ -187,6 +203,7 @@ def hybrid_retrieve_chunks(
         embedding_service=embedding_service,
         qdrant_repository=qdrant_repository,
         limit=dense_limit,
+        document_ids=document_ids,
     )
 
     lexical = _bm25_search(
@@ -194,6 +211,7 @@ def hybrid_retrieve_chunks(
         organization_id=organization_id,
         query=query,
         limit=lexical_limit,
+        document_ids=document_ids,
     )
 
     fused = _rrf_fuse(

@@ -127,15 +127,19 @@ def get_chunks_by_ids_for_organization(
     db: Session,
     chunk_ids: list[int],
     organization_id: int,
+    document_ids: list[int] | None = None,
 ) -> list[DocumentChunk]:
     if not chunk_ids:
         return []
 
-    return (
-        db.query(DocumentChunk)
-        .filter(
-            DocumentChunk.id.in_(chunk_ids),
-            DocumentChunk.organization_id == organization_id,
-        )
-        .all()
+    query = db.query(DocumentChunk).filter(
+        DocumentChunk.id.in_(chunk_ids),
+        DocumentChunk.organization_id == organization_id,
     )
+
+    if document_ids is not None:
+        query = query.filter(
+            DocumentChunk.document_id.in_(document_ids)
+        )
+
+    return query.all()

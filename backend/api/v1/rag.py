@@ -1,6 +1,7 @@
 ﻿from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from backend.core.config import settings
 from backend.dependencies.auth import CurrentUser
 from backend.dependencies.database import get_db
 from backend.dependencies.organization_authorization import (
@@ -60,7 +61,8 @@ def query_knowledge_base(
         embedding_service=embedding_service,
         qdrant_repository=qdrant_repository,
         llm_client=llm_client,
-        retrieval_limit=2,
+        retrieval_limit=settings.retrieval_top_k,
+        document_ids=request.document_ids,
     )
 
     return RAGQueryResponse(

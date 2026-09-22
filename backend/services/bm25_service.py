@@ -30,6 +30,7 @@ class BM25Index:
         self,
         query: str,
         limit: int,
+        document_ids: list[int] | None = None,
     ) -> list[tuple[DocumentChunk, float]]:
         if self.bm25 is None:
             return []
@@ -43,6 +44,15 @@ class BM25Index:
             key=lambda item: float(item[1]),
             reverse=True,
         )
+
+        if document_ids is not None:
+            allowed = set(document_ids)
+
+            ranked = [
+                item
+                for item in ranked
+                if item[0].document_id in allowed
+            ]
 
         return ranked[:limit]
 

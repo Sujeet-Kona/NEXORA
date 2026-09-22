@@ -36,6 +36,7 @@ def retrieve_chunks(
     embedding_service: EmbeddingService,
     qdrant_repository: QdrantRepository,
     limit: int = 5,
+    document_ids: list[int] | None = None,
 ) -> list[RetrievedChunk]:
     if not query.strip():
         raise ValueError("Query cannot be empty")
@@ -53,6 +54,7 @@ def retrieve_chunks(
         query_vector=query_vector,
         organization_id=organization_id,
         limit=limit,
+        document_ids=document_ids,
     )
 
     if not search_result.points:
@@ -67,6 +69,7 @@ def retrieve_chunks(
         db=db,
         chunk_ids=point_ids,
         organization_id=organization_id,
+        document_ids=document_ids,
     )
 
     chunks_by_id = {

@@ -360,4 +360,145 @@ def test_retrieve_chunks_is_tenant_scoped(db):
         query_vector=[1.0] * 1024,
         organization_id=organization_a.id,
         limit=5,
+        document_ids=None,
     )
+
+
+def test_retrieve_chunks_filters_by_document_ids(db):
+    owner = create_user(
+        db,
+        "retrieve-documents@example.com",
+        "Retrieve Documents",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Retrieve Documents Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="leave-policy.pdf",
+    )
+
+    other_document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="security-policy.pdf",
+    )
+
+    chunk = create_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=organization.id,
+        chunk_index=0,
+        text="annual leave policy",
+    )
+
+    other_chunk = create_chunk(
+        db=db,
+        document_id=other_document.id,
+        organization_id=organization.id,
+        chunk_index=0,
+        text="password rotation policy",
+    )
+
+    embedding = Mock()
+    embedding.embed_query.return_value = [1.0] * 1024
+
+    qdrant = Mock()
+    qdrant.search.return_value.points = [
+        Mock(
+            id=chunk.id,
+            score=0.95,
+        ),
+        Mock(
+            id=other_chunk.id,
+            score=0.90,
+        ),
+    ]
+
+    results = retrieve_chunks(
+        db=db,
+        organization_id=organization.id,
+        query="annual leave policy",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+        document_ids=[document.id],
+    )
+
+    assert [result.chunk_id for result in results] == [chunk.id]
+
+    qdrant.search.assert_called_once_with(
+        query_vector=[1.0] * 1024,
+        organization_id=organization.id,
+        limit=5,
+        document_ids=[document.id],
+    )
+
+
+def test_retrieve_chunks_document_filter_is_tenant_scoped(db):
+    owner_a = create_user(
+        db,
+        "retrieve-document-scope-a@example.com",
+        "Retrieve Document Scope A",
+    )
+
+    owner_b = create_user(
+        db,
+        "retrieve-document-scope-b@example.com",
+        "Retrieve Document Scope B",
+    )
+
+    organization_a = create_organization_service(
+        db=db,
+        name="Retrieve Document Scope Company A",
+        user_id=owner_a.id,
+    )
+
+    organization_b = create_organization_service(
+        db=db,
+        name="Retrieve Document Scope Company B",
+        user_id=owner_b.id,
+    )
+
+    document_b = create_document(
+        db=db,
+        organization_id=organization_b.id,
+        uploaded_by=owner_b.id,
+        name="company-b-secret.pdf",
+    )
+
+    chunk_b = create_chunk(
+        db=db,
+        document_id=document_b.id,
+        organization_id=organization_b.id,
+        chunk_index=0,
+        text="PRIVATE COMPANY B DATA",
+    )
+
+    embedding = Mock()
+    embedding.embed_query.return_value = [1.0] * 1024
+
+    qdrant = Mock()
+    qdrant.search.return_value.points = [
+        Mock(
+            id=chunk_b.id,
+            score=0.99,
+        )
+    ]
+
+    results = retrieve_chunks(
+        db=db,
+        organization_id=organization_a.id,
+        query="private information",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+        document_ids=[document_b.id],
+    )
+
+    assert results == []

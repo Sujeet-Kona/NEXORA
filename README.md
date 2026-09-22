@@ -99,6 +99,50 @@ Retrieval:
 
     POST /api/v1/organizations/{organization_id}/query
 
+The user, member and document list endpoints are paginated: they accept
+`limit` (1-200, default 50) and `offset` (default 0) query parameters and
+return at most `limit` records ordered by ascending id.
+
+## Retrieval and Qdrant
+
+Document chunks are embedded with BGE-M3 and stored in a Qdrant collection.
+Each point carries `organization_id`, `document_id`, `chunk_id` and
+`chunk_index` payload metadata, and its point id equals the Postgres chunk id.
+
+Every retrieval path filters by `organization_id` in Qdrant and re-checks the
+returned chunk ids against Postgres for the same organization, so a vector can
+never be returned to a tenant that does not own the underlying row.
+
+The query endpoint accepts an optional `document_ids` list to restrict
+retrieval to specific documents of the organization:
+
+    POST /api/v1/organizations/{organization_id}/query
+
+    {
+      "question": "How many days of annual leave do employees receive?",
+      "document_ids": [12, 15]
+    }
+
+Omitting `document_ids` searches every document of the organization; an empty
+list is rejected with 422. The filter is applied to the dense (Qdrant) and the
+lexical (BM25) stage, and the Postgres re-check applies it too, so chunks of
+other documents never reach the reranker or the LLM.
+
+Retrieval depth is configurable with environment variables:
+
+    RETRIEVAL_TOP_K=2            # chunks returned to the LLM after reranking
+    RETRIEVAL_DENSE_TOP_K=10     # Qdrant vector candidates
+    RETRIEVAL_LEXICAL_TOP_K=10   # BM25 candidates
+    RETRIEVAL_RERANK_TOP_K=8     # RRF-fused candidates sent to the cross-encoder
+
+All four values must be >= 1; invalid values fail fast at startup.
+
+The Qdrant collection is created lazily by
+`QdrantRepository.ensure_collection` on the first write, and integer payload
+indexes are created on `organization_id` and `document_id` for non-local
+deployments. Deleting a document removes its vectors; deleting a single chunk
+is scoped to its organization as well.
+
 ## Authentication
 
 Protected endpoints expect a bearer access token:

@@ -1,6 +1,7 @@
 from backend.db.models import DocumentChunk, User
 from backend.repositories.document_chunk_repository import (
     create_document_chunks,
+    get_chunks_by_ids_for_organization,
     get_chunks_for_document,
     replace_document_chunks,
 )
@@ -155,3 +156,83 @@ def test_replace_document_chunks_stores_page_provenance(db):
     ] == [
         ("replacement chunk", 2, 4),
     ]
+
+
+def test_get_chunks_by_ids_filters_by_document(db):
+    document, organization = create_document_for_owner(
+        db,
+        "chunk-repository-doc-filter@example.com",
+    )
+
+    other_document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=document.uploaded_by,
+        name="other.pdf",
+    )
+
+    first = create_document_chunks(
+        db=db,
+        document_id=document.id,
+        organization_id=organization.id,
+        chunks=[("first document chunk", 1, 1)],
+    )[0]
+
+    second = create_document_chunks(
+        db=db,
+        document_id=other_document.id,
+        organization_id=organization.id,
+        chunks=[("other document chunk", 2, 2)],
+    )[0]
+
+    db.commit()
+
+    filtered = get_chunks_by_ids_for_organization(
+        db=db,
+        chunk_ids=[first.id, second.id],
+        organization_id=organization.id,
+        document_ids=[other_document.id],
+    )
+
+    assert [chunk.id for chunk in filtered] == [second.id]
+
+    unfiltered = get_chunks_by_ids_for_organization(
+        db=db,
+        chunk_ids=[first.id, second.id],
+        organization_id=organization.id,
+    )
+
+    assert {
+        chunk.id
+        for chunk in unfiltered
+    } == {first.id, second.id}
+
+
+def test_get_chunks_by_ids_document_filter_is_tenant_scoped(db):
+    document_a, organization_a = create_document_for_owner(
+        db,
+        "chunk-repository-scope-a@example.com",
+    )
+
+    document_b, organization_b = create_document_for_owner(
+        db,
+        "chunk-repository-scope-b@example.com",
+    )
+
+    foreign = create_document_chunks(
+        db=db,
+        document_id=document_b.id,
+        organization_id=organization_b.id,
+        chunks=[("foreign document chunk", 3, 3)],
+    )[0]
+
+    db.commit()
+
+    filtered = get_chunks_by_ids_for_organization(
+        db=db,
+        chunk_ids=[foreign.id],
+        organization_id=organization_a.id,
+        document_ids=[document_b.id],
+    )
+
+    assert filtered == []

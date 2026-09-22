@@ -174,3 +174,82 @@ def test_bm25_search_prefers_matching_chunk():
     finally:
         bm25_service.DocumentChunk = original_model
         bm25_service._cache.clear()
+
+
+def test_bm25_search_filters_by_document_ids():
+    chunks = [
+        FakeChunk(
+            1,
+            10,
+            0,
+            "annual leave policy provides vacation days",
+        ),
+        FakeChunk(
+            2,
+            20,
+            0,
+            "annual leave rules for contractors",
+        ),
+    ]
+
+    index = bm25_service.BM25Index(chunks)
+
+    filtered = index.search(
+        query="annual leave",
+        limit=5,
+        document_ids=[20],
+    )
+
+    assert [chunk.id for chunk, _ in filtered] == [2]
+
+    missing = index.search(
+        query="annual leave",
+        limit=5,
+        document_ids=[30],
+    )
+
+    assert missing == []
+
+    unfiltered = index.search(
+        query="annual leave",
+        limit=5,
+    )
+
+    assert {
+        chunk.id
+        for chunk, _ in unfiltered
+    } == {1, 2}
+
+
+def test_bm25_document_filter_applies_before_limit():
+    chunks = [
+        FakeChunk(
+            1,
+            10,
+            0,
+            "annual leave policy vacation days",
+        ),
+        FakeChunk(
+            2,
+            10,
+            1,
+            "annual leave policy vacation days",
+        ),
+        FakeChunk(
+            3,
+            20,
+            0,
+            "annual leave policy",
+        ),
+    ]
+
+    index = bm25_service.BM25Index(chunks)
+
+    results = index.search(
+        query="annual leave",
+        limit=1,
+        document_ids=[20],
+    )
+
+    assert len(results) == 1
+    assert results[0][0].id == 3

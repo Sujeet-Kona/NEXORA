@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,11 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
     qdrant_collection: str = "nexora_document_chunks"
+
+    retrieval_top_k: int = Field(default=2, ge=1)
+    retrieval_dense_top_k: int = Field(default=10, ge=1)
+    retrieval_lexical_top_k: int = Field(default=10, ge=1)
+    retrieval_rerank_top_k: int = Field(default=8, ge=1)
 
     openai_api_key: str | None = None
     openai_model: str | None = None

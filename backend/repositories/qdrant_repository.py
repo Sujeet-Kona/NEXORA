@@ -10,6 +10,7 @@ class QdrantRepository:
         is_local: bool = False,
     ):
         self.is_local = is_local
+        self._collection_ready = False
 
         if client is not None:
             self.client = client
@@ -24,6 +25,9 @@ class QdrantRepository:
             )
 
     def ensure_collection(self) -> None:
+        if self._collection_ready:
+            return
+
         collections = self.client.get_collections()
 
         names = {
@@ -46,6 +50,13 @@ class QdrantRepository:
                 field_name="organization_id",
                 field_schema=models.PayloadSchemaType.INTEGER,
             )
+            self.client.create_payload_index(
+                collection_name=settings.qdrant_collection,
+                field_name="document_id",
+                field_schema=models.PayloadSchemaType.INTEGER,
+            )
+
+        self._collection_ready = True
 
     def upsert_chunks(
         self,
@@ -81,6 +92,8 @@ class QdrantRepository:
         if not points:
             return
 
+        self.ensure_collection()
+
         self.client.upsert(
             collection_name=settings.qdrant_collection,
             wait=True,
@@ -112,6 +125,8 @@ class QdrantRepository:
         document_id: int,
         organization_id: int,
     ) -> None:
+        self.ensure_collection()
+
         self.client.delete(
             collection_name=settings.qdrant_collection,
             wait=True,
@@ -134,15 +149,34 @@ class QdrantRepository:
                 )
             ),
         )
+
     def delete_chunk(
         self,
         chunk_id: int,
+        organization_id: int,
     ) -> None:
+        self.ensure_collection()
+
         self.client.delete(
             collection_name=settings.qdrant_collection,
             wait=True,
-            points_selector=models.PointIdsList(
-                points=[chunk_id],
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="organization_id",
+                            match=models.MatchValue(
+                                value=organization_id,
+                            ),
+                        ),
+                        models.FieldCondition(
+                            key="chunk_id",
+                            match=models.MatchValue(
+                                value=chunk_id,
+                            ),
+                        ),
+                    ]
+                )
             ),
         )
 
@@ -151,24 +185,37 @@ class QdrantRepository:
         query_vector: list[float],
         organization_id: int,
         limit: int = 5,
+        document_ids: list[int] | None = None,
     ):
         if len(query_vector) != settings.embedding_dimension:
             raise ValueError(
                 "Embedding dimension does not match Qdrant configuration"
             )
 
+        must_conditions = [
+            models.FieldCondition(
+                key="organization_id",
+                match=models.MatchValue(
+                    value=organization_id,
+                ),
+            )
+        ]
+
+        if document_ids is not None:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchAny(
+                        any=document_ids,
+                    ),
+                )
+            )
+
         return self.client.query_points(
             collection_name=settings.qdrant_collection,
             query=query_vector,
             query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="organization_id",
-                        match=models.MatchValue(
-                            value=organization_id,
-                        ),
-                    )
-                ]
+                must=must_conditions,
             ),
             limit=limit,
             with_payload=True,

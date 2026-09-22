@@ -3,6 +3,10 @@
 
 class RAGQueryRequest(BaseModel):
     question: str = Field(min_length=1)
+    document_ids: list[int] | None = Field(
+        default=None,
+        min_length=1,
+    )
 
 
 class RAGSourceResponse(BaseModel):

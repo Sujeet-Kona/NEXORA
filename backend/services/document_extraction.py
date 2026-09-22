@@ -1,7 +1,7 @@
 ﻿from io import BytesIO
 from pathlib import Path
 
-import fitz
+import pymupdf
 from docx import Document as DocxDocument
 
 from backend.core.exceptions import DocumentExtractionError
@@ -9,7 +9,7 @@ from backend.core.exceptions import DocumentExtractionError
 
 def extract_pdf_text(content: bytes) -> str:
     try:
-        with fitz.open(
+        with pymupdf.open(
             stream=content,
             filetype="pdf",
         ) as pdf:

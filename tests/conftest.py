@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from backend.db.database import get_db
 from backend.db.models import Base
+from backend.dependencies.database import get_session_factory
 from backend.main import app
 
 
@@ -38,6 +39,11 @@ def db():
 
 
 @pytest.fixture()
+def session_factory():
+    return TestingSessionLocal
+
+
+@pytest.fixture()
 def client():
     Base.metadata.create_all(bind=engine)
 
@@ -50,6 +56,9 @@ def client():
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_session_factory] = (
+        lambda: TestingSessionLocal
+    )
 
     try:
         with TestClient(app) as test_client:

@@ -1,15 +1,16 @@
-﻿from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
+﻿from collections.abc import Callable
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from backend.dependencies.auth import CurrentUser
-from backend.dependencies.rag import (
-    get_embedding_service,
-    get_qdrant_repository,
-)
 from backend.core.config import settings
 from backend.core.exceptions import InvalidDocumentUploadError
-from backend.dependencies.database import get_db
+from backend.dependencies.auth import CurrentUser
+from backend.dependencies.database import (
+    get_db,
+    get_session_factory,
+)
 from backend.schemas.document import (
     DocumentCreate,
     DocumentResponse,
@@ -64,6 +65,9 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    session_factory: Callable[[], Session] = Depends(
+        get_session_factory,
+    ),
 ):
     chunks = []
     total_size = 0
@@ -97,11 +101,12 @@ async def upload_document(
     background_tasks.add_task(
         process_document_background,
         document.id,
-        get_embedding_service(),
-        get_qdrant_repository(),
+        session_factory,
     )
 
     return document
+
+
 @router.get(
     "/{organization_id}/documents",
     response_model=list[DocumentResponse],

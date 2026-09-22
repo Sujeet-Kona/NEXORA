@@ -26,7 +26,8 @@ class LocalStorage:
             exist_ok=True,
         )
 
-        storage_name = f"{uuid4().hex}_{Path(filename).name}"
+        safe_filename = Path(filename.replace("\\", "/")).name
+        storage_name = f"{uuid4().hex}_{safe_filename}"
 
         destination = document_directory / storage_name
 

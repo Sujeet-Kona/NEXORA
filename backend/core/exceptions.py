@@ -1,4 +1,4 @@
-﻿class NexoraError(Exception):
+class NexoraError(Exception):
     """Base exception for expected application errors."""
 
 
@@ -37,12 +37,6 @@ class OrganizationMembershipAlreadyExistsError(NexoraError):
 class DocumentNotFoundError(NexoraError):
     """Raised when a requested document does not exist."""
 
-class InvalidDocumentUploadError(NexoraError):
-    """Raised when an uploaded document is invalid."""
-
-
-class DocumentUploadFailedError(NexoraError):
-    """Raised when document storage/finalization fails."""
 
 class InvalidDocumentUploadError(NexoraError):
     """Raised when an uploaded document is invalid."""
@@ -50,6 +44,7 @@ class InvalidDocumentUploadError(NexoraError):
 
 class DocumentUploadFailedError(NexoraError):
     """Raised when document storage/finalization fails."""
+
 
 class DocumentExtractionError(NexoraError):
     """Raised when document text extraction fails."""

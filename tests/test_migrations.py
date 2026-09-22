@@ -3,33 +3,46 @@ import os
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import MetaData, create_engine, inspect
+from sqlalchemy.engine import make_url
+
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
+
+
+def require_test_database_url() -> str:
+    if not TEST_DATABASE_URL:
+        pytest.skip(
+            "TEST_DATABASE_URL is not set; skipping migration tests"
+        )
+
+    database_name = make_url(TEST_DATABASE_URL).database or ""
+
+    if "test" not in database_name.lower():
+        pytest.fail(
+            "TEST_DATABASE_URL must point to a dedicated migration test database"
+        )
+
+    return TEST_DATABASE_URL
 
 
 @pytest.fixture()
 def migration_config():
     config = Config("alembic.ini")
 
-    if not TEST_DATABASE_URL:
-        pytest.fail(
-            "TEST_DATABASE_URL must point to the dedicated migration test database"
-        )
-
-    config.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
+    config.set_main_option(
+        "sqlalchemy.url",
+        require_test_database_url(),
+    )
 
     return config
 
 
 @pytest.fixture()
 def migration_engine():
-    if not TEST_DATABASE_URL:
-        pytest.fail(
-            "TEST_DATABASE_URL must point to the dedicated migration test database"
-        )
-
-    engine = create_engine(TEST_DATABASE_URL)
+    engine = create_engine(
+        require_test_database_url(),
+    )
 
     yield engine
 
@@ -37,28 +50,13 @@ def migration_engine():
 
 
 def reset_migration_database(migration_engine):
+    metadata = MetaData()
+
+    metadata.reflect(bind=migration_engine)
+
     with migration_engine.begin() as connection:
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS document_chunks"
-        )
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS documents"
-        )
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS organization_memberships"
-        )
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS refresh_tokens"
-        )
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS organizations"
-        )
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS users"
-        )
-        connection.exec_driver_sql(
-            "DROP TABLE IF EXISTS alembic_version"
-        )
+        metadata.drop_all(bind=connection)
+
 
 def test_migration_upgrade_creates_users_table(
     migration_config,

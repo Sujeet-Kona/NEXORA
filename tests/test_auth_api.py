@@ -70,3 +70,56 @@ def test_register_short_password_returns_422(client):
     )
 
     assert response.status_code == 422
+
+
+def test_register_blank_full_name_returns_422(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "blank-name@example.com",
+            "full_name": "",
+            "password": "MySecret123!",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_whitespace_full_name_returns_422(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "whitespace-name@example.com",
+            "full_name": "   ",
+            "password": "MySecret123!",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_register_full_name_at_max_length_is_accepted(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "max-name@example.com",
+            "full_name": "A" * 255,
+            "password": "MySecret123!",
+        },
+    )
+
+    assert response.status_code == 201
+    assert len(response.json()["full_name"]) == 255
+
+
+def test_register_full_name_over_max_length_returns_422(client):
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "overmax-name@example.com",
+            "full_name": "A" * 256,
+            "password": "MySecret123!",
+        },
+    )
+
+    assert response.status_code == 422

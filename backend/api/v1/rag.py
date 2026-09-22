@@ -6,10 +6,10 @@ from backend.dependencies.database import get_db
 from backend.dependencies.organization_authorization import (
     require_organization_member,
 )
-from backend.dependencies.rag_request import (
-    request_embedding_service,
-    request_ollama_client,
-    request_qdrant_repository,
+from backend.dependencies.rag import (
+    get_embedding_service,
+    get_ollama_client,
+    get_qdrant_repository,
 )
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.schemas.rag import (
@@ -38,13 +38,13 @@ def query_knowledge_base(
     current_user: CurrentUser,
     db: Session = Depends(get_db),
     embedding_service: EmbeddingService = Depends(
-        request_embedding_service,
+        get_embedding_service,
     ),
     qdrant_repository: QdrantRepository = Depends(
-        request_qdrant_repository,
+        get_qdrant_repository,
     ),
     llm_client: OllamaLLMClient = Depends(
-        request_ollama_client,
+        get_ollama_client,
     ),
 ):
     require_organization_member(

@@ -1,22 +1,36 @@
-﻿from backend.db.database import SessionLocal
+import logging
+from collections.abc import Callable
+
+from sqlalchemy.orm import Session
+
+from backend.core.logging import LOGGER_NAME
+from backend.dependencies.rag import (
+    get_embedding_service,
+    get_qdrant_repository,
+)
 from backend.services.document_processing_service import process_document
-from backend.services.embedding_service import EmbeddingService
-from backend.repositories.qdrant_repository import QdrantRepository
+
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 def process_document_background(
     document_id: int,
-    embedding_service: EmbeddingService,
-    qdrant_repository: QdrantRepository,
+    session_factory: Callable[[], Session],
 ) -> None:
-    db = SessionLocal()
+    db = session_factory()
 
     try:
         process_document(
             db=db,
             document_id=document_id,
-            embedding_service=embedding_service,
-            qdrant_repository=qdrant_repository,
+            embedding_service=get_embedding_service(),
+            qdrant_repository=get_qdrant_repository(),
+        )
+    except Exception:
+        logger.exception(
+            "Background document processing failed",
+            extra={"document_id": document_id},
         )
     finally:
         db.close()

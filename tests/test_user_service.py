@@ -1,18 +1,19 @@
-﻿import pytest
+import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from backend.core.exceptions import (
     InvalidUserIdError,
-    UserAlreadyExistsError,
     UserNotFoundError,
 )
-from backend.db.models import Base
+from backend.db.models import Base, UserRole
+from backend.repositories.user_repository import create_user
 from backend.services.user_service import (
-    create_user_service,
     get_user_service,
     get_users_service,
+    update_user_role_service,
 )
 
 
@@ -44,17 +45,26 @@ def db():
         Base.metadata.drop_all(bind=engine)
 
 
-def test_get_users_service_returns_users(db):
-    create_user_service(
+def create_test_user(db, email, full_name):
+    return create_user(
         db=db,
-        email="alice@example.com",
-        full_name="Alice Smith",
+        email=email,
+        full_name=full_name,
+        password_hash="test-hash",
     )
 
-    create_user_service(
-        db=db,
-        email="bob@example.com",
-        full_name="Bob Jones",
+
+def test_get_users_service_returns_users(db):
+    create_test_user(
+        db,
+        "alice@example.com",
+        "Alice Smith",
+    )
+
+    create_test_user(
+        db,
+        "bob@example.com",
+        "Bob Jones",
     )
 
     users = get_users_service(db)
@@ -65,10 +75,10 @@ def test_get_users_service_returns_users(db):
 
 
 def test_get_user_service_returns_user(db):
-    created_user = create_user_service(
-        db=db,
-        email="alice@example.com",
-        full_name="Alice Smith",
+    created_user = create_test_user(
+        db,
+        "alice@example.com",
+        "Alice Smith",
     )
 
     user = get_user_service(
@@ -103,18 +113,55 @@ def test_get_user_service_raises_when_user_missing(db):
     assert str(exc_info.value) == "User not found"
 
 
-def test_create_user_service_rejects_duplicate_email(db):
-    create_user_service(
-        db=db,
-        email="duplicate@example.com",
-        full_name="First User",
+def test_create_user_rejects_duplicate_email(db):
+    create_test_user(
+        db,
+        "duplicate@example.com",
+        "First User",
     )
 
-    with pytest.raises(UserAlreadyExistsError) as exc_info:
-        create_user_service(
-            db=db,
-            email="duplicate@example.com",
-            full_name="Second User",
+    with pytest.raises(IntegrityError):
+        create_test_user(
+            db,
+            "duplicate@example.com",
+            "Second User",
         )
 
-    assert str(exc_info.value) == "Email already registered"
+
+def test_update_user_role_service_updates_role(db):
+    created_user = create_test_user(
+        db,
+        "promote@example.com",
+        "Promote Me",
+    )
+
+    updated_user = update_user_role_service(
+        db=db,
+        user_id=created_user.id,
+        role=UserRole.ADMIN,
+    )
+
+    assert updated_user.id == created_user.id
+    assert updated_user.role == UserRole.ADMIN
+
+
+@pytest.mark.parametrize("user_id", [0, -1])
+def test_update_user_role_service_rejects_non_positive_id(
+    db,
+    user_id,
+):
+    with pytest.raises(InvalidUserIdError):
+        update_user_role_service(
+            db=db,
+            user_id=user_id,
+            role=UserRole.ADMIN,
+        )
+
+
+def test_update_user_role_service_raises_when_user_missing(db):
+    with pytest.raises(UserNotFoundError):
+        update_user_role_service(
+            db=db,
+            user_id=9999,
+            role=UserRole.ADMIN,
+        )

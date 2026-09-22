@@ -1,8 +1,35 @@
-﻿from backend.db.models import (
+﻿from unittest.mock import Mock
+
+import pytest
+
+from backend.db.models import (
+    Document,
+    DocumentStatus,
     OrganizationMembership,
     OrganizationRole,
     User,
 )
+from backend.services.document_processing_worker import (
+    process_document_background,
+)
+
+
+@pytest.fixture(autouse=True)
+def recorded_background_tasks(monkeypatch):
+    recorded = []
+
+    def fake_process_document_background(
+        document_id,
+        session_factory,
+    ):
+        recorded.append((document_id, session_factory))
+
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        fake_process_document_background,
+    )
+
+    return recorded
 
 
 def register_and_login(
@@ -131,6 +158,45 @@ def test_upload_pdf(client, tmp_path):
     )
     assert body["storage_key"]
     assert body["status"] == "pending"
+
+
+def test_upload_schedules_background_processing(
+    client,
+    session_factory,
+    recorded_background_tasks,
+):
+    token = register_and_login(
+        client,
+        "upload-background@example.com",
+    )
+
+    organization_id = create_organization(
+        client,
+        token,
+        "Background Upload Company",
+    )
+
+    response = client.post(
+        f"/api/v1/organizations/{organization_id}/documents/upload",
+        files={
+            "file": (
+                "background.pdf",
+                b"%PDF-1.7 background",
+                "application/pdf",
+            )
+        },
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 201
+
+    document_id = response.json()["id"]
+
+    assert recorded_background_tasks == [
+        (document_id, session_factory)
+    ]
 
 
 def test_upload_empty_file_rejected(client):
@@ -381,18 +447,8 @@ def test_upload_creates_pending_document(client, db):
     document_id = response.json()["id"]
 
     document = (
-        db.query(
-            __import__(
-                "backend.db.models",
-                fromlist=["Document"],
-            ).Document
-        )
-        .filter(
-            __import__(
-                "backend.db.models",
-                fromlist=["Document"],
-            ).Document.id == document_id
-        )
+        db.query(Document)
+        .filter(Document.id == document_id)
         .first()
     )
 
@@ -401,6 +457,73 @@ def test_upload_creates_pending_document(client, db):
     assert document.storage_key is not None
     assert document.file_size > 0
     assert document.content_type == "application/pdf"
+
+
+def test_upload_runs_background_processing_without_breaking_response(
+    client,
+    db,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        process_document_background,
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.get_embedding_service",
+        lambda: Mock(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.get_qdrant_repository",
+        lambda: Mock(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.logger.exception",
+        lambda message, **kwargs: None,
+    )
+
+    token = register_and_login(
+        client,
+        "upload-real-background@example.com",
+    )
+
+    organization_id = create_organization(
+        client,
+        token,
+        "Real Background Upload Company",
+    )
+
+    response = client.post(
+        f"/api/v1/organizations/{organization_id}/documents/upload",
+        files={
+            "file": (
+                "unreadable.pdf",
+                b"%PDF-1.7 not an extractable document",
+                "application/pdf",
+            )
+        },
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "pending"
+
+    document_id = response.json()["id"]
+
+    db.expire_all()
+
+    document = (
+        db.query(Document)
+        .filter(Document.id == document_id)
+        .first()
+    )
+
+    assert document is not None
+    assert document.status == DocumentStatus.FAILED
 
 
 def test_upload_file_at_exact_limit_is_accepted(client):

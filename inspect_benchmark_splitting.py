@@ -1,7 +1,7 @@
 ﻿from pathlib import Path
 
 from backend.services.document_chunking import split_text
-from backend.services.document_extraction import extract_text
+from backend.services.document_extraction import extract_document
 
 
 for path in sorted(
@@ -9,17 +9,17 @@ for path in sorted(
 ):
     content = path.read_bytes()
 
-    text = extract_text(
+    extracted_document = extract_document(
         filename=path.name,
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         content=content,
     )
 
-    chunks = split_text(text)
+    chunks = split_text(extracted_document.text)
 
     print("=" * 80)
     print("Document:", path.name)
-    print("Characters:", len(text))
+    print("Characters:", extracted_document.character_count)
     print("Chunks:", len(chunks))
 
     for index, chunk in enumerate(chunks):

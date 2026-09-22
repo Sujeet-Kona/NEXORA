@@ -3,16 +3,31 @@
 import pytest
 
 from backend.core.exceptions import DocumentNotFoundError
-from backend.db.models import DocumentStatus, User
+from backend.db.models import DocumentChunk, DocumentStatus, User
 from backend.repositories.document_repository import (
     create_document,
 )
 from backend.services.document_processing_service import (
     process_document,
 )
+from backend.services.document_extraction import (
+    ExtractedDocument,
+    ExtractedPage,
+)
 from backend.services.organization_service import (
     create_organization_service,
 )
+
+
+def make_extracted_document():
+    return ExtractedDocument(
+        pages=(
+            ExtractedPage(
+                page_number=1,
+                text="Employee leave policy. " * 100,
+            ),
+        ),
+    )
 
 
 def create_user(db, email, name):
@@ -76,8 +91,8 @@ def test_document_transitions_to_processing_then_ready(
     )
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.extract_text",
-        lambda **kwargs: "Employee leave policy. " * 100,
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
     )
 
     monkeypatch.setattr(
@@ -98,6 +113,11 @@ def test_document_transitions_to_processing_then_ready(
     db.refresh(document)
 
     assert document.status == DocumentStatus.READY
+    assert document.page_count == 1
+    assert document.word_count == 300
+    assert document.character_count == len(
+        ("Employee leave policy. " * 100).strip()
+    )
 
 
 def test_processing_failure_marks_document_failed(
@@ -131,7 +151,7 @@ def test_processing_failure_marks_document_failed(
     )
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.extract_text",
+        "backend.services.document_processing_service.extract_document",
         lambda **kwargs: (_ for _ in ()).throw(
             RuntimeError("extraction failed")
         ),
@@ -151,6 +171,11 @@ def test_processing_failure_marks_document_failed(
     db.refresh(document)
 
     assert document.status == DocumentStatus.FAILED
+    assert document.page_count is None
+    assert document.word_count is None
+    assert document.character_count is None
+
+
 def test_qdrant_failure_marks_document_failed(
     db,
     monkeypatch,
@@ -182,8 +207,8 @@ def test_qdrant_failure_marks_document_failed(
     )
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.extract_text",
-        lambda **kwargs: "Employee leave policy. " * 100,
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
     )
 
     monkeypatch.setattr(
@@ -207,3 +232,14 @@ def test_qdrant_failure_marks_document_failed(
     db.refresh(document)
 
     assert document.status == DocumentStatus.FAILED
+    assert document.page_count == 1
+    assert document.word_count == 300
+    assert document.character_count == len(
+        ("Employee leave policy. " * 100).strip()
+    )
+    assert (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .count()
+        == 1
+    )

@@ -16,7 +16,7 @@ from backend.repositories.organization_repository import (
     get_membership,
 )
 from backend.services.document_chunking import split_text
-from backend.services.document_extraction import extract_text
+from backend.services.document_extraction import extract_document
 
 
 def _require_document_access(
@@ -73,13 +73,13 @@ def chunk_document_service(
         document.storage_key,
     )
 
-    extracted_text = extract_text(
+    extracted_document = extract_document(
         filename=document.name,
         content_type=document.content_type,
         content=content,
     )
 
-    chunks = split_text(extracted_text)
+    chunks = split_text(extracted_document.text)
 
     return create_document_chunks(
         db=db,

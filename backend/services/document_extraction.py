@@ -1,4 +1,5 @@
-﻿from io import BytesIO
+from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 
 import pymupdf
@@ -7,18 +8,63 @@ from docx import Document as DocxDocument
 from backend.core.exceptions import DocumentExtractionError
 
 
-def extract_pdf_text(content: bytes) -> str:
+DOCX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+)
+
+
+@dataclass(frozen=True)
+class ExtractedPage:
+    page_number: int
+    text: str
+
+
+@dataclass(frozen=True)
+class ExtractedDocument:
+    pages: tuple[ExtractedPage, ...]
+
+    @property
+    def page_count(self) -> int:
+        return len(self.pages)
+
+    @property
+    def text(self) -> str:
+        return "\n".join(
+            page.text
+            for page in self.pages
+        ).strip()
+
+    @property
+    def character_count(self) -> int:
+        return len(self.text)
+
+    @property
+    def word_count(self) -> int:
+        return len(self.text.split())
+
+
+def extract_pdf_document(
+    content: bytes,
+) -> ExtractedDocument:
     try:
         with pymupdf.open(
             stream=content,
             filetype="pdf",
         ) as pdf:
-            pages = []
+            pages = tuple(
+                ExtractedPage(
+                    page_number=page_number,
+                    text=page.get_text(),
+                )
+                for page_number, page in enumerate(
+                    pdf,
+                    start=1,
+                )
+            )
 
-            for page in pdf:
-                pages.append(page.get_text())
-
-        return "\n".join(pages).strip()
+        return ExtractedDocument(
+            pages=pages,
+        )
 
     except Exception as exc:
         raise DocumentExtractionError(
@@ -26,7 +72,9 @@ def extract_pdf_text(content: bytes) -> str:
         ) from exc
 
 
-def extract_docx_text(content: bytes) -> str:
+def extract_docx_document(
+    content: bytes,
+) -> ExtractedDocument:
     try:
         document = DocxDocument(
             BytesIO(content)
@@ -71,7 +119,15 @@ def extract_docx_text(content: bytes) -> str:
                     if row_text:
                         parts.append(row_text)
 
-        return "\n".join(parts).strip()
+        # DOCX has no fixed pagination, so the body is one logical page.
+        page = ExtractedPage(
+            page_number=1,
+            text="\n".join(parts),
+        )
+
+        return ExtractedDocument(
+            pages=(page,),
+        )
 
     except Exception as exc:
         raise DocumentExtractionError(
@@ -79,25 +135,24 @@ def extract_docx_text(content: bytes) -> str:
         ) from exc
 
 
-def extract_text(
+def extract_document(
     filename: str,
     content_type: str | None,
     content: bytes,
-) -> str:
+) -> ExtractedDocument:
     extension = Path(filename).suffix.lower()
 
     if (
         extension == ".pdf"
         or content_type == "application/pdf"
     ):
-        return extract_pdf_text(content)
+        return extract_pdf_document(content)
 
     if (
         extension == ".docx"
-        or content_type
-        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        or content_type == DOCX_CONTENT_TYPE
     ):
-        return extract_docx_text(content)
+        return extract_docx_document(content)
 
     raise DocumentExtractionError(
         "Unsupported document format"

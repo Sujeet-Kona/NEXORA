@@ -5,6 +5,10 @@ from backend.repositories.document_repository import create_document
 from backend.services.document_processing_worker import (
     process_document_background,
 )
+from backend.services.document_extraction import (
+    ExtractedDocument,
+    ExtractedPage,
+)
 from backend.services.organization_service import (
     create_organization_service,
 )
@@ -43,7 +47,7 @@ def create_pending_document(db, email):
     )
 
 
-def get_document_status(db, document_id):
+def get_document(db, document_id):
     db.expire_all()
 
     document = (
@@ -54,7 +58,18 @@ def get_document_status(db, document_id):
 
     assert document is not None
 
-    return document.status
+    return document
+
+
+def make_extracted_document():
+    return ExtractedDocument(
+        pages=(
+            ExtractedPage(
+                page_number=1,
+                text="Employee leave policy. " * 100,
+            ),
+        ),
+    )
 
 
 def stub_rag_services(monkeypatch):
@@ -101,8 +116,8 @@ def test_background_processing_marks_document_ready(
     )
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.extract_text",
-        lambda **kwargs: "Employee leave policy. " * 100,
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
     )
 
     monkeypatch.setattr(
@@ -115,10 +130,17 @@ def test_background_processing_marks_document_ready(
         session_factory,
     )
 
-    assert get_document_status(
+    processed_document = get_document(
         db,
         document.id,
-    ) == DocumentStatus.READY
+    )
+
+    assert processed_document.status == DocumentStatus.READY
+    assert processed_document.page_count == 1
+    assert processed_document.word_count == 300
+    assert processed_document.character_count == len(
+        ("Employee leave policy. " * 100).strip()
+    )
 
 
 def test_background_processing_failure_is_contained(
@@ -147,10 +169,10 @@ def test_background_processing_failure_is_contained(
         session_factory,
     )
 
-    assert get_document_status(
+    assert get_document(
         db,
         document.id,
-    ) == DocumentStatus.FAILED
+    ).status == DocumentStatus.FAILED
     assert logged_messages == [
         "Background document processing failed"
     ]

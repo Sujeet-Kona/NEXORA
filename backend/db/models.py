@@ -275,6 +275,18 @@ class Document(Base):
         nullable=True,
     )
 
+    page_count: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    word_count: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    character_count: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
     status: Mapped[DocumentStatus] = mapped_column(
         String(50),
         default=DocumentStatus.PENDING,

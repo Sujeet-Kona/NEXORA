@@ -1,7 +1,9 @@
 ﻿from unittest.mock import Mock
 
+import fitz
 import pytest
 
+from backend.core.config import settings
 from backend.db.models import (
     Document,
     DocumentStatus,
@@ -158,6 +160,9 @@ def test_upload_pdf(client, tmp_path):
     )
     assert body["storage_key"]
     assert body["status"] == "pending"
+    assert body["page_count"] is None
+    assert body["word_count"] is None
+    assert body["character_count"] is None
 
 
 def test_upload_schedules_background_processing(
@@ -524,6 +529,116 @@ def test_upload_runs_background_processing_without_breaking_response(
 
     assert document is not None
     assert document.status == DocumentStatus.FAILED
+
+
+def make_two_page_pdf() -> bytes:
+    document = fitz.open()
+
+    first_page = document.new_page()
+
+    first_page.insert_text(
+        (72, 72),
+        "First page content",
+    )
+
+    second_page = document.new_page()
+
+    second_page.insert_text(
+        (72, 72),
+        "Second page content",
+    )
+
+    content = document.tobytes()
+
+    document.close()
+
+    return content
+
+
+def test_upload_persists_extraction_stats(
+    client,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        settings,
+        "storage_path",
+        str(tmp_path),
+    )
+
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        process_document_background,
+    )
+
+    embedding = Mock()
+
+    embedding.embed_documents.side_effect = (
+        lambda texts: [
+            [0.0] * settings.embedding_dimension
+            for _ in texts
+        ]
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.get_embedding_service",
+        lambda: embedding,
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.get_qdrant_repository",
+        lambda: Mock(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.logger.exception",
+        lambda message, **kwargs: None,
+    )
+
+    token = register_and_login(
+        client,
+        "upload-stats@example.com",
+    )
+
+    organization_id = create_organization(
+        client,
+        token,
+        "Upload Stats Company",
+    )
+
+    response = client.post(
+        f"/api/v1/organizations/{organization_id}/documents/upload",
+        files={
+            "file": (
+                "report.pdf",
+                make_two_page_pdf(),
+                "application/pdf",
+            )
+        },
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 201
+
+    document_id = response.json()["id"]
+
+    response = client.get(
+        f"/api/v1/organizations/{organization_id}/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["status"] == "ready"
+    assert body["page_count"] == 2
+    assert body["word_count"] == 6
+    assert body["character_count"] > 0
 
 
 def test_upload_file_at_exact_limit_is_accepted(client):

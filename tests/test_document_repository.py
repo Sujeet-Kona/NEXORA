@@ -1,4 +1,7 @@
-﻿from backend.db.models import (
+﻿from unittest.mock import patch
+
+from backend.db.models import (
+    Document,
     DocumentStatus,
     User,
 )
@@ -7,6 +10,7 @@ from backend.repositories.document_repository import (
     delete_document,
     get_document_by_id,
     get_documents_for_organization,
+    update_document_extraction_stats,
 )
 from backend.services.organization_service import (
     create_organization_service,
@@ -224,3 +228,77 @@ def test_create_document_stores_file_metadata(db):
     )
     assert document.file_size == 12345
     assert document.content_type == "application/pdf"
+
+
+def test_create_document_starts_without_extraction_stats(db):
+    user = create_user(
+        db,
+        "document-stats-default@example.com",
+        "Document Stats Default",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Stats Default Company",
+        user_id=user.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=user.id,
+        name="unprocessed.pdf",
+    )
+
+    assert document.page_count is None
+    assert document.word_count is None
+    assert document.character_count is None
+
+
+def test_update_document_extraction_stats_flushes_without_commit(
+    db,
+):
+    user = create_user(
+        db,
+        "document-stats-update@example.com",
+        "Document Stats Update",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Stats Update Company",
+        user_id=user.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=user.id,
+        name="processed.pdf",
+    )
+
+    with patch.object(db, "commit") as commit:
+        update_document_extraction_stats(
+            db=db,
+            document=document,
+            page_count=3,
+            word_count=120,
+            character_count=800,
+        )
+
+    assert commit.call_count == 0
+    assert document.page_count == 3
+    assert document.word_count == 120
+    assert document.character_count == 800
+
+    db.expire_all()
+
+    stored_document = (
+        db.query(Document)
+        .filter(Document.id == document.id)
+        .first()
+    )
+
+    assert stored_document.page_count == 3
+    assert stored_document.word_count == 120
+    assert stored_document.character_count == 800

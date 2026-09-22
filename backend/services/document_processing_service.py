@@ -12,11 +12,12 @@ from backend.repositories.document_chunk_repository import (
 from backend.repositories.document_repository import (
     get_document_by_id,
     get_document_by_id_unscoped,
+    update_document_extraction_stats,
     update_document_status,
 )
 from backend.services.bm25_service import invalidate_bm25_index
 from backend.services.document_chunking import split_text
-from backend.services.document_extraction import extract_text
+from backend.services.document_extraction import extract_document
 from backend.services.document_indexing_service import (
     index_document_chunks,
 )
@@ -63,19 +64,27 @@ def process_document(
             document.storage_key,
         )
 
-        extracted_text = extract_text(
+        extracted_document = extract_document(
             filename=document.name,
             content_type=document.content_type,
             content=content,
         )
 
-        chunks = split_text(extracted_text)
+        chunks = split_text(extracted_document.text)
 
         replace_document_chunks(
             db=db,
             document_id=document.id,
             organization_id=document.organization_id,
             chunks=chunks,
+        )
+
+        update_document_extraction_stats(
+            db=db,
+            document=document,
+            page_count=extracted_document.page_count,
+            word_count=extracted_document.word_count,
+            character_count=extracted_document.character_count,
         )
 
         db.commit()

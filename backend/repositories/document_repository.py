@@ -106,6 +106,22 @@ def update_document_status(
     return document
 
 
+def update_document_extraction_stats(
+    db: Session,
+    document: Document,
+    page_count: int,
+    word_count: int,
+    character_count: int,
+) -> Document:
+    document.page_count = page_count
+    document.word_count = word_count
+    document.character_count = character_count
+
+    db.flush()
+
+    return document
+
+
 def replace_document_file(
     db: Session,
     document: Document,

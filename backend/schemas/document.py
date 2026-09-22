@@ -31,6 +31,9 @@ class DocumentResponse(BaseModel):
     storage_key: str | None
     file_size: int | None
     content_type: str | None
+    page_count: int | None
+    word_count: int | None
+    character_count: int | None
     status: DocumentStatus
     version: int
     created_at: datetime

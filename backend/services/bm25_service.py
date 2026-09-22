@@ -18,7 +18,9 @@ class BM25Index:
             for chunk in self.chunks
         ]
 
-        self.bm25 = BM25Okapi(corpus)
+        self.bm25 = (
+            BM25Okapi(corpus) if corpus else None
+        )
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
@@ -29,6 +31,9 @@ class BM25Index:
         query: str,
         limit: int,
     ) -> list[tuple[DocumentChunk, float]]:
+        if self.bm25 is None:
+            return []
+
         scores = self.bm25.get_scores(
             self._tokenize(query)
         )

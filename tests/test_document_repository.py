@@ -10,7 +10,9 @@ from backend.repositories.document_repository import (
     delete_document,
     get_document_by_id,
     get_documents_for_organization,
+    replace_document_file,
     update_document_extraction_stats,
+    update_document_failure,
 )
 from backend.services.organization_service import (
     create_organization_service,
@@ -302,3 +304,101 @@ def test_update_document_extraction_stats_flushes_without_commit(
     assert stored_document.page_count == 3
     assert stored_document.word_count == 120
     assert stored_document.character_count == 800
+
+
+def test_update_document_failure_sets_status_and_reason(db):
+    user = create_user(
+        db,
+        "document-failure-reason@example.com",
+        "Document Failure Reason",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Failure Reason Company",
+        user_id=user.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=user.id,
+        name="broken.pdf",
+    )
+
+    assert document.failure_reason is None
+
+    updated = update_document_failure(
+        db=db,
+        document=document,
+        failure_reason="Document processing failed",
+    )
+
+    assert updated.status == DocumentStatus.FAILED
+    assert updated.failure_reason == "Document processing failed"
+
+    db.expire_all()
+
+    stored_document = (
+        db.query(Document)
+        .filter(Document.id == document.id)
+        .first()
+    )
+
+    assert stored_document.status == DocumentStatus.FAILED
+    assert (
+        stored_document.failure_reason
+        == "Document processing failed"
+    )
+
+
+def test_replace_document_file_resets_status_and_failure_reason(
+    db,
+):
+    user = create_user(
+        db,
+        "document-version-reset@example.com",
+        "Document Version Reset",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Version Reset Company",
+        user_id=user.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=user.id,
+        name="policy.pdf",
+        storage_key="organizations/1/documents/1/policy.pdf",
+        file_size=100,
+        content_type="application/pdf",
+    )
+
+    update_document_failure(
+        db=db,
+        document=document,
+        failure_reason="Document text extraction failed",
+    )
+
+    db.refresh(document)
+
+    assert document.failure_reason == (
+        "Document text extraction failed"
+    )
+
+    updated = replace_document_file(
+        db=db,
+        document=document,
+        name="policy-v2.pdf",
+        storage_key="organizations/1/documents/1/policy-v2.pdf",
+        file_size=200,
+        content_type="application/pdf",
+    )
+
+    assert updated.version == 2
+    assert updated.status == DocumentStatus.PENDING
+    assert updated.failure_reason is None
+    assert updated.name == "policy-v2.pdf"

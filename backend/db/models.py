@@ -301,6 +301,11 @@ class Document(Base):
         nullable=False,
     )
 
+    failure_reason: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
     version: Mapped[int] = mapped_column(
         default=1,
         nullable=False,

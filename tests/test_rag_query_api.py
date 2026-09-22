@@ -102,19 +102,27 @@ def build_query_tenant(client, db, email, organization_name):
     }
 
 
-def stub_query_dependencies(monkeypatch, chunk_id, score):
+def stub_query_dependencies(
+    monkeypatch,
+    chunk_id=None,
+    score=None,
+):
     embedding = Mock()
     embedding.embed_query.return_value = (
         [0.1] * settings.embedding_dimension
     )
 
     qdrant = Mock()
-    qdrant.search.return_value.points = [
-        Mock(
-            id=chunk_id,
-            score=score,
-        )
-    ]
+    qdrant.search.return_value.points = (
+        []
+        if chunk_id is None
+        else [
+            Mock(
+                id=chunk_id,
+                score=score,
+            )
+        ]
+    )
 
     llm = Mock()
     llm.generate.return_value = "stubbed answer"
@@ -264,3 +272,36 @@ def test_query_sources_report_missing_pages_as_null(
     assert sources[0]["document_name"] == "unmapped.pdf"
     assert sources[0]["page_start"] is None
     assert sources[0]["page_end"] is None
+
+
+def test_query_on_organization_without_documents_returns_empty_sources(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "empty-corpus-owner@example.com",
+        "Empty Corpus Company",
+    )
+
+    llm = stub_query_dependencies(monkeypatch)
+
+    response = post_query(
+        client,
+        tenant,
+        "What is the annual leave policy?",
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["sources"] == []
+    assert body["answer"] == (
+        "The available documents do not contain "
+        "enough information to answer this question."
+    )
+
+    llm.generate.assert_not_called()

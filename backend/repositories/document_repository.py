@@ -132,6 +132,20 @@ def update_document_status(
     return document
 
 
+def update_document_failure(
+    db: Session,
+    document: Document,
+    failure_reason: str,
+) -> Document:
+    document.status = DocumentStatus.FAILED
+    document.failure_reason = failure_reason
+
+    db.commit()
+    db.refresh(document)
+
+    return document
+
+
 def update_document_extraction_stats(
     db: Session,
     document: Document,
@@ -162,6 +176,7 @@ def replace_document_file(
     document.content_type = content_type
     document.version = document.version + 1
     document.status = DocumentStatus.PENDING
+    document.failure_reason = None
 
     db.commit()
     db.refresh(document)

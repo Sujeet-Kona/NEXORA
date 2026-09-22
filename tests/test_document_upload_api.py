@@ -530,6 +530,9 @@ def test_upload_runs_background_processing_without_breaking_response(
 
     assert document is not None
     assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == (
+        "Document text extraction failed"
+    )
 
 
 def make_two_page_pdf() -> bytes:
@@ -654,6 +657,106 @@ def test_upload_persists_extraction_stats(
     assert "Second page content" in chunks[0].text
     assert chunks[0].page_start == 1
     assert chunks[0].page_end == 2
+
+
+def make_blank_pdf() -> bytes:
+    document = fitz.open()
+
+    document.new_page()
+
+    content = document.tobytes()
+
+    document.close()
+
+    return content
+
+
+def test_upload_blank_pdf_fails_with_failure_reason(
+    client,
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        settings,
+        "storage_path",
+        str(tmp_path),
+    )
+
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        process_document_background,
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.get_embedding_service",
+        lambda: Mock(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.get_qdrant_repository",
+        lambda: Mock(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_worker.logger.exception",
+        lambda message, **kwargs: None,
+    )
+
+    token = register_and_login(
+        client,
+        "upload-blank@example.com",
+    )
+
+    organization_id = create_organization(
+        client,
+        token,
+        "Upload Blank Company",
+    )
+
+    response = client.post(
+        f"/api/v1/organizations/{organization_id}/documents/upload",
+        files={
+            "file": (
+                "scanned.pdf",
+                make_blank_pdf(),
+                "application/pdf",
+            )
+        },
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 201
+
+    document_id = response.json()["id"]
+
+    response = client.get(
+        f"/api/v1/organizations/{organization_id}/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["status"] == "failed"
+    assert body["failure_reason"] == (
+        "Document contains no extractable text"
+    )
+    assert body["page_count"] is None
+    assert body["word_count"] is None
+    assert body["character_count"] is None
+
+    assert (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .count()
+        == 0
+    )
 
 
 def test_upload_file_at_exact_limit_is_accepted(client):

@@ -98,6 +98,39 @@ def test_bm25_index_is_cached_and_invalidated(monkeypatch):
     assert third is not first
 
 
+def test_bm25_empty_corpus_returns_no_results(
+    monkeypatch,
+):
+    empty_index = bm25_service.BM25Index([])
+
+    assert empty_index.search(
+        query="annual leave",
+        limit=5,
+    ) == []
+
+    monkeypatch.setattr(
+        bm25_service,
+        "DocumentChunk",
+        FakeDocumentChunkModel,
+    )
+
+    bm25_service._cache.clear()
+
+    try:
+        index = bm25_service.get_bm25_index(
+            db=FakeDB([]),
+            organization_id=2,
+        )
+
+        assert index.search(
+            query="annual leave",
+            limit=5,
+        ) == []
+
+    finally:
+        bm25_service._cache.clear()
+
+
 def test_bm25_search_prefers_matching_chunk():
     chunks = [
         FakeChunk(

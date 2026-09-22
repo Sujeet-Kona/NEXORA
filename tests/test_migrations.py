@@ -102,6 +102,7 @@ def test_migration_upgrade_creates_users_table(
         "word_count",
         "character_count",
         "status",
+        "failure_reason",
         "version",
         "created_at",
         "updated_at",

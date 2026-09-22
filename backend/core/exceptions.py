@@ -50,6 +50,10 @@ class DocumentExtractionError(NexoraError):
     """Raised when document text extraction fails."""
 
 
+class EmptyDocumentTextError(DocumentExtractionError):
+    """Raised when a document yields no extractable text."""
+
+
 class DocumentDeletionFailedError(NexoraError):
     """Raised when document vectors cannot be purged during deletion."""
 

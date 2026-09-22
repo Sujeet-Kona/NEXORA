@@ -35,6 +35,7 @@ class DocumentResponse(BaseModel):
     word_count: int | None
     character_count: int | None
     status: DocumentStatus
+    failure_reason: str | None = None
     version: int
     created_at: datetime
     updated_at: datetime

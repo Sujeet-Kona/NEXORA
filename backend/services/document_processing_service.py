@@ -4,6 +4,7 @@ from backend.core.config import settings
 from backend.core.exceptions import (
     DocumentExtractionError,
     DocumentNotFoundError,
+    EmptyDocumentTextError,
 )
 from backend.db.models import DocumentStatus
 from backend.repositories.document_chunk_repository import (
@@ -13,6 +14,7 @@ from backend.repositories.document_repository import (
     get_document_by_id,
     get_document_by_id_unscoped,
     update_document_extraction_stats,
+    update_document_failure,
     update_document_status,
 )
 from backend.services.bm25_service import invalidate_bm25_index
@@ -26,6 +28,16 @@ from backend.repositories.qdrant_repository import (
     QdrantRepository,
 )
 from backend.services.storage import LocalStorage
+
+
+def _failure_reason(exc: Exception) -> str:
+    if isinstance(exc, EmptyDocumentTextError):
+        return "Document contains no extractable text"
+
+    if isinstance(exc, DocumentExtractionError):
+        return "Document text extraction failed"
+
+    return "Document processing failed"
 
 
 def process_document(
@@ -43,6 +55,8 @@ def process_document(
         raise DocumentNotFoundError(
             "Document not found"
         )
+
+    document.failure_reason = None
 
     update_document_status(
         db=db,
@@ -69,6 +83,11 @@ def process_document(
             content_type=document.content_type,
             content=content,
         )
+
+        if not extracted_document.text.strip():
+            raise EmptyDocumentTextError(
+                "Document contains no extractable text"
+            )
 
         chunks = split_document(extracted_document)
 
@@ -114,7 +133,7 @@ def process_document(
             status=DocumentStatus.READY,
         )
 
-    except Exception:
+    except Exception as exc:
         db.rollback()
 
         refreshed_document = get_document_by_id(
@@ -124,10 +143,10 @@ def process_document(
         )
 
         if refreshed_document:
-            update_document_status(
+            update_document_failure(
                 db=db,
                 document=refreshed_document,
-                status=DocumentStatus.FAILED,
+                failure_reason=_failure_reason(exc),
             )
 
         raise

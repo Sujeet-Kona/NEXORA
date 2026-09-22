@@ -2,10 +2,15 @@
 
 import pytest
 
-from backend.core.exceptions import DocumentNotFoundError
+from backend.core.exceptions import (
+    DocumentExtractionError,
+    DocumentNotFoundError,
+    EmptyDocumentTextError,
+)
 from backend.db.models import DocumentChunk, DocumentStatus, User
 from backend.repositories.document_repository import (
     create_document,
+    update_document_failure,
 )
 from backend.services.document_processing_service import (
     process_document,
@@ -40,6 +45,17 @@ def make_multipage_extracted_document():
             ExtractedPage(
                 page_number=2,
                 text="Beta " * 700,
+            ),
+        ),
+    )
+
+
+def make_blank_extracted_document():
+    return ExtractedDocument(
+        pages=(
+            ExtractedPage(
+                page_number=1,
+                text="   ",
             ),
         ),
     )
@@ -213,6 +229,192 @@ def test_processing_persists_chunk_page_provenance(
         assert chunk.page_start <= chunk.page_end
 
 
+def test_blank_extraction_marks_document_failed_with_reason(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-blank@example.com",
+        "Processing Blank",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Processing Blank Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="scanned.pdf",
+        storage_key="documents/scanned.pdf",
+        content_type="application/pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_blank_extracted_document(),
+    )
+
+    embedding = Mock()
+    qdrant = Mock()
+
+    with pytest.raises(EmptyDocumentTextError):
+        process_document(
+            db=db,
+            document_id=document.id,
+            embedding_service=embedding,
+            qdrant_repository=qdrant,
+        )
+
+    db.refresh(document)
+
+    assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == (
+        "Document contains no extractable text"
+    )
+    assert document.page_count is None
+    assert document.word_count is None
+    assert document.character_count is None
+
+    assert (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .count()
+        == 0
+    )
+
+    embedding.embed_documents.assert_not_called()
+
+
+def test_extraction_error_records_extraction_failure_reason(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-extraction-error@example.com",
+        "Processing Extraction Error",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Processing Extraction Error Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="corrupt.pdf",
+        storage_key="documents/corrupt.pdf",
+        content_type="application/pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"not a real pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: (_ for _ in ()).throw(
+            DocumentExtractionError(
+                "Failed to extract PDF text"
+            )
+        ),
+    )
+
+    embedding = Mock()
+    qdrant = Mock()
+
+    with pytest.raises(DocumentExtractionError):
+        process_document(
+            db=db,
+            document_id=document.id,
+            embedding_service=embedding,
+            qdrant_repository=qdrant,
+        )
+
+    db.refresh(document)
+
+    assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == (
+        "Document text extraction failed"
+    )
+
+
+def test_reprocessing_clears_previous_failure_reason(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-retry@example.com",
+        "Processing Retry",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Processing Retry Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="retry.pdf",
+        storage_key="documents/retry.pdf",
+        content_type="application/pdf",
+    )
+
+    update_document_failure(
+        db=db,
+        document=document,
+        failure_reason="Document text extraction failed",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.index_document_chunks",
+        lambda **kwargs: None,
+    )
+
+    embedding = Mock()
+    qdrant = Mock()
+
+    process_document(
+        db=db,
+        document_id=document.id,
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+    )
+
+    db.refresh(document)
+
+    assert document.status == DocumentStatus.READY
+    assert document.failure_reason is None
+
+
 def test_processing_failure_marks_document_failed(
     db,
     monkeypatch,
@@ -264,6 +466,8 @@ def test_processing_failure_marks_document_failed(
     db.refresh(document)
 
     assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == "Document processing failed"
+    assert "extraction failed" not in document.failure_reason
     assert document.page_count is None
     assert document.word_count is None
     assert document.character_count is None

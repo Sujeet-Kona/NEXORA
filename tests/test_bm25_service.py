@@ -253,3 +253,50 @@ def test_bm25_document_filter_applies_before_limit():
 
     assert len(results) == 1
     assert results[0][0].id == 3
+
+
+def test_bm25_tokenizer_ignores_punctuation():
+    chunk = FakeChunk(
+        1,
+        10,
+        0,
+        "Reimburse travel, meals, and lodging!",
+    )
+
+    index = bm25_service.BM25Index([chunk])
+
+    assert index.search(
+        query="meals",
+        limit=1,
+    )[0][0].id == 1
+
+    assert index.search(
+        query="travel,",
+        limit=1,
+    )[0][0].id == 1
+
+
+def test_bm25_search_excludes_zero_score_chunks():
+    chunks = [
+        FakeChunk(
+            1,
+            10,
+            0,
+            "annual leave policy provides vacation days",
+        ),
+        FakeChunk(
+            2,
+            10,
+            1,
+            "password security requires strong credentials",
+        ),
+    ]
+
+    index = bm25_service.BM25Index(chunks)
+
+    results = index.search(
+        query="annual leave",
+        limit=5,
+    )
+
+    assert [chunk.id for chunk, _ in results] == [1]

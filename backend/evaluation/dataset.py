@@ -1,4 +1,43 @@
-﻿EVALUATION_CASES = [
+from dataclasses import dataclass
+from pathlib import Path
+
+from backend.services.document_chunking import (
+    split_document,
+)
+from backend.services.document_extraction import (
+    extract_document,
+)
+
+BENCHMARK_DATA_DIR = (
+    Path(__file__).resolve().parents[2] / "benchmark-data"
+)
+
+DOCX_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-"
+    "officedocument.wordprocessingml.document"
+)
+
+
+@dataclass(frozen=True)
+class EvaluationCase:
+    question: str
+    document: str
+    anchor: str
+
+
+@dataclass(frozen=True)
+class CorpusChunk:
+    id: int
+    document_id: int
+    document_name: str
+    chunk_index: int
+    text: str
+    page_start: int | None
+    page_end: int | None
+    organization_id: int = 1
+
+
+_CASE_DATA = [
     # Leave Policy
     {
         "question": "How many days of annual leave do employees receive?",
@@ -169,3 +208,89 @@
         "anchor": "If an alert is not acknowledged within two minutes, the system escalates the notification to the next contact.",
     },
 ]
+
+
+def load_cases() -> list[EvaluationCase]:
+    cases = [
+        EvaluationCase(
+            question=case["question"],
+            document=case["document"],
+            anchor=case["anchor"],
+        )
+        for case in _CASE_DATA
+    ]
+
+    if not cases:
+        raise RuntimeError("Evaluation dataset is empty")
+
+    for case in cases:
+        path = BENCHMARK_DATA_DIR / case.document
+
+        if not path.is_file():
+            raise RuntimeError(
+                "Corpus file not found: " + case.document
+            )
+
+    return cases
+
+
+def build_corpus_chunks() -> list[CorpusChunk]:
+    chunks: list[CorpusChunk] = []
+    chunk_id = 0
+
+    paths = sorted(BENCHMARK_DATA_DIR.glob("*.docx"))
+
+    if not paths:
+        raise RuntimeError(
+            "No corpus documents found in benchmark-data"
+        )
+
+    for document_id, path in enumerate(paths, start=1):
+        extracted_document = extract_document(
+            filename=path.name,
+            content_type=DOCX_CONTENT_TYPE,
+            content=path.read_bytes(),
+        )
+
+        for chunk_index, span in enumerate(
+            split_document(extracted_document),
+        ):
+            chunk_id += 1
+
+            chunks.append(
+                CorpusChunk(
+                    id=chunk_id,
+                    document_id=document_id,
+                    document_name=path.name,
+                    chunk_index=chunk_index,
+                    text=span.text,
+                    page_start=span.page_start,
+                    page_end=span.page_end,
+                )
+            )
+
+    return chunks
+
+
+def ground_truth_chunk_ids(
+    chunks: list[CorpusChunk],
+    case: EvaluationCase,
+) -> set[int]:
+    return {
+        chunk.id
+        for chunk in chunks
+        if chunk.document_name == case.document
+        and case.anchor in chunk.text
+    }
+
+
+def validate_dataset() -> None:
+    cases = load_cases()
+    chunks = build_corpus_chunks()
+
+    for case in cases:
+        if not ground_truth_chunk_ids(chunks, case):
+            raise RuntimeError(
+                "Ground truth not found for: "
+                + case.question
+            )

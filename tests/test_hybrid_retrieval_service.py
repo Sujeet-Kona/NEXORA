@@ -1,5 +1,7 @@
 ﻿from unittest.mock import Mock
 
+import pytest
+
 from backend.core.config import settings
 from backend.db.models import User
 from backend.repositories.document_chunk_repository import (
@@ -10,7 +12,6 @@ from backend.repositories.document_repository import (
 )
 from backend.services import bm25_service
 from backend.services.hybrid_retrieval_service import (
-    _bm25_search,
     _rrf_fuse,
     hybrid_retrieve_chunks,
 )
@@ -18,6 +19,7 @@ from backend.services.organization_service import (
     create_organization_service,
 )
 from backend.services.retrieval_service import RetrievedChunk
+from backend.services.retrievers import LexicalRetriever
 
 
 def make_chunk(
@@ -69,14 +71,27 @@ def test_rrf_fusion_promotes_documents_in_both_rankings():
     ]
 
     results = _rrf_fuse(
-        dense=dense,
-        lexical=lexical,
+        [dense, lexical],
     )
 
     assert results[0].chunk.chunk_id == 2
 
 
-def test_bm25_search_attaches_page_provenance_and_document_name(
+def test_rrf_fusion_supports_more_than_two_rankings():
+    shared = make_chunk(1, "shared result")
+
+    results = _rrf_fuse(
+        [
+            [make_chunk(2, "first ranking"), shared],
+            [make_chunk(3, "second ranking"), shared],
+            [make_chunk(4, "third ranking"), shared],
+        ],
+    )
+
+    assert results[0].chunk.chunk_id == 1
+
+
+def test_lexical_retriever_attaches_page_provenance_and_document_name(
     db,
 ):
     bm25_service._cache.clear()
@@ -117,11 +132,10 @@ def test_bm25_search_attaches_page_provenance_and_document_name(
     db.commit()
     db.refresh(chunk)
 
-    results = _bm25_search(
+    results = LexicalRetriever(limit=5).retrieve(
         db=db,
         organization_id=organization.id,
         query="annual leave",
-        limit=5,
     )
 
     bm25_service._cache.clear()
@@ -235,4 +249,79 @@ def test_hybrid_retrieve_chunks_applies_document_filter(
         limit=settings.retrieval_dense_top_k,
         document_ids=[other_document.id],
     )
+
+
+class StubRetriever:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    def retrieve(
+        self,
+        *,
+        db,
+        organization_id,
+        query,
+        document_ids=None,
+    ):
+        return self.chunks
+
+
+def test_hybrid_retrieve_chunks_accepts_custom_retrievers(
+    monkeypatch,
+):
+    shared = make_chunk(2, "shared result")
+
+    first = StubRetriever(
+        [
+            make_chunk(1, "dense first"),
+            shared,
+        ],
+    )
+
+    second = StubRetriever(
+        [
+            make_chunk(3, "lexical first"),
+            shared,
+        ],
+    )
+
+    class StubReranker:
+        def rerank(
+            self,
+            query,
+            chunks,
+        ):
+            return chunks
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.get_reranker",
+        lambda: StubReranker(),
+    )
+
+    results = hybrid_retrieve_chunks(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        retrievers=[first, second],
+    )
+
+    assert results[0].chunk_id == 2
+    assert len(results) == settings.retrieval_top_k
+
+
+def test_hybrid_retrieve_chunks_rejects_default_limits_with_custom_retrievers():
+    retriever = StubRetriever([])
+
+    with pytest.raises(ValueError):
+        hybrid_retrieve_chunks(
+            db=None,
+            organization_id=2,
+            query="annual leave",
+            embedding_service=None,
+            qdrant_repository=None,
+            retrievers=[retriever],
+            dense_limit=5,
+        )
 

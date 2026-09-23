@@ -1,9 +1,12 @@
-﻿from threading import RLock
+﻿import re
+from threading import RLock
 
 from rank_bm25 import BM25Okapi
 from sqlalchemy.orm import Session
 
 from backend.db.models import DocumentChunk
+
+_WORD_PATTERN = re.compile(r"\w+")
 
 
 class BM25Index:
@@ -18,13 +21,16 @@ class BM25Index:
             for chunk in self.chunks
         ]
 
+        self.corpus_tokens = corpus
         self.bm25 = (
             BM25Okapi(corpus) if corpus else None
         )
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        return text.lower().split()
+        return _WORD_PATTERN.findall(
+            text.lower(),
+        )
 
     def search(
         self,
@@ -35,13 +41,26 @@ class BM25Index:
         if self.bm25 is None:
             return []
 
-        scores = self.bm25.get_scores(
-            self._tokenize(query)
-        )
+        query_tokens = self._tokenize(query)
+
+        if not query_tokens:
+            return []
+
+        scores = self.bm25.get_scores(query_tokens)
+
+        query_terms = set(query_tokens)
 
         ranked = sorted(
-            zip(self.chunks, scores),
-            key=lambda item: float(item[1]),
+            (
+                (chunk, float(score))
+                for chunk, score, tokens in zip(
+                    self.chunks,
+                    scores,
+                    self.corpus_tokens,
+                )
+                if query_terms.intersection(tokens)
+            ),
+            key=lambda item: item[1],
             reverse=True,
         )
 

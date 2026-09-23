@@ -1,22 +1,16 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 
-from rank_bm25 import BM25Okapi
 from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
 
 from backend.core.config import settings
-from backend.db.models import DocumentChunk
-from backend.repositories.document_repository import (
-    get_document_names,
-)
 from backend.repositories.qdrant_repository import QdrantRepository
-from backend.services.bm25_service import (
-    get_bm25_index,
-)
 from backend.services.embedding_service import EmbeddingService
-from backend.services.retrieval_service import (
-    RetrievedChunk,
-    retrieve_chunks,
+from backend.services.retrieval_service import RetrievedChunk
+from backend.services.retrievers import (
+    DenseRetriever,
+    LexicalRetriever,
+    Retriever,
 )
 
 
@@ -72,75 +66,20 @@ def get_reranker() -> Reranker:
     return _reranker
 
 
-def _tokenize(text: str) -> list[str]:
-    return text.lower().split()
-
-
-def _bm25_search(
-    db: Session,
-    organization_id: int,
-    query: str,
-    limit: int,
-    document_ids: list[int] | None = None,
-) -> list[RetrievedChunk]:
-    index = get_bm25_index(
-        db=db,
-        organization_id=organization_id,
-    )
-
-    results = index.search(
-        query=query,
-        limit=limit,
-        document_ids=document_ids,
-    )
-
-    document_names = get_document_names(
-        db=db,
-        document_ids=[
-            chunk.document_id
-            for chunk, _ in results
-        ],
-        organization_id=organization_id,
-    )
-
-    return [
-        RetrievedChunk(
-            chunk_id=chunk.id,
-            document_id=chunk.document_id,
-            organization_id=chunk.organization_id,
-            chunk_index=chunk.chunk_index,
-            text=chunk.text,
-            score=float(score),
-            page_start=chunk.page_start,
-            page_end=chunk.page_end,
-            document_name=document_names.get(
-                chunk.document_id
-            ),
-        )
-        for chunk, score in results
-    ]
-
 def _rrf_fuse(
-    dense: list[RetrievedChunk],
-    lexical: list[RetrievedChunk],
+    rankings: list[list[RetrievedChunk]],
     k: int = 60,
 ) -> list[HybridCandidate]:
     scores: dict[int, float] = {}
     chunks: dict[int, RetrievedChunk] = {}
 
-    for rank, chunk in enumerate(dense, start=1):
-        scores[chunk.chunk_id] = (
-            scores.get(chunk.chunk_id, 0.0)
-            + 1.0 / (k + rank)
-        )
-        chunks[chunk.chunk_id] = chunk
-
-    for rank, chunk in enumerate(lexical, start=1):
-        scores[chunk.chunk_id] = (
-            scores.get(chunk.chunk_id, 0.0)
-            + 1.0 / (k + rank)
-        )
-        chunks.setdefault(chunk.chunk_id, chunk)
+    for ranking in rankings:
+        for rank, chunk in enumerate(ranking, start=1):
+            scores[chunk.chunk_id] = (
+                scores.get(chunk.chunk_id, 0.0)
+                + 1.0 / (k + rank)
+            )
+            chunks.setdefault(chunk.chunk_id, chunk)
 
     ranked_ids = sorted(
         chunks,
@@ -164,6 +103,7 @@ def hybrid_retrieve_chunks(
     query: str,
     embedding_service: EmbeddingService,
     qdrant_repository: QdrantRepository,
+    retrievers: list[Retriever] | None = None,
     dense_limit: int | None = None,
     lexical_limit: int | None = None,
     rerank_limit: int | None = None,
@@ -174,11 +114,21 @@ def hybrid_retrieve_chunks(
     if not query.strip():
         raise ValueError("Query cannot be empty")
 
-    if dense_limit is None:
-        dense_limit = settings.retrieval_dense_top_k
-
-    if lexical_limit is None:
-        lexical_limit = settings.retrieval_lexical_top_k
+    if retrievers is None:
+        retrievers = [
+            DenseRetriever(
+                embedding_service,
+                qdrant_repository,
+                limit=dense_limit,
+            ),
+            LexicalRetriever(limit=lexical_limit),
+        ]
+    elif dense_limit is not None or lexical_limit is not None:
+        raise ValueError(
+            "dense_limit and lexical_limit only apply to "
+            "the default retrievers; configure limits on "
+            "the passed retrievers instead"
+        )
 
     if rerank_limit is None:
         rerank_limit = settings.retrieval_rerank_top_k
@@ -196,28 +146,17 @@ def hybrid_retrieve_chunks(
             "Final limit must be greater than zero"
         )
 
-    dense = retrieve_chunks(
-        db=db,
-        organization_id=organization_id,
-        query=query,
-        embedding_service=embedding_service,
-        qdrant_repository=qdrant_repository,
-        limit=dense_limit,
-        document_ids=document_ids,
-    )
+    rankings = [
+        retriever.retrieve(
+            db=db,
+            organization_id=organization_id,
+            query=query,
+            document_ids=document_ids,
+        )
+        for retriever in retrievers
+    ]
 
-    lexical = _bm25_search(
-        db=db,
-        organization_id=organization_id,
-        query=query,
-        limit=lexical_limit,
-        document_ids=document_ids,
-    )
-
-    fused = _rrf_fuse(
-        dense=dense,
-        lexical=lexical,
-    )
+    fused = _rrf_fuse(rankings)
 
     candidates = [
         candidate.chunk
@@ -230,5 +169,3 @@ def hybrid_retrieve_chunks(
     )
 
     return reranked[:final_limit]
-
-

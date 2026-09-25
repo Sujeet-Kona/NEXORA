@@ -17,12 +17,47 @@ DOCX_CONTENT_TYPE = (
     "officedocument.wordprocessingml.document"
 )
 
+REFUSAL_MARKERS = (
+    "do not contain enough information",
+    "does not contain enough information",
+    "not contain enough information",
+    "not enough information",
+    # same refusals without the word "enough" ("...does not contain
+    # information about X"), which models emit just as often
+    "does not contain information",
+    "does not provide information",
+    "do not contain information",
+    "do not provide information",
+    "not contain information",
+    "not provide information",
+    "does not contain any information",
+    "does not provide any information",
+    "no information",
+    "does not mention",
+    "do not mention",
+    "not specified",
+    "not provided",
+    "insufficient",
+    "cannot answer",
+    "can't answer",
+    "unable to answer",
+    "i don't have",
+    "i do not have",
+)
+
 
 @dataclass(frozen=True)
 class EvaluationCase:
     question: str
     document: str
     anchor: str
+    expected: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class NegativeCase:
+    question: str
+    topic: str
 
 
 @dataclass(frozen=True)
@@ -43,16 +78,19 @@ _CASE_DATA = [
         "question": "How many days of annual leave do employees receive?",
         "document": "leave_policy.docx",
         "anchor": "Employees receive 20 days of annual leave per year.",
+        "expected": ("20 days", "twenty days"),
     },
     {
         "question": "How many days of sick leave do employees receive?",
         "document": "leave_policy.docx",
         "anchor": "Employees receive 10 days of sick leave per year.",
+        "expected": ("10 days", "ten days"),
     },
     {
         "question": "When is manager approval required for leave?",
         "document": "leave_policy.docx",
         "anchor": "Leave requests longer than three working days require manager approval.",
+        "expected": ("three working days", "3 working days"),
     },
 
     # Remote Work Policy
@@ -60,16 +98,19 @@ _CASE_DATA = [
         "question": "Who is eligible to request remote work?",
         "document": "remote_work_policy.docx",
         "anchor": "Employees who have completed probation may request remote work.",
+        "expected": ("completed probation", "probation"),
     },
     {
         "question": "How many days per week may eligible employees work remotely?",
         "document": "remote_work_policy.docx",
         "anchor": "Eligible employees may work remotely up to three days per week.",
+        "expected": ("three days per week", "3 days per week", "three days a week"),
     },
     {
         "question": "What are the core hours for remote employees?",
         "document": "remote_work_policy.docx",
         "anchor": "Remote employees must be available from 10 AM to 4 PM.",
+        "expected": ("10 am to 4 pm", "10:00 am to 4:00 pm", "10 am and 4 pm"),
     },
 
     # Information Security Policy
@@ -77,16 +118,19 @@ _CASE_DATA = [
         "question": "What authentication method must employees use?",
         "document": "information_security_policy.docx",
         "anchor": "All employees must use multi-factor authentication for supported company systems.",
+        "expected": ("multi-factor authentication", "multifactor authentication", "mfa"),
     },
     {
         "question": "Can confidential information be shared outside the company without authorization?",
         "document": "information_security_policy.docx",
         "anchor": "Confidential information must not be shared outside the company without authorization.",
+        "expected": ("must not be shared", "not be shared without authorization", "cannot be shared"),
     },
     {
         "question": "What security protection must company devices use?",
         "document": "information_security_policy.docx",
         "anchor": "Company devices must use disk encryption and approved security software.",
+        "expected": ("disk encryption",),
     },
 
     # Password Authentication Policy
@@ -94,16 +138,19 @@ _CASE_DATA = [
         "question": "What is the minimum password length?",
         "document": "password_authentication_policy.docx",
         "anchor": "Passwords must contain at least 12 characters.",
+        "expected": ("12 characters", "twelve characters"),
     },
     {
         "question": "How often must passwords be changed?",
         "document": "password_authentication_policy.docx",
         "anchor": "Passwords must be changed every 90 days.",
+        "expected": ("90 days", "ninety days"),
     },
     {
         "question": "How many previous passwords may not be reused?",
         "document": "password_authentication_policy.docx",
         "anchor": "Employees may not reuse their previous five passwords.",
+        "expected": ("five passwords", "5 passwords", "previous five"),
     },
 
     # Expense Policy
@@ -111,16 +158,19 @@ _CASE_DATA = [
         "question": "What is the daily meal expense limit?",
         "document": "expense_policy.docx",
         "anchor": "Employees may claim up to Rs. 800 per day for eligible meals incurred during approved business activity.",
+        "expected": ("800",),
     },
     {
         "question": "What expense amount requires an itemized receipt?",
         "document": "expense_policy.docx",
         "anchor": "Expenses above Rs. 500 require an itemized receipt.",
+        "expected": ("500",),
     },
     {
         "question": "Within how many days must expense reports be submitted?",
         "document": "expense_policy.docx",
         "anchor": "Expense reports must be submitted within 30 days.",
+        "expected": ("30 days", "thirty days"),
     },
 
     # Attendance Policy
@@ -128,16 +178,19 @@ _CASE_DATA = [
         "question": "How many working days are in the standard work week?",
         "document": "attendance_policy.docx",
         "anchor": "The standard work week consists of five working days.",
+        "expected": ("five working days", "5 working days", "five days"),
     },
     {
         "question": "When must an employee inform the manager about late arrival?",
         "document": "attendance_policy.docx",
         "anchor": "Employees arriving more than 30 minutes late must inform their manager.",
+        "expected": ("30 minutes", "thirty minutes"),
     },
     {
         "question": "How should employees record attendance?",
         "document": "attendance_policy.docx",
         "anchor": "Employees must record attendance through the company system.",
+        "expected": ("company system",),
     },
 
     # Travel Policy
@@ -145,16 +198,19 @@ _CASE_DATA = [
         "question": "What class is normally used for domestic business flights?",
         "document": "travel_policy.docx",
         "anchor": "Domestic business travel is normally booked in economy class.",
+        "expected": ("economy",),
     },
     {
         "question": "What is the hotel reimbursement limit per night?",
         "document": "travel_policy.docx",
         "anchor": "Employees may claim up to Rs. 5000 per night for eligible hotels.",
+        "expected": ("5000", "5,000"),
     },
     {
         "question": "How far in advance should travel normally be booked?",
         "document": "travel_policy.docx",
         "anchor": "Travel should be booked at least seven days in advance.",
+        "expected": ("seven days", "7 days"),
     },
 
     # Employee Conduct Policy
@@ -162,16 +218,19 @@ _CASE_DATA = [
         "question": "How should employees communicate with colleagues and professional contacts?",
         "document": "employee_conduct_policy.docx",
         "anchor": "Employees must communicate respectfully with colleagues and professional contacts.",
+        "expected": ("respectfully", "respect"),
     },
     {
         "question": "Is harassment and discrimination allowed?",
         "document": "employee_conduct_policy.docx",
         "anchor": "Harassment and discrimination are prohibited.",
+        "expected": ("prohibited", "not allowed", "not permitted"),
     },
     {
         "question": "What must employees disclose when personal interests could affect business decisions?",
         "document": "employee_conduct_policy.docx",
         "anchor": "Employees must disclose potential conflicts of interest.",
+        "expected": ("conflicts of interest", "conflict of interest"),
     },
 
     # Workplace Safety Policy
@@ -179,16 +238,19 @@ _CASE_DATA = [
         "question": "What must be true of emergency exits?",
         "document": "workplace_safety_policy.docx",
         "anchor": "Emergency exits must remain clear and accessible at all times.",
+        "expected": ("clear and accessible",),
     },
     {
         "question": "What should employees do during a fire alarm?",
         "document": "workplace_safety_policy.docx",
         "anchor": "Employees must follow building fire evacuation procedures.",
+        "expected": ("evacuation",),
     },
     {
         "question": "When must required protective equipment be worn?",
         "document": "workplace_safety_policy.docx",
         "anchor": "Required protective equipment must be worn in designated areas.",
+        "expected": ("designated areas",),
     },
 
     # Emergency Alert System
@@ -196,16 +258,36 @@ _CASE_DATA = [
         "question": "Which microcontroller is used by the emergency alert system?",
         "document": "emergency_alert_system.docx",
         "anchor": "The emergency alert system uses an ESP32 microcontroller as the primary control unit.",
+        "expected": ("esp32",),
     },
     {
         "question": "Which sensors are used for gas and fire detection?",
         "document": "emergency_alert_system.docx",
         "anchor": "An MQ-2 gas sensor and an IR flame sensor are used for gas and fire detection.",
+        "expected": ("mq-2", "ir flame"),
     },
     {
         "question": "What happens if an emergency alert is not acknowledged within two minutes?",
         "document": "emergency_alert_system.docx",
         "anchor": "If an alert is not acknowledged within two minutes, the system escalates the notification to the next contact.",
+        "expected": ("escalates", "next contact"),
+    },
+]
+
+# Topics verified absent from the benchmark corpus, used to check that the
+# pipeline declines to answer instead of generating unsupported claims.
+_NEGATIVE_CASE_DATA = [
+    {
+        "question": "What is the company policy on cryptocurrency investments?",
+        "topic": "cryptocurrency",
+    },
+    {
+        "question": "How many weeks of paid parental leave do employees receive?",
+        "topic": "parental leave",
+    },
+    {
+        "question": "What is the monthly gym membership reimbursement amount?",
+        "topic": "gym reimbursement",
     },
 ]
 
@@ -216,6 +298,7 @@ def load_cases() -> list[EvaluationCase]:
             question=case["question"],
             document=case["document"],
             anchor=case["anchor"],
+            expected=case["expected"],
         )
         for case in _CASE_DATA
     ]
@@ -231,7 +314,29 @@ def load_cases() -> list[EvaluationCase]:
                 "Corpus file not found: " + case.document
             )
 
+        if not case.expected:
+            raise RuntimeError(
+                "No expected answer fact for: " + case.question
+            )
+
+        if not all(
+            fact.strip() for fact in case.expected
+        ):
+            raise RuntimeError(
+                "Blank expected answer fact for: " + case.question
+            )
+
     return cases
+
+
+def load_negative_cases() -> list[NegativeCase]:
+    return [
+        NegativeCase(
+            question=case["question"],
+            topic=case["topic"],
+        )
+        for case in _NEGATIVE_CASE_DATA
+    ]
 
 
 def build_corpus_chunks() -> list[CorpusChunk]:

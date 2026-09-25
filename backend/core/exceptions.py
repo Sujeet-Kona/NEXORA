@@ -60,3 +60,7 @@ class DocumentDeletionFailedError(NexoraError):
 
 class InvalidDocumentStatusTransitionError(NexoraError):
     """Raised when a document status change is not a valid transition."""
+
+
+class LLMGenerationError(NexoraError):
+    """Raised when the LLM provider cannot produce an answer."""

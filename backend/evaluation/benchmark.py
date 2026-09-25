@@ -216,7 +216,7 @@ def run_offline() -> None:
     )
 
 
-def _seed_live_corpus(
+def seed_live_corpus(
     db,
     storage: LocalStorage,
     embedding_service: EmbeddingService,
@@ -266,7 +266,7 @@ def _seed_live_corpus(
         )
 
 
-def _cleanup_live_corpus(
+def cleanup_live_corpus(
     db,
     qdrant_repository: QdrantRepository,
     storage: LocalStorage,
@@ -404,7 +404,7 @@ def run_live() -> None:
 
         print("Organization ID:", organization_id)
 
-        _seed_live_corpus(
+        seed_live_corpus(
             db=db,
             storage=storage,
             embedding_service=embedding_service,
@@ -562,7 +562,7 @@ def run_live() -> None:
 
     finally:
         if organization_id is not None:
-            _cleanup_live_corpus(
+            cleanup_live_corpus(
                 db=db,
                 qdrant_repository=qdrant_repository,
                 storage=storage,

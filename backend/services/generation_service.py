@@ -1,5 +1,6 @@
 ﻿from dataclasses import dataclass
 
+from backend.core.exceptions import LLMGenerationError
 from backend.services.llm.base import LLMClient
 from backend.services.retrieval_service import RetrievedChunk
 
@@ -62,7 +63,7 @@ def generate_answer(
     ).strip()
 
     if not answer:
-        raise RuntimeError(
+        raise LLMGenerationError(
             "LLM returned an empty answer"
         )
 

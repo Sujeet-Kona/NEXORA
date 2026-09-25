@@ -1,4 +1,6 @@
-﻿from fastapi import FastAPI, Request
+﻿import logging
+
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from backend.core.exceptions import (
@@ -9,6 +11,7 @@ from backend.core.exceptions import (
     InvalidDocumentStatusTransitionError,
     InvalidDocumentUploadError,
     InvalidUserIdError,
+    LLMGenerationError,
     OrganizationAccessDeniedError,
     OrganizationMembershipAlreadyExistsError,
     OrganizationMembershipRequiredError,
@@ -16,6 +19,10 @@ from backend.core.exceptions import (
     UserAlreadyExistsError,
     UserNotFoundError,
 )
+from backend.core.logging import LOGGER_NAME
+
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 async def invalid_credentials_handler(
@@ -148,6 +155,25 @@ async def invalid_document_status_transition_handler(
     )
 
 
+async def llm_generation_error_handler(
+    request: Request,
+    exc: LLMGenerationError,
+) -> JSONResponse:
+    logger.warning(
+        "LLM provider request failed",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "reason": str(exc),
+        },
+    )
+
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "LLM provider request failed"},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidCredentialsError,
@@ -212,4 +238,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidDocumentStatusTransitionError,
         invalid_document_status_transition_handler,
+    )
+
+    app.add_exception_handler(
+        LLMGenerationError,
+        llm_generation_error_handler,
     )

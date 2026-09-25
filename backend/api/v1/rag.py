@@ -69,6 +69,7 @@ def query_knowledge_base(
         answer=result.answer,
         sources=[
             RAGSourceResponse(
+                citation_index=citation_index,
                 chunk_id=source.chunk_id,
                 document_id=source.document_id,
                 document_name=source.document_name,
@@ -77,6 +78,9 @@ def query_knowledge_base(
                 page_start=source.page_start,
                 page_end=source.page_end,
             )
-            for source in result.sources
+            for citation_index, source in enumerate(
+                result.sources,
+                start=1,
+            )
         ],
     )

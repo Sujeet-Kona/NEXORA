@@ -10,6 +10,7 @@ class RAGQueryRequest(BaseModel):
 
 
 class RAGSourceResponse(BaseModel):
+    citation_index: int
     chunk_id: int
     document_id: int
     document_name: str | None

@@ -217,6 +217,7 @@ def test_query_sources_include_citation_metadata(
     assert body["answer"] == "stubbed answer"
     assert body["sources"] == [
         {
+            "citation_index": 1,
             "chunk_id": chunk.id,
             "document_id": document.id,
             "document_name": "leave-policy.pdf",
@@ -226,6 +227,72 @@ def test_query_sources_include_citation_metadata(
             "page_end": 3,
         }
     ]
+
+
+def test_query_assigns_sequential_citation_index_in_retrieval_order(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "citation-order-owner@example.com",
+        "Citation Order Company",
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="handbook.pdf",
+    )
+
+    first = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=0,
+        text="First annual leave clause.",
+    )
+
+    second = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=1,
+        text="Second annual leave clause.",
+    )
+
+    db.commit()
+    db.refresh(first)
+    db.refresh(second)
+
+    stub_query_dependencies(
+        monkeypatch,
+        points=[
+            (second.id, 0.99),
+            (first.id, 0.80),
+        ],
+    )
+
+    response = post_query(
+        client,
+        tenant,
+        "annual leave clauses",
+    )
+
+    assert response.status_code == 200
+
+    sources = response.json()["sources"]
+
+    assert [
+        source["citation_index"] for source in sources
+    ] == [1, 2]
+
+    assert [
+        source["chunk_id"] for source in sources
+    ] == [second.id, first.id]
 
 
 def test_query_sources_report_missing_pages_as_null(

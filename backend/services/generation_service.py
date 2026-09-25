@@ -8,6 +8,11 @@ from backend.services.retrieval_service import RetrievedChunk
 SYSTEM_PROMPT = """
 You are Nexora, a grounded enterprise knowledge assistant.
 Answer the user's question using only the supplied document context.
+Each context passage begins with a bracketed number such as [1].
+Cite the passages you rely on by placing their bracketed numbers
+inline in your answer, for example: "Staff receive 20 days of
+annual leave [1]." Only cite passages that actually support a
+statement, and use the number that passage was given.
 Do not invent facts, use outside knowledge, or contradict the context.
 If the context does not contain enough information, say so clearly.
 Keep the answer concise and directly answer the user's question.
@@ -23,10 +28,15 @@ class GeneratedAnswer:
 def _build_context(
     chunks: list[RetrievedChunk],
 ) -> str:
-    return "\n\n".join(
+    passages = [
         chunk.text.strip()
         for chunk in chunks
         if chunk.text.strip()
+    ]
+
+    return "\n\n".join(
+        "[{}]\n{}".format(index, passage)
+        for index, passage in enumerate(passages, start=1)
     )
 
 

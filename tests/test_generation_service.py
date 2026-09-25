@@ -125,3 +125,64 @@ def test_generate_answer_rejects_empty_llm_response():
             chunks=[make_chunk()],
             llm_client=EmptyLLM(),
         )
+
+
+def test_generate_answer_numbers_context_passages():
+    llm = FakeLLM()
+
+    first = make_chunk(text="First annual leave clause.")
+    second = make_chunk(text="Second remote work clause.")
+
+    generate_answer(
+        question="What do the policies say?",
+        chunks=[first, second],
+        llm_client=llm,
+    )
+
+    assert "[1]\nFirst annual leave clause." in (
+        llm.user_prompt
+    )
+    assert "[2]\nSecond remote work clause." in (
+        llm.user_prompt
+    )
+
+    assert llm.user_prompt.index("[1]") < llm.user_prompt.index(
+        "[2]"
+    )
+
+
+def test_generate_answer_prompt_instructs_inline_citations():
+    llm = FakeLLM()
+
+    generate_answer(
+        question="What do the policies say?",
+        chunks=[make_chunk()],
+        llm_client=llm,
+    )
+
+    assert "bracketed number" in llm.system_prompt
+    assert "inline" in llm.system_prompt
+    assert "Do not invent facts" in llm.system_prompt
+
+
+def test_generate_answer_preserves_inline_citation_markers():
+    class CitingLLM:
+        def generate(
+            self,
+            *,
+            system_prompt: str,
+            user_prompt: str,
+        ) -> str:
+            return (
+                "Employees receive 20 days of annual "
+                "leave per year [1]."
+            )
+
+    result = generate_answer(
+        question="How many annual leave days?",
+        chunks=[make_chunk()],
+        llm_client=CitingLLM(),
+    )
+
+    assert result.answer.endswith("[1].")
+    assert len(result.sources) == 1

@@ -71,6 +71,38 @@ def test_answer_question_orchestrates_retrieval_and_generation():
         db.close()
 
 
+def test_answer_question_forwards_document_ids():
+    db = SessionLocal()
+
+    captured = {}
+
+    def capture_retrieve(**kwargs):
+        captured.update(kwargs)
+        return [make_chunk()]
+
+    try:
+        result = answer_question(
+            db=db,
+            organization_id=2,
+            question=(
+                "How many annual leave days do employees receive?"
+            ),
+            embedding_service=EmbeddingService(),
+            qdrant_repository=QdrantRepository(),
+            llm_client=FakeLLM(),
+            retrieve_fn=capture_retrieve,
+            document_ids=[42],
+        )
+
+        assert result.sources[0].chunk_id == 101
+
+    finally:
+        db.close()
+
+    assert captured["document_ids"] == [42]
+    assert captured["organization_id"] == 2
+
+
 class FakeStreamLLM:
     def __init__(self, deltas=None, error=None):
         self.deltas = deltas or []

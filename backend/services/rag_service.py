@@ -10,13 +10,13 @@ from backend.services.embedding_service import EmbeddingService
 from backend.services.generation_service import (
     NO_CONTEXT_ANSWER,
     finalize_streamed_answer,
+    generate_answer,
     stream_answer,
 )
 from backend.services.hybrid_retrieval_service import (
     hybrid_retrieve_chunks,
 )
 from backend.services.llm.base import LLMClient
-from backend.services.rag_graph_service import rag_graph
 from backend.services.retrieval_service import RetrievedChunk
 
 
@@ -36,32 +36,34 @@ def answer_question(
     llm_client: LLMClient,
     retrieval_limit: int = 5,
     document_ids: list[int] | None = None,
-    retrieve_fn: Callable = None,
+    retrieve_fn: Callable = hybrid_retrieve_chunks,
 ) -> RAGResponse:
     if not question.strip():
         raise ValueError(
             "Question cannot be empty"
         )
 
-    state = {
-        "db": db,
-        "organization_id": organization_id,
-        "question": question.strip(),
-        "embedding_service": embedding_service,
-        "qdrant_repository": qdrant_repository,
-        "llm_client": llm_client,
-        "retrieval_limit": retrieval_limit,
-        "document_ids": document_ids,
-    }
+    normalized_question = question.strip()
 
-    if retrieve_fn is not None:
-        state["retrieve_fn"] = retrieve_fn
+    chunks = retrieve_fn(
+        db=db,
+        organization_id=organization_id,
+        query=normalized_question,
+        embedding_service=embedding_service,
+        qdrant_repository=qdrant_repository,
+        limit=retrieval_limit,
+        document_ids=document_ids,
+    )
 
-    result = rag_graph.invoke(state)
+    generated = generate_answer(
+        question=normalized_question,
+        chunks=chunks,
+        llm_client=llm_client,
+    )
 
     return RAGResponse(
-        answer=result["answer"],
-        sources=result["chunks"],
+        answer=generated.answer,
+        sources=generated.sources,
     )
 
 

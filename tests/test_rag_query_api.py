@@ -1,5 +1,7 @@
 from unittest.mock import Mock
 
+import json
+
 import pytest
 
 from backend.core.config import settings
@@ -651,3 +653,231 @@ def test_query_returns_503_when_llm_provider_fails(
     assert response.json() == {
         "detail": "LLM provider request failed"
     }
+
+
+def parse_sse(body):
+    events = []
+
+    for block in body.strip().split("\n\n"):
+        if not block.strip():
+            continue
+
+        event_type = None
+        data = None
+
+        for line in block.split("\n"):
+            if line.startswith("event: "):
+                event_type = line[len("event: "):]
+            elif line.startswith("data: "):
+                data = json.loads(line[len("data: "):])
+
+        events.append((event_type, data))
+
+    return events
+
+
+def set_stream_deltas(llm, deltas):
+    llm.stream.side_effect = lambda **kwargs: iter(deltas)
+
+
+def post_stream(client, tenant, question):
+    return client.post(
+        f"/api/v1/organizations/{tenant['organization_id']}"
+        "/query/stream",
+        json={"question": question},
+        headers=auth_header(tenant["token"]),
+    )
+
+
+def test_query_stream_emits_tokens_then_done_with_citations(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "stream-owner@example.com",
+        "Stream Company",
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="leave-policy.pdf",
+    )
+
+    chunk = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=0,
+        text="Employees receive 20 days of annual leave.",
+        page_start=1,
+        page_end=1,
+    )
+
+    db.commit()
+    db.refresh(chunk)
+
+    llm = stub_query_dependencies(
+        monkeypatch,
+        points=[(chunk.id, 0.93)],
+    )
+
+    set_stream_deltas(
+        llm,
+        ["Employees receive 20 days ", "of annual leave [1]."],
+    )
+
+    response = post_stream(
+        client,
+        tenant,
+        "How many annual leave days?",
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "text/event-stream"
+    )
+
+    events = parse_sse(response.text)
+    types = [event_type for event_type, _ in events]
+
+    assert types == ["token", "token", "done"]
+    assert events[0][1]["delta"] == "Employees receive 20 days "
+
+    done = events[-1][1]
+
+    assert done["answer"] == (
+        "Employees receive 20 days of annual leave [1]."
+    )
+    assert done["sources"][0]["citation_index"] == 1
+    assert done["sources"][0]["chunk_id"] == chunk.id
+    assert "ttft_ms" in done["timing"]
+    assert "total_ms" in done["timing"]
+
+
+def test_query_stream_refuses_without_grounded_sources(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "stream-empty@example.com",
+        "Stream Empty Company",
+    )
+
+    llm = stub_query_dependencies(monkeypatch)
+    set_stream_deltas(llm, ["should not be used"])
+
+    response = post_stream(
+        client,
+        tenant,
+        "What is the annual leave policy?",
+    )
+
+    assert response.status_code == 200
+
+    events = parse_sse(response.text)
+    types = [event_type for event_type, _ in events]
+
+    assert types == ["token", "done"]
+
+    done = events[-1][1]
+
+    assert done["sources"] == []
+    assert done["answer"] == (
+        "The available documents do not contain "
+        "enough information to answer this question."
+    )
+
+
+def test_query_stream_emits_error_event_when_llm_fails(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "stream-failure@example.com",
+        "Stream Failure Company",
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="leave-policy.pdf",
+    )
+
+    chunk = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=0,
+        text="Employees receive 20 days of annual leave.",
+    )
+
+    db.commit()
+    db.refresh(chunk)
+
+    llm = stub_query_dependencies(
+        monkeypatch,
+        points=[(chunk.id, 0.93)],
+    )
+
+    def raise_on_stream(**kwargs):
+        raise LLMGenerationError("Ollama exploded")
+
+    llm.stream.side_effect = raise_on_stream
+
+    response = post_stream(
+        client,
+        tenant,
+        "How many annual leave days?",
+    )
+
+    assert response.status_code == 200
+
+    events = parse_sse(response.text)
+
+    assert events[-1][0] == "error"
+    assert events[-1][1]["detail"] == (
+        "LLM provider request failed"
+    )
+
+
+def test_query_stream_blocks_non_members(
+    client,
+    db,
+    monkeypatch,
+):
+    owner = build_query_tenant(
+        client,
+        db,
+        "stream-target@example.com",
+        "Stream Target Company",
+    )
+
+    outsider = build_query_tenant(
+        client,
+        db,
+        "stream-outsider@example.com",
+        "Stream Outsider Company",
+    )
+
+    stub_query_dependencies(monkeypatch)
+
+    response = client.post(
+        f"/api/v1/organizations/{owner['organization_id']}"
+        "/query/stream",
+        json={"question": "How many annual leave days?"},
+        headers=auth_header(outsider["token"]),
+    )
+
+    assert response.status_code == 403

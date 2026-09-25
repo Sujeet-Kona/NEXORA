@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -306,3 +308,217 @@ def test_generate_reads_num_predict_from_settings(monkeypatch):
     )
 
     assert OllamaLLMClient().num_predict == 64
+
+
+class FakeStreamResponse:
+    def __init__(self, lines, status_code=200):
+        self._lines = lines
+        self.status_code = status_code
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                "error",
+                request=httpx.Request(
+                    "POST",
+                    "http://ollama.test/api/chat",
+                ),
+                response=httpx.Response(self.status_code),
+            )
+
+    def iter_lines(self):
+        yield from self._lines
+
+
+def patch_stream(monkeypatch, lines, status_code=200):
+    captured = {}
+
+    def fake_stream(method, url, **kwargs):
+        captured["method"] = method
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return FakeStreamResponse(lines, status_code)
+
+    monkeypatch.setattr(httpx, "stream", fake_stream)
+
+    return captured
+
+
+def content_line(text):
+    return json.dumps({"message": {"content": text}})
+
+
+def test_stream_yields_content_deltas(monkeypatch):
+    captured = patch_stream(
+        monkeypatch,
+        [
+            content_line("Employees receive "),
+            content_line("20 days of annual leave [1]."),
+            json.dumps({"done": True}),
+        ],
+    )
+
+    client = OllamaLLMClient(
+        base_url="http://ollama.test",
+        model="qwen3:8b",
+        timeout=12,
+        num_predict=256,
+    )
+
+    deltas = list(
+        client.stream(
+            system_prompt="system",
+            user_prompt="question",
+        )
+    )
+
+    assert deltas == [
+        "Employees receive ",
+        "20 days of annual leave [1].",
+    ]
+
+    assert captured["url"] == "http://ollama.test/api/chat"
+    assert captured["kwargs"]["timeout"] == 12
+
+    payload = captured["kwargs"]["json"]
+    assert payload["stream"] is True
+    assert payload["model"] == "qwen3:8b"
+    assert payload["options"]["num_predict"] == 256
+
+
+def test_stream_skips_empty_and_done_chunks(monkeypatch):
+    patch_stream(
+        monkeypatch,
+        [
+            content_line(""),
+            content_line("answer"),
+            json.dumps({"done": True}),
+            content_line("after-done-ignored"),
+        ],
+    )
+
+    client = OllamaLLMClient(
+        base_url="http://ollama.test",
+        model="qwen3:8b",
+    )
+
+    deltas = list(
+        client.stream(
+            system_prompt="system",
+            user_prompt="question",
+        )
+    )
+
+    assert deltas == ["answer"]
+
+
+def test_stream_requires_model(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.llm.ollama_client.settings.ollama_model",
+        None,
+    )
+
+    client = OllamaLLMClient()
+
+    with pytest.raises(
+        LLMGenerationError,
+        match="OLLAMA_MODEL is not configured",
+    ):
+        list(
+            client.stream(
+                system_prompt="system",
+                user_prompt="question",
+            )
+        )
+
+
+def test_stream_handles_timeout(monkeypatch):
+    def fake_stream(*args, **kwargs):
+        raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(httpx, "stream", fake_stream)
+
+    client = OllamaLLMClient(
+        base_url="http://ollama.test",
+        model="qwen3:8b",
+    )
+
+    with pytest.raises(
+        LLMGenerationError,
+        match="Ollama request timed out",
+    ):
+        list(
+            client.stream(
+                system_prompt="system",
+                user_prompt="question",
+            )
+        )
+
+
+def test_stream_handles_connection_error(monkeypatch):
+    def fake_stream(*args, **kwargs):
+        raise httpx.ConnectError("connection failed")
+
+    monkeypatch.setattr(httpx, "stream", fake_stream)
+
+    client = OllamaLLMClient(
+        base_url="http://ollama.test",
+        model="qwen3:8b",
+    )
+
+    with pytest.raises(
+        LLMGenerationError,
+        match="Unable to connect to Ollama",
+    ):
+        list(
+            client.stream(
+                system_prompt="system",
+                user_prompt="question",
+            )
+        )
+
+
+def test_stream_handles_missing_model(monkeypatch):
+    patch_stream(monkeypatch, [], status_code=404)
+
+    client = OllamaLLMClient(
+        base_url="http://ollama.test",
+        model="missing-model",
+    )
+
+    with pytest.raises(
+        LLMGenerationError,
+        match="model 'missing-model' was not found",
+    ):
+        list(
+            client.stream(
+                system_prompt="system",
+                user_prompt="question",
+            )
+        )
+
+
+def test_stream_handles_invalid_json(monkeypatch):
+    patch_stream(monkeypatch, ["not-json"])
+
+    client = OllamaLLMClient(
+        base_url="http://ollama.test",
+        model="qwen3:8b",
+    )
+
+    with pytest.raises(
+        LLMGenerationError,
+        match="Ollama returned invalid JSON",
+    ):
+        list(
+            client.stream(
+                system_prompt="system",
+                user_prompt="question",
+            )
+        )

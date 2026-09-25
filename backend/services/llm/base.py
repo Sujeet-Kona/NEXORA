@@ -1,4 +1,4 @@
-﻿from typing import Protocol
+from typing import Iterator, Protocol
 
 
 class LLMClient(Protocol):
@@ -8,4 +8,12 @@ class LLMClient(Protocol):
         system_prompt: str,
         user_prompt: str,
     ) -> str:
+        ...
+
+    def stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> Iterator[str]:
         ...

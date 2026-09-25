@@ -1,3 +1,6 @@
+import json
+from typing import Iterator
+
 import httpx
 
 from backend.core.config import settings
@@ -27,6 +30,27 @@ class OllamaLLMClient:
             settings.ollama_think if think is None else think
         )
 
+    def _chat_payload(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        *,
+        stream: bool,
+    ) -> dict:
+        return {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": stream,
+            "think": self.think,
+            "options": {
+                "num_predict": self.num_predict,
+            },
+            "keep_alive": "5m",
+        }
+
     def generate(
         self,
         *,
@@ -41,19 +65,11 @@ class OllamaLLMClient:
         try:
             response = httpx.post(
                 f"{self.base_url}/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "stream": False,
-                    "think": self.think,
-                    "options": {
-                        "num_predict": self.num_predict,
-                    },
-                    "keep_alive": "5m",
-                },
+                json=self._chat_payload(
+                    system_prompt,
+                    user_prompt,
+                    stream=False,
+                ),
                 timeout=self.timeout,
             )
         except httpx.TimeoutException as exc:
@@ -97,3 +113,68 @@ class OllamaLLMClient:
             )
 
         return content.strip()
+
+    def stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> Iterator[str]:
+        if not self.model:
+            raise LLMGenerationError(
+                "OLLAMA_MODEL is not configured"
+            )
+
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.base_url}/api/chat",
+                json=self._chat_payload(
+                    system_prompt,
+                    user_prompt,
+                    stream=True,
+                ),
+                timeout=self.timeout,
+            ) as response:
+                if response.status_code == 404:
+                    raise LLMGenerationError(
+                        f"Ollama model '{self.model}' was not found"
+                    )
+
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    raise LLMGenerationError(
+                        "Ollama request failed with HTTP "
+                        f"{response.status_code}"
+                    ) from exc
+
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+
+                    try:
+                        chunk = json.loads(line)
+                    except ValueError as exc:
+                        raise LLMGenerationError(
+                            "Ollama returned invalid JSON"
+                        ) from exc
+
+                    if chunk.get("done"):
+                        break
+
+                    message = chunk.get("message")
+                    if not isinstance(message, dict):
+                        continue
+
+                    content = message.get("content")
+                    if isinstance(content, str) and content:
+                        yield content
+        except httpx.TimeoutException as exc:
+            raise LLMGenerationError(
+                "Ollama request timed out"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise LLMGenerationError(
+                "Unable to connect to Ollama"
+            ) from exc

@@ -1,7 +1,11 @@
 ﻿import pytest
 
 from backend.core.exceptions import LLMGenerationError
-from backend.services.generation_service import generate_answer
+from backend.services.generation_service import (
+    finalize_streamed_answer,
+    generate_answer,
+    stream_answer,
+)
 from backend.services.retrieval_service import RetrievedChunk
 
 
@@ -251,3 +255,98 @@ def test_generate_answer_cleans_spacing_after_marker_removal():
 
     assert result.answer == "Employees receive 20 days."
     assert "  " not in result.answer
+
+
+class StreamingLLM:
+    def __init__(self, deltas):
+        self.deltas = deltas
+        self.system_prompt = None
+        self.user_prompt = None
+
+    def stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ):
+        self.system_prompt = system_prompt
+        self.user_prompt = user_prompt
+
+        yield from self.deltas
+
+
+def test_stream_answer_yields_deltas_and_numbered_context():
+    llm = StreamingLLM(
+        ["Employees receive ", "20 days of leave [1]."]
+    )
+
+    deltas = list(
+        stream_answer(
+            question="How many annual leave days?",
+            chunks=[make_chunk()],
+            llm_client=llm,
+        )
+    )
+
+    assert deltas == [
+        "Employees receive ",
+        "20 days of leave [1].",
+    ]
+
+    assert "[1]\n" in llm.user_prompt
+    assert "Do not invent facts" in llm.system_prompt
+
+
+def test_stream_answer_rejects_empty_question():
+    llm = StreamingLLM(["x"])
+
+    with pytest.raises(
+        ValueError,
+        match="Question cannot be empty",
+    ):
+        list(
+            stream_answer(
+                question="   ",
+                chunks=[make_chunk()],
+                llm_client=llm,
+            )
+        )
+
+
+def test_stream_answer_rejects_empty_chunks():
+    llm = StreamingLLM(["x"])
+
+    with pytest.raises(
+        ValueError,
+        match="Cannot stream without retrieved context",
+    ):
+        list(
+            stream_answer(
+                question="How many annual leave days?",
+                chunks=[],
+                llm_client=llm,
+            )
+        )
+
+
+def test_finalize_streamed_answer_strips_out_of_range_markers():
+    finalized = finalize_streamed_answer(
+        "Employees receive 20 days [1] and a bonus [3].",
+        [make_chunk()],
+    )
+
+    assert "[1]" in finalized
+    assert "[3]" not in finalized
+    assert finalized.endswith("and a bonus.")
+
+
+def test_finalize_streamed_answer_keeps_valid_markers():
+    finalized = finalize_streamed_answer(
+        "First [1] and second [2].",
+        [
+            make_chunk(text="First clause."),
+            make_chunk(text="Second clause."),
+        ],
+    )
+
+    assert finalized == "First [1] and second [2]."

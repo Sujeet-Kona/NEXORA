@@ -1,5 +1,6 @@
 ﻿from dataclasses import dataclass
 import re
+from typing import Iterator
 
 from backend.core.exceptions import LLMGenerationError
 from backend.services.llm.base import LLMClient
@@ -18,6 +19,12 @@ Do not invent facts, use outside knowledge, or contradict the context.
 If the context does not contain enough information, say so clearly.
 Keep the answer concise and directly answer the user's question.
 """.strip()
+
+
+NO_CONTEXT_ANSWER = (
+    "The available documents do not contain "
+    "enough information to answer this question."
+)
 
 
 # Citation markers are the bracketed passage numbers the prompt
@@ -48,6 +55,18 @@ def _build_context(
     return "\n\n".join(
         "[{}]\n{}".format(index, passage)
         for index, passage in enumerate(passages, start=1)
+    )
+
+
+def _build_user_prompt(
+    question: str,
+    passages: list[str],
+) -> str:
+    return (
+        "Document context:\n\n"
+        f"{_build_context(passages)}\n\n"
+        "User question:\n"
+        f"{question.strip()}"
     )
 
 
@@ -82,21 +101,13 @@ def generate_answer(
 
     if not chunks:
         return GeneratedAnswer(
-            answer=(
-                "The available documents do not contain "
-                "enough information to answer this question."
-            ),
+            answer=NO_CONTEXT_ANSWER,
             sources=[],
         )
 
     passages = _passages(chunks)
 
-    user_prompt = (
-        "Document context:\n\n"
-        f"{_build_context(passages)}\n\n"
-        "User question:\n"
-        f"{question.strip()}"
-    )
+    user_prompt = _build_user_prompt(question, passages)
 
     answer = llm_client.generate(
         system_prompt=SYSTEM_PROMPT,
@@ -116,4 +127,41 @@ def generate_answer(
     return GeneratedAnswer(
         answer=answer,
         sources=list(chunks),
+    )
+
+
+def stream_answer(
+    *,
+    question: str,
+    chunks: list[RetrievedChunk],
+    llm_client: LLMClient,
+) -> Iterator[str]:
+    if not question.strip():
+        raise ValueError(
+            "Question cannot be empty"
+        )
+
+    if not chunks:
+        raise ValueError(
+            "Cannot stream without retrieved context"
+        )
+
+    passages = _passages(chunks)
+
+    user_prompt = _build_user_prompt(question, passages)
+
+    for delta in llm_client.stream(
+        system_prompt=SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+    ):
+        yield delta
+
+
+def finalize_streamed_answer(
+    answer: str,
+    chunks: list[RetrievedChunk],
+) -> str:
+    return _strip_invalid_citations(
+        answer,
+        len(_passages(chunks)),
     )

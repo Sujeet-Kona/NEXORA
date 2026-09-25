@@ -1,5 +1,6 @@
 ﻿import pytest
 
+from backend.core.exceptions import LLMGenerationError
 from backend.services.generation_service import generate_answer
 from backend.services.retrieval_service import RetrievedChunk
 
@@ -116,7 +117,7 @@ def test_generate_answer_rejects_empty_llm_response():
             return "   "
 
     with pytest.raises(
-        RuntimeError,
+        LLMGenerationError,
         match="empty answer",
     ):
         generate_answer(

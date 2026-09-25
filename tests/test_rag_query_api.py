@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from backend.core.config import settings
+from backend.core.exceptions import LLMGenerationError
 from backend.db.models import User
 from backend.dependencies.rag import (
     get_embedding_service,
@@ -532,3 +533,54 @@ def test_query_respects_configured_retrieval_top_k(
 
     assert response.status_code == 200
     assert len(response.json()["sources"]) == 3
+
+
+def test_query_returns_503_when_llm_provider_fails(
+    client,
+    db,
+    monkeypatch,
+):
+    tenant = build_query_tenant(
+        client,
+        db,
+        "llm-failure@example.com",
+        "LLM Failure Company",
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=tenant["organization_id"],
+        uploaded_by=tenant["user"].id,
+        name="leave-policy.pdf",
+    )
+
+    chunk = create_document_chunk(
+        db=db,
+        document_id=document.id,
+        organization_id=tenant["organization_id"],
+        chunk_index=0,
+        text="Employees receive 20 days of annual leave.",
+    )
+
+    db.commit()
+    db.refresh(chunk)
+
+    llm = stub_query_dependencies(
+        monkeypatch,
+        points=[(chunk.id, 0.93)],
+    )
+
+    llm.generate.side_effect = LLMGenerationError(
+        "Ollama model 'missing-model' was not found"
+    )
+
+    response = post_query(
+        client,
+        tenant,
+        "How many annual leave days?",
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "LLM provider request failed"
+    }

@@ -1,4 +1,5 @@
 ﻿from dataclasses import dataclass
+import re
 
 from backend.core.exceptions import LLMGenerationError
 from backend.services.llm.base import LLMClient
@@ -19,25 +20,53 @@ Keep the answer concise and directly answer the user's question.
 """.strip()
 
 
+# Citation markers are the bracketed passage numbers the prompt
+# assigns (1..N, N is small). Bounded to two digits so bracketed
+# years or other large numbers in the prose are left untouched.
+_CITATION_MARKER = re.compile(r"( ?)\[(\d{1,2})\]")
+
+
 @dataclass(frozen=True)
 class GeneratedAnswer:
     answer: str
     sources: list[RetrievedChunk]
 
 
-def _build_context(
+def _passages(
     chunks: list[RetrievedChunk],
-) -> str:
-    passages = [
+) -> list[str]:
+    return [
         chunk.text.strip()
         for chunk in chunks
         if chunk.text.strip()
     ]
 
+
+def _build_context(
+    passages: list[str],
+) -> str:
     return "\n\n".join(
         "[{}]\n{}".format(index, passage)
         for index, passage in enumerate(passages, start=1)
     )
+
+
+def _strip_invalid_citations(
+    answer: str,
+    valid_count: int,
+) -> str:
+    def replace_marker(match: re.Match) -> str:
+        number = int(match.group(2))
+
+        if 1 <= number <= valid_count:
+            return match.group(0)
+
+        return ""
+
+    return _CITATION_MARKER.sub(
+        replace_marker,
+        answer,
+    ).strip()
 
 
 def generate_answer(
@@ -60,9 +89,11 @@ def generate_answer(
             sources=[],
         )
 
+    passages = _passages(chunks)
+
     user_prompt = (
         "Document context:\n\n"
-        f"{_build_context(chunks)}\n\n"
+        f"{_build_context(passages)}\n\n"
         "User question:\n"
         f"{question.strip()}"
     )
@@ -76,6 +107,11 @@ def generate_answer(
         raise LLMGenerationError(
             "LLM returned an empty answer"
         )
+
+    answer = _strip_invalid_citations(
+        answer,
+        len(passages),
+    )
 
     return GeneratedAnswer(
         answer=answer,

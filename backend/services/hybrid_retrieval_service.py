@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import math
 
 from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
@@ -18,6 +19,14 @@ from backend.services.retrievers import (
 class HybridCandidate:
     chunk: RetrievedChunk
     rrf_score: float
+
+
+def _sigmoid(logit: float) -> float:
+    if logit >= 0:
+        return 1.0 / (1.0 + math.exp(-logit))
+
+    exponent = math.exp(logit)
+    return exponent / (1.0 + exponent)
 
 
 class Reranker:
@@ -48,10 +57,21 @@ class Reranker:
             reverse=True,
         )
 
-        return [
-            chunk
-            for chunk, _ in ranked
-        ]
+        min_relevance = settings.retrieval_min_relevance
+
+        grounded = []
+
+        for chunk, logit in ranked:
+            relevance = _sigmoid(float(logit))
+
+            if relevance < min_relevance:
+                continue
+
+            grounded.append(
+                replace(chunk, score=relevance)
+            )
+
+        return grounded
 
 
 _reranker: Reranker | None = None

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     retrieval_dense_top_k: int = Field(default=10, ge=1)
     retrieval_lexical_top_k: int = Field(default=10, ge=1)
     retrieval_rerank_top_k: int = Field(default=8, ge=1)
+    retrieval_min_relevance: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+    )
 
     openai_api_key: str | None = None
     openai_model: str | None = None

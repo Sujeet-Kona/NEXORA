@@ -186,3 +186,68 @@ def test_generate_answer_preserves_inline_citation_markers():
 
     assert result.answer.endswith("[1].")
     assert len(result.sources) == 1
+
+
+class ScriptedLLM:
+    def __init__(self, answer):
+        self.answer = answer
+
+    def generate(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> str:
+        return self.answer
+
+
+def test_generate_answer_strips_out_of_range_citation_markers():
+    result = generate_answer(
+        question="How many annual leave days?",
+        chunks=[make_chunk()],
+        llm_client=ScriptedLLM(
+            "Employees receive 20 days [1] and a bonus [3]."
+        ),
+    )
+
+    assert "[1]" in result.answer
+    assert "[3]" not in result.answer
+    assert result.answer.endswith("and a bonus.")
+
+
+def test_generate_answer_keeps_every_valid_marker():
+    result = generate_answer(
+        question="Summarize the policies.",
+        chunks=[
+            make_chunk(text="First clause."),
+            make_chunk(text="Second clause."),
+        ],
+        llm_client=ScriptedLLM("First [1] and second [2]."),
+    )
+
+    assert "[1]" in result.answer
+    assert "[2]" in result.answer
+
+
+def test_generate_answer_preserves_bracketed_years():
+    result = generate_answer(
+        question="When was the policy updated?",
+        chunks=[make_chunk()],
+        llm_client=ScriptedLLM(
+            "The policy was updated in [2024] per [1]."
+        ),
+    )
+
+    assert "[2024]" in result.answer
+    assert "[1]" in result.answer
+
+
+def test_generate_answer_cleans_spacing_after_marker_removal():
+    result = generate_answer(
+        question="How many annual leave days?",
+        chunks=[make_chunk()],
+        llm_client=ScriptedLLM("Employees receive 20 days [9]."),
+    )
+
+    assert result.answer == "Employees receive 20 days."
+    assert "  " not in result.answer

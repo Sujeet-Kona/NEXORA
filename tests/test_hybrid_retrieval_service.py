@@ -12,7 +12,9 @@ from backend.repositories.document_repository import (
 )
 from backend.services import bm25_service
 from backend.services.hybrid_retrieval_service import (
+    Reranker,
     _rrf_fuse,
+    _sigmoid,
     hybrid_retrieve_chunks,
 )
 from backend.services.organization_service import (
@@ -325,3 +327,129 @@ def test_hybrid_retrieve_chunks_rejects_default_limits_with_custom_retrievers():
             dense_limit=5,
         )
 
+
+class FakeCrossEncoder:
+    """Returns preset logits in pair order, like CrossEncoder.predict."""
+
+    def __init__(self, logits):
+        self.logits = list(logits)
+        self.pairs = None
+
+    def predict(self, pairs):
+        self.pairs = pairs
+        return self.logits
+
+
+def make_reranker(logits):
+    reranker = Reranker.__new__(Reranker)
+    reranker.model = FakeCrossEncoder(logits)
+    return reranker
+
+
+def test_sigmoid_maps_logits_to_unit_interval():
+    assert _sigmoid(0.0) == 0.5
+    assert 0.0 < _sigmoid(-50.0) <= 1.0
+    assert 0.0 < _sigmoid(50.0) <= 1.0
+    assert _sigmoid(3.0) > 0.5
+    assert _sigmoid(-3.0) < 0.5
+
+
+def test_reranker_drops_chunks_below_relevance_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+
+    relevant = make_chunk(1, "annual leave entitlement")
+    irrelevant = make_chunk(2, "unrelated spreadsheet macros")
+
+    reranker = make_reranker([3.0, -3.0])
+
+    results = reranker.rerank(
+        query="annual leave",
+        chunks=[relevant, irrelevant],
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [1]
+    assert results[0].score == pytest.approx(_sigmoid(3.0))
+    assert 0.0 <= results[0].score <= 1.0
+
+
+def test_reranker_returns_empty_when_nothing_is_relevant(monkeypatch):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+
+    chunks = [
+        make_chunk(1, "cryptocurrency investment policy"),
+        make_chunk(2, "office parking arrangements"),
+    ]
+
+    reranker = make_reranker([-3.0, -4.0])
+
+    results = reranker.rerank(
+        query="how many annual leave days",
+        chunks=chunks,
+    )
+
+    assert results == []
+
+
+def test_reranker_orders_survivors_by_descending_relevance(monkeypatch):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+
+    chunks = [
+        make_chunk(1, "weaker match"),
+        make_chunk(2, "stronger match"),
+    ]
+
+    reranker = make_reranker([1.0, 4.0])
+
+    results = reranker.rerank(
+        query="annual leave",
+        chunks=chunks,
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [2, 1]
+    assert results[0].score > results[1].score
+
+
+def test_reranker_threshold_zero_keeps_everything(monkeypatch):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.0)
+
+    chunks = [
+        make_chunk(1, "first"),
+        make_chunk(2, "second"),
+    ]
+
+    reranker = make_reranker([-5.0, -6.0])
+
+    results = reranker.rerank(
+        query="annual leave",
+        chunks=chunks,
+    )
+
+    assert len(results) == 2
+
+
+def test_reranker_handles_empty_input():
+    reranker = make_reranker([])
+
+    assert reranker.rerank(query="annual leave", chunks=[]) == []
+
+
+def test_min_relevance_default_is_within_unit_interval():
+    assert 0.0 <= settings.retrieval_min_relevance <= 1.0
+
+
+def test_min_relevance_setting_rejects_out_of_range_values():
+    from pydantic import ValidationError
+
+    from backend.core.config import Settings
+
+    base = {
+        "database_url": "sqlite://",
+        "jwt_secret_key": "test-secret",
+    }
+
+    for bad_value in (-0.1, 1.1):
+        with pytest.raises(ValidationError):
+            Settings(
+                retrieval_min_relevance=bad_value,
+                **base,
+            )

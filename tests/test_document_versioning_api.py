@@ -302,6 +302,10 @@ def test_upload_version_replaces_file_and_bumps_version(
 
     document_id = document["id"]
 
+    app.dependency_overrides[get_qdrant_repository] = (
+        lambda: Mock()
+    )
+
     response = upload_version(
         client,
         token,

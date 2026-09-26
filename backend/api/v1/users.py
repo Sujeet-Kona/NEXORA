@@ -66,4 +66,5 @@ def update_user_role(
         db=db,
         user_id=user_id,
         role=request.role,
+        acting_user=admin,
     )

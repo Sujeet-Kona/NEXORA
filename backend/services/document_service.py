@@ -15,6 +15,7 @@ from backend.core.exceptions import (
 )
 from backend.core.logging import LOGGER_NAME
 from backend.db.models import (
+    AuditAction,
     Document,
     DocumentStatus,
     OrganizationRole,
@@ -38,6 +39,7 @@ from backend.repositories.organization_repository import (
     get_organization_by_id,
 )
 from backend.repositories.qdrant_repository import QdrantRepository
+from backend.services.audit_service import record_audit_event
 from backend.services.bm25_service import invalidate_bm25_index
 from backend.services.storage import LocalStorage
 
@@ -248,13 +250,29 @@ def upload_document_service(
             content=content,
         )
 
-        return finalize_document_upload(
+        finalized = finalize_document_upload(
             db=db,
             document=document,
             storage_key=storage_key,
             file_size=len(content),
             content_type=content_type,
         )
+
+        record_audit_event(
+            db,
+            organization_id=organization_id,
+            actor_user_id=current_user.id,
+            action=AuditAction.DOCUMENT_UPLOADED,
+            resource_type="document",
+            resource_id=finalized.id,
+            details={
+                "version": finalized.version,
+                "file_size": finalized.file_size,
+                "content_type": finalized.content_type,
+            },
+        )
+
+        return finalized
 
     except Exception as exc:
         db.rollback()
@@ -383,6 +401,20 @@ def upload_document_version_service(
                 extra={"document_id": document.id},
             )
 
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        actor_user_id=current_user.id,
+        action=AuditAction.DOCUMENT_VERSION_REPLACED,
+        resource_type="document",
+        resource_id=updated_document.id,
+        details={
+            "version": updated_document.version,
+            "file_size": updated_document.file_size,
+            "content_type": updated_document.content_type,
+        },
+    )
+
     return updated_document
 
 
@@ -494,11 +526,23 @@ def update_document_status_service(
         new_status=status,
     )
 
-    return update_document_status(
+    updated_document = update_document_status(
         db=db,
         document=document,
         status=status,
     )
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        actor_user_id=current_user.id,
+        action=AuditAction.DOCUMENT_STATUS_CHANGED,
+        resource_type="document",
+        resource_id=updated_document.id,
+        details={"status": str(updated_document.status)},
+    )
+
+    return updated_document
 
 
 def delete_document_service(
@@ -564,4 +608,13 @@ def delete_document_service(
 
     if storage_key:
         storage.delete(storage_key)
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        actor_user_id=current_user.id,
+        action=AuditAction.DOCUMENT_DELETED,
+        resource_type="document",
+        resource_id=document_id,
+    )
 

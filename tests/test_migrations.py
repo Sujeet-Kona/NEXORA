@@ -177,3 +177,59 @@ def test_migration_downgrade_removes_users_table(
     command.upgrade(migration_config, "head")
 
     assert "users" in inspect(migration_engine).get_table_names()
+
+
+def test_migration_creates_audit_logs_table(
+    migration_config,
+    migration_engine,
+):
+    reset_migration_database(migration_engine)
+    command.upgrade(migration_config, "head")
+
+    inspector = inspect(migration_engine)
+
+    assert "audit_logs" in inspector.get_table_names()
+
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("audit_logs")
+    }
+
+    assert columns == {
+        "id",
+        "organization_id",
+        "actor_user_id",
+        "action",
+        "resource_type",
+        "resource_id",
+        "request_id",
+        "success",
+        "details",
+        "created_at",
+    }
+
+    foreign_keys = {
+        (
+            tuple(foreign_key["constrained_columns"]),
+            foreign_key["referred_table"],
+        )
+        for foreign_key in inspector.get_foreign_keys("audit_logs")
+    }
+
+    assert foreign_keys == {
+        (("organization_id",), "organizations"),
+        (("actor_user_id",), "users"),
+    }
+
+    index_names = {
+        index["name"]
+        for index in inspector.get_indexes("audit_logs")
+    }
+
+    assert "ix_audit_logs_organization_created" in index_names
+
+    command.downgrade(migration_config, "base")
+
+    assert "audit_logs" not in inspect(
+        migration_engine
+    ).get_table_names()

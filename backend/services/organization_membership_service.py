@@ -9,6 +9,7 @@ from backend.core.exceptions import (
     UserNotFoundError,
 )
 from backend.db.models import (
+    AuditAction,
     OrganizationMembership,
     OrganizationRole,
     User,
@@ -22,6 +23,7 @@ from backend.repositories.organization_repository import (
     update_membership_role,
 )
 from backend.repositories.user_repository import get_user_by_id
+from backend.services.audit_service import record_audit_event
 
 
 def _get_acting_membership(
@@ -131,6 +133,19 @@ def add_organization_member_service(
             "User is already a member"
         ) from exc
 
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        actor_user_id=acting_user.id,
+        action=AuditAction.MEMBER_ADDED,
+        resource_type="membership",
+        resource_id=membership.id,
+        details={
+            "role": str(role),
+            "target_user_id": user_id,
+        },
+    )
+
     return membership
 
 
@@ -219,11 +234,26 @@ def update_organization_member_role_service(
             "Organization admin access required"
         )
 
-    return update_membership_role(
+    updated_membership = update_membership_role(
         db=db,
         membership=target_membership,
         role=role,
     )
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        actor_user_id=acting_user.id,
+        action=AuditAction.MEMBER_ROLE_CHANGED,
+        resource_type="membership",
+        resource_id=updated_membership.id,
+        details={
+            "role": str(role),
+            "target_user_id": user_id,
+        },
+    )
+
+    return updated_membership
 
 
 def remove_organization_member_service(
@@ -274,7 +304,21 @@ def remove_organization_member_service(
             "Organization admin access required"
         )
 
+    membership_id = target_membership.id
+
     delete_membership(
         db=db,
         membership=target_membership,
+    )
+
+    record_audit_event(
+        db,
+        organization_id=organization_id,
+        actor_user_id=acting_user.id,
+        action=AuditAction.MEMBER_REMOVED,
+        resource_type="membership",
+        resource_id=membership_id,
+        details={
+            "target_user_id": user_id,
+        },
     )

@@ -1,7 +1,15 @@
 from datetime import datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -25,6 +33,19 @@ class DocumentStatus(StrEnum):
     PROCESSING = "processing"
     READY = "ready"
     FAILED = "failed"
+
+
+class AuditAction(StrEnum):
+    LOGIN_SUCCESS = "login.success"
+    LOGIN_FAILURE = "login.failure"
+    DOCUMENT_UPLOADED = "document.uploaded"
+    DOCUMENT_VERSION_REPLACED = "document.version_replaced"
+    DOCUMENT_DELETED = "document.deleted"
+    DOCUMENT_STATUS_CHANGED = "document.status_changed"
+    MEMBER_ADDED = "membership.member_added"
+    MEMBER_ROLE_CHANGED = "membership.role_changed"
+    MEMBER_REMOVED = "membership.member_removed"
+    USER_PLATFORM_ROLE_CHANGED = "user.platform_role_changed"
 
 
 class User(Base):
@@ -335,4 +356,68 @@ class Document(Base):
     chunks: Mapped[list["DocumentChunk"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
+    )
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    __table_args__ = (
+        Index(
+            "ix_audit_logs_organization_created",
+            "organization_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    organization_id: Mapped[int | None] = mapped_column(
+        ForeignKey("organizations.id"),
+        nullable=True,
+    )
+
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    action: Mapped[AuditAction] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+
+    resource_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    resource_id: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    request_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
+
+    success: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    # Strictly allowlisted, non-sensitive metadata only. Never credentials,
+    # tokens, request bodies/headers, prompts or document content.
+    details: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )

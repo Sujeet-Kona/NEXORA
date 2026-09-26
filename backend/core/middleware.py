@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from backend.core.logging import LOGGER_NAME
+from backend.core.request_context import set_request_id
 
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -54,6 +55,10 @@ class RequestObservabilityMiddleware(BaseHTTPMiddleware):
         # Stored on the shared scope state so the endpoint and the top-level
         # exception handler can attach the same ID to their responses.
         request.state.request_id = request_id
+
+        # Exposed via a ContextVar so services (which never see the Request)
+        # can correlate audit records with this request.
+        set_request_id(request_id)
 
         start = time.monotonic()
         status_code = 500

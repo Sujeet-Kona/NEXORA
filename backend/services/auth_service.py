@@ -16,7 +16,7 @@ from backend.core.security import (
     hash_refresh_token,
     verify_password,
 )
-from backend.db.models import User
+from backend.db.models import AuditAction, User
 from backend.repositories.refresh_token_repository import (
     create_refresh_token as create_refresh_token_record,
 )
@@ -24,6 +24,7 @@ from backend.repositories.user_repository import (
     create_user,
     get_user_by_email,
 )
+from backend.services.audit_service import record_audit_event
 
 
 def register_user_service(
@@ -79,6 +80,15 @@ def login_user_service(
     )
 
     if not user or not user.password_hash or not password_matches:
+        record_audit_event(
+            db,
+            organization_id=None,
+            actor_user_id=user.id if user else None,
+            action=AuditAction.LOGIN_FAILURE,
+            resource_type="session",
+            success=False,
+        )
+
         raise InvalidCredentialsError(
             "Invalid email or password"
         )
@@ -105,6 +115,15 @@ def login_user_service(
         user_id=user.id,
         token_hash=refresh_token_hash,
         expires_at=expires_at,
+    )
+
+    record_audit_event(
+        db,
+        organization_id=None,
+        actor_user_id=user.id,
+        action=AuditAction.LOGIN_SUCCESS,
+        resource_type="session",
+        success=True,
     )
 
     return access_token, refresh_token

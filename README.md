@@ -58,6 +58,28 @@ contacting Qdrant. The third-party libraries behind them (torch,
 transformers, sentence-transformers) are still imported at process import
 time, which costs a few seconds at startup.
 
+## Run with Docker (production)
+
+A multi-stage `Dockerfile` builds a slim, non-root API image (uvicorn on port
+8000). On startup the container waits for Postgres, applies `alembic upgrade
+head`, then serves the app. `docker-compose.prod.yml` wires the API to
+`postgres:17` and `qdrant`, with named volumes for database, vector and upload
+storage.
+
+Set the required variables in the environment or a `.env` file (never commit
+secrets). `POSTGRES_PASSWORD` and `JWT_SECRET_KEY` are mandatory and the
+compose file refuses to start without them:
+
+    POSTGRES_PASSWORD=... JWT_SECRET_KEY=... docker compose -f docker-compose.prod.yml up -d --build
+
+The API is published on `${API_PORT:-8000}`. Postgres and Qdrant are not
+published to the host; they are reachable only on the internal compose network.
+
+Ollama is expected on the Docker host. The compose default is
+`http://host.docker.internal:11434` (mapped via `host-gateway`); override
+`OLLAMA_BASE_URL` if your LLM runs elsewhere. Set migrations aside by passing
+`RUN_MIGRATIONS=false` to the `api` service.
+
 ## Endpoints
 
 Health check:

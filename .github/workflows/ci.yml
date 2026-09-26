@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: nexora
+          POSTGRES_PASSWORD: nexora
+          POSTGRES_DB: nexora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexora -d nexora_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://nexora:nexora@localhost:5432/nexora_test
+      TEST_DATABASE_URL: postgresql+psycopg://nexora:nexora@localhost:5432/nexora_test
+      JWT_SECRET_KEY: ci-only-insecure-secret-do-not-use-in-production
+      JWT_ALGORITHM: HS256
+      STORAGE_BACKEND: local
+      STORAGE_PATH: storage
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Byte-compile backend
+        run: python -m compileall -q backend
+
+      - name: Run tests
+        run: pytest -q

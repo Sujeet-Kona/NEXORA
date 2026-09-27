@@ -13,7 +13,7 @@ from backend.dependencies.organization_authorization import (
 )
 from backend.dependencies.rag import (
     get_embedding_service,
-    get_ollama_client,
+    get_llm_client,
     get_qdrant_repository,
 )
 from backend.repositories.qdrant_repository import QdrantRepository
@@ -23,7 +23,7 @@ from backend.schemas.rag import (
     RAGSourceResponse,
 )
 from backend.services.embedding_service import EmbeddingService
-from backend.services.llm.ollama_client import OllamaLLMClient
+from backend.services.llm.base import LLMClient
 from backend.services.rag_service import (
     answer_question,
     stream_answer_question,
@@ -73,8 +73,8 @@ def query_knowledge_base(
     qdrant_repository: QdrantRepository = Depends(
         get_qdrant_repository,
     ),
-    llm_client: OllamaLLMClient = Depends(
-        get_ollama_client,
+    llm_client: LLMClient = Depends(
+        get_llm_client,
     ),
 ):
     require_organization_member(
@@ -141,8 +141,8 @@ def query_knowledge_base_stream(
     qdrant_repository: QdrantRepository = Depends(
         get_qdrant_repository,
     ),
-    llm_client: OllamaLLMClient = Depends(
-        get_ollama_client,
+    llm_client: LLMClient = Depends(
+        get_llm_client,
     ),
 ):
     require_organization_member(

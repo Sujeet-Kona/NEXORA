@@ -110,6 +110,7 @@ class RefreshToken(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
         nullable=False,
+        index=True,
     )
 
     token_hash: Mapped[str] = mapped_column(
@@ -197,6 +198,7 @@ class OrganizationMembership(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
         nullable=False,
+        index=True,
     )
 
     role: Mapped[OrganizationRole] = mapped_column(
@@ -231,11 +233,13 @@ class DocumentChunk(Base):
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id"),
         nullable=False,
+        index=True,
     )
 
     organization_id: Mapped[int] = mapped_column(
         ForeignKey("organizations.id"),
         nullable=False,
+        index=True,
     )
 
     chunk_index: Mapped[int] = mapped_column(
@@ -278,6 +282,7 @@ class Document(Base):
     organization_id: Mapped[int] = mapped_column(
         ForeignKey("organizations.id"),
         nullable=False,
+        index=True,
     )
 
     uploaded_by: Mapped[int] = mapped_column(

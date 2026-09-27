@@ -10,7 +10,14 @@ from backend.db.models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False keeps the application's "nexora" logger
+    # (imported before migrations run) alive. The default of True would mark it
+    # disabled, silently dropping all app/audit/observability logs emitted after
+    # an in-process migration.
+    fileConfig(
+        config.config_file_name,
+        disable_existing_loggers=False,
+    )
 
 
 database_url = config.get_main_option("sqlalchemy.url")

@@ -10,7 +10,7 @@ from backend.db.models import (
 )
 from backend.dependencies.rag import (
     get_embedding_service,
-    get_ollama_client,
+    get_llm_client,
     get_qdrant_repository,
 )
 from backend.main import app
@@ -610,7 +610,7 @@ def test_outsider_cannot_query_knowledge_base(
     app.dependency_overrides[get_qdrant_repository] = (
         lambda: qdrant
     )
-    app.dependency_overrides[get_ollama_client] = lambda: llm
+    app.dependency_overrides[get_llm_client] = lambda: llm
 
     response = client.post(
         f"/api/v1/organizations/{tenants['org_a']}/query",
@@ -706,7 +706,7 @@ def test_query_never_reaches_llm_with_other_organization_content(
     app.dependency_overrides[get_qdrant_repository] = (
         lambda: qdrant
     )
-    app.dependency_overrides[get_ollama_client] = lambda: llm
+    app.dependency_overrides[get_llm_client] = lambda: llm
 
     response = client.post(
         f"/api/v1/organizations/{tenants['org_a']}/query",

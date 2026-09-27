@@ -9,7 +9,7 @@ from backend.core.exceptions import LLMGenerationError
 from backend.db.models import User
 from backend.dependencies.rag import (
     get_embedding_service,
-    get_ollama_client,
+    get_llm_client,
     get_qdrant_repository,
 )
 from backend.main import app
@@ -145,7 +145,7 @@ def stub_query_dependencies(
     app.dependency_overrides[get_qdrant_repository] = (
         lambda: qdrant
     )
-    app.dependency_overrides[get_ollama_client] = lambda: llm
+    app.dependency_overrides[get_llm_client] = lambda: llm
 
     return llm
 

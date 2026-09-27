@@ -11,11 +11,13 @@ from backend.core.exceptions import (
     InvalidDocumentStatusTransitionError,
     InvalidDocumentUploadError,
     InvalidUserIdError,
+    LLMConfigurationError,
     LLMGenerationError,
     OrganizationAccessDeniedError,
     OrganizationMembershipAlreadyExistsError,
     OrganizationMembershipRequiredError,
     OrganizationNotFoundError,
+    TooManyLoginAttemptsError,
     UserAlreadyExistsError,
     UserNotFoundError,
 )
@@ -32,6 +34,24 @@ async def invalid_credentials_handler(
     return JSONResponse(
         status_code=401,
         content={"detail": str(exc)},
+    )
+
+
+async def too_many_login_attempts_handler(
+    request: Request,
+    exc: TooManyLoginAttemptsError,
+) -> JSONResponse:
+    headers = {}
+
+    if exc.retry_after > 0:
+        headers["Retry-After"] = str(exc.retry_after)
+
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "Too many login attempts. Try again later."
+        },
+        headers=headers,
     )
 
 
@@ -174,10 +194,34 @@ async def llm_generation_error_handler(
     )
 
 
+async def llm_configuration_error_handler(
+    request: Request,
+    exc: LLMConfigurationError,
+) -> JSONResponse:
+    logger.error(
+        "LLM provider is misconfigured",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "reason": str(exc),
+        },
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "LLM provider is not configured"},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         InvalidCredentialsError,
         invalid_credentials_handler,
+    )
+
+    app.add_exception_handler(
+        TooManyLoginAttemptsError,
+        too_many_login_attempts_handler,
     )
 
     app.add_exception_handler(
@@ -243,4 +287,9 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         LLMGenerationError,
         llm_generation_error_handler,
+    )
+
+    app.add_exception_handler(
+        LLMConfigurationError,
+        llm_configuration_error_handler,
     )

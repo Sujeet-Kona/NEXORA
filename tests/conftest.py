@@ -43,6 +43,17 @@ def session_factory():
     return TestingSessionLocal
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_throttle():
+    from backend.services.auth_service import login_throttle
+
+    login_throttle.clear()
+
+    yield
+
+    login_throttle.clear()
+
+
 @pytest.fixture()
 def client():
     Base.metadata.create_all(bind=engine)

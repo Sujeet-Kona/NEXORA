@@ -18,6 +18,19 @@ class InvalidCredentialsError(NexoraError):
     """Raised when authentication credentials are invalid."""
 
 
+class TooManyLoginAttemptsError(NexoraError):
+    """Raised when login attempts for an account are temporarily throttled."""
+
+    def __init__(
+        self,
+        message: str = "Too many login attempts",
+        *,
+        retry_after: int = 0,
+    ):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class OrganizationNotFoundError(NexoraError):
     """Raised when an organization does not exist."""
 
@@ -64,3 +77,7 @@ class InvalidDocumentStatusTransitionError(NexoraError):
 
 class LLMGenerationError(NexoraError):
     """Raised when the LLM provider cannot produce an answer."""
+
+
+class LLMConfigurationError(NexoraError):
+    """Raised when the LLM provider is misconfigured."""

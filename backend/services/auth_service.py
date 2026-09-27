@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from backend.core.config import settings
 from backend.core.exceptions import (
     InvalidCredentialsError,
+    TooManyLoginAttemptsError,
     UserAlreadyExistsError,
 )
 from backend.core.security import (
@@ -25,6 +26,13 @@ from backend.repositories.user_repository import (
     get_user_by_email,
 )
 from backend.services.audit_service import record_audit_event
+from backend.services.login_throttle import LoginThrottle
+
+
+login_throttle = LoginThrottle(
+    max_attempts=settings.login_max_failed_attempts,
+    lockout_seconds=settings.login_lockout_seconds,
+)
 
 
 def register_user_service(
@@ -62,7 +70,20 @@ def login_user_service(
     db: Session,
     email: str,
     password: str,
+    throttle: LoginThrottle | None = None,
 ) -> tuple[str, str]:
+    throttle = throttle or login_throttle
+
+    throttle_key = email.strip().lower()
+
+    if throttle.is_locked(throttle_key):
+        raise TooManyLoginAttemptsError(
+            "Too many login attempts. Try again later.",
+            retry_after=throttle.seconds_until_unlock(
+                throttle_key,
+            ),
+        )
+
     user = get_user_by_email(
         db,
         email,
@@ -80,6 +101,8 @@ def login_user_service(
     )
 
     if not user or not user.password_hash or not password_matches:
+        throttle.register_failure(throttle_key)
+
         record_audit_event(
             db,
             organization_id=None,
@@ -92,6 +115,8 @@ def login_user_service(
         raise InvalidCredentialsError(
             "Invalid email or password"
         )
+
+    throttle.reset(throttle_key)
 
     access_token = create_access_token(
         str(user.id),

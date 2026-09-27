@@ -1,9 +1,11 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.router import router as api_router
+from backend.core.config import settings
 from backend.core.exception_handlers import register_exception_handlers
 from backend.core.logging import LOGGER_NAME, configure_logging
 from backend.core.middleware import (
@@ -24,6 +26,20 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestObservabilityMiddleware)
+
+# CORS is only enabled when explicit origins are configured. A wildcard origin
+# is rejected at settings-load time in production, so this list never contains
+# "*" for a production deployment.
+cors_allowed_origins = settings.cors_allowed_origins
+
+if cors_allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_allowed_origins,
+        allow_credentials=settings.cors_allow_credentials,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.exception_handler(Exception)

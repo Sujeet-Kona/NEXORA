@@ -37,8 +37,19 @@ class LocalStorage:
             destination.relative_to(self.base_path)
         )
 
+    def _resolve_within_base(self, storage_key: str) -> Path:
+        base = self.base_path.resolve()
+        target = (self.base_path / storage_key).resolve()
+
+        if not target.is_relative_to(base):
+            raise ValueError(
+                "Resolved storage path escapes the storage root"
+            )
+
+        return target
+
     def read(self, storage_key: str) -> bytes:
-        path = self.base_path / storage_key
+        path = self._resolve_within_base(storage_key)
 
         if not path.is_file():
             raise FileNotFoundError(
@@ -48,7 +59,7 @@ class LocalStorage:
         return path.read_bytes()
 
     def delete(self, storage_key: str) -> None:
-        path = self.base_path / storage_key
+        path = self._resolve_within_base(storage_key)
 
-        if path.exists():
+        if path.is_file():
             path.unlink()

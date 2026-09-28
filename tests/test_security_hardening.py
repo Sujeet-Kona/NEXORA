@@ -40,7 +40,11 @@ def _settings(**overrides):
 # --- M2a: environment + JWT algorithm + production guards ---
 
 
-def test_environment_defaults_to_development():
+def test_environment_defaults_to_development(monkeypatch):
+    # Hermetic: a developer/CI shell may export ENVIRONMENT, which would
+    # otherwise override the default this test asserts.
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+
     assert _settings().environment == "development"
     assert _settings().is_production is False
 
@@ -49,6 +53,7 @@ def test_environment_is_normalized_and_validated():
     assert _settings(
         environment=" Production ",
         jwt_secret_key=STRONG_SECRET,
+        ollama_model="qwen3:8b",
     ).environment == ("production")
 
     with pytest.raises(ValidationError):
@@ -86,6 +91,7 @@ def test_production_accepts_strong_secret():
     settings = _settings(
         environment="production",
         jwt_secret_key=STRONG_SECRET,
+        ollama_model="qwen3:8b",
     )
 
     assert settings.is_production is True
@@ -105,6 +111,7 @@ def test_production_accepts_explicit_cors_origins():
         environment="production",
         jwt_secret_key=STRONG_SECRET,
         cors_origins="https://app.example.com, https://admin.example.com",
+        ollama_model="qwen3:8b",
     )
 
     assert settings.cors_allowed_origins == [
@@ -121,6 +128,68 @@ def test_development_allows_wildcard_cors():
 
 def test_cors_allowed_origins_empty_by_default():
     assert _settings().cors_allowed_origins == []
+
+
+# --- M12: production LLM configuration fail-fast ---
+
+
+def test_production_ollama_requires_model():
+    with pytest.raises(ValidationError):
+        _settings(
+            environment="production",
+            jwt_secret_key=STRONG_SECRET,
+            llm_provider="ollama",
+            ollama_model="",
+        )
+
+
+def test_production_ollama_accepts_model():
+    settings = _settings(
+        environment="production",
+        jwt_secret_key=STRONG_SECRET,
+        llm_provider="ollama",
+        ollama_model="qwen3:8b",
+    )
+
+    assert settings.llm_provider == "ollama"
+
+
+def test_production_openai_requires_key_and_model():
+    with pytest.raises(ValidationError):
+        _settings(
+            environment="production",
+            jwt_secret_key=STRONG_SECRET,
+            llm_provider="openai",
+        )
+
+    with pytest.raises(ValidationError):
+        _settings(
+            environment="production",
+            jwt_secret_key=STRONG_SECRET,
+            llm_provider="openai",
+            openai_api_key="sk-live",
+            openai_model="",
+        )
+
+
+def test_production_openai_accepts_key_and_model():
+    settings = _settings(
+        environment="production",
+        jwt_secret_key=STRONG_SECRET,
+        llm_provider="openai",
+        openai_api_key="sk-live",
+        openai_model="gpt-4o-mini",
+    )
+
+    assert settings.llm_provider == "openai"
+
+
+def test_development_allows_missing_llm_model():
+    # Outside production the late 503 LLM-error contract still applies, so a
+    # missing model must not block startup.
+    settings = _settings(llm_provider="ollama", ollama_model=None)
+
+    assert settings.is_production is False
 
 
 # --- M2b: login throttle unit behaviour ---

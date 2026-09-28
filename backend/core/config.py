@@ -164,6 +164,29 @@ class Settings(BaseSettings):
                 "CORS_ORIGINS must not use a wildcard ('*') in production"
             )
 
+        # A RAG/GenAI deployment that boots unable to answer any query is not
+        # usable, so require the active provider's credentials at startup
+        # rather than failing late on the first request.
+        if self.llm_provider == "ollama" and not (
+            self.ollama_model or ""
+        ).strip():
+            raise ValueError(
+                "OLLAMA_MODEL must be set in production when "
+                "LLM_PROVIDER is 'ollama'"
+            )
+
+        if self.llm_provider == "openai":
+            if not (self.openai_api_key or "").strip():
+                raise ValueError(
+                    "OPENAI_API_KEY must be set in production when "
+                    "LLM_PROVIDER is 'openai'"
+                )
+            if not (self.openai_model or "").strip():
+                raise ValueError(
+                    "OPENAI_MODEL must be set in production when "
+                    "LLM_PROVIDER is 'openai'"
+                )
+
         return self
 
     model_config = SettingsConfigDict(

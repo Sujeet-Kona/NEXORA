@@ -100,26 +100,6 @@ class QdrantRepository:
             points=points,
         )
 
-    def upsert_chunk(
-        self,
-        chunk_id: int,
-        vector: list[float],
-        organization_id: int,
-        document_id: int,
-        chunk_index: int,
-    ) -> None:
-        self.upsert_chunks(
-            [
-                (
-                    chunk_id,
-                    vector,
-                    organization_id,
-                    document_id,
-                    chunk_index,
-                )
-            ]
-        )
-
     def delete_document_chunks(
         self,
         document_id: int,
@@ -150,36 +130,6 @@ class QdrantRepository:
             ),
         )
 
-    def delete_chunk(
-        self,
-        chunk_id: int,
-        organization_id: int,
-    ) -> None:
-        self.ensure_collection()
-
-        self.client.delete(
-            collection_name=settings.qdrant_collection,
-            wait=True,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="organization_id",
-                            match=models.MatchValue(
-                                value=organization_id,
-                            ),
-                        ),
-                        models.FieldCondition(
-                            key="chunk_id",
-                            match=models.MatchValue(
-                                value=chunk_id,
-                            ),
-                        ),
-                    ]
-                )
-            ),
-        )
-
     def search(
         self,
         query_vector: list[float],
@@ -191,6 +141,8 @@ class QdrantRepository:
             raise ValueError(
                 "Embedding dimension does not match Qdrant configuration"
             )
+
+        self.ensure_collection()
 
         must_conditions = [
             models.FieldCondition(

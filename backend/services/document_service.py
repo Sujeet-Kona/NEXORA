@@ -168,9 +168,6 @@ def create_document_service(
     organization_id: int,
     name: str,
     current_user: User,
-    storage_key: str | None = None,
-    file_size: int | None = None,
-    content_type: str | None = None,
 ) -> Document:
     organization = get_organization_by_id(
         db,
@@ -193,9 +190,9 @@ def create_document_service(
         organization_id=organization_id,
         uploaded_by=current_user.id,
         name=name.strip(),
-        storage_key=storage_key,
-        file_size=file_size,
-        content_type=content_type,
+        storage_key=None,
+        file_size=None,
+        content_type=None,
     )
 
 

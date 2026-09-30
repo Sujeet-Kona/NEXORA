@@ -1,4 +1,6 @@
-﻿from sqlalchemy.orm import Session
+﻿import logging
+
+from sqlalchemy.orm import Session
 
 from backend.core.config import settings
 from backend.core.exceptions import (
@@ -6,8 +8,10 @@ from backend.core.exceptions import (
     DocumentNotFoundError,
     EmptyDocumentTextError,
 )
+from backend.core.logging import LOGGER_NAME
 from backend.db.models import DocumentStatus
 from backend.repositories.document_chunk_repository import (
+    delete_chunks_for_document,
     replace_document_chunks,
 )
 from backend.repositories.document_repository import (
@@ -28,6 +32,9 @@ from backend.repositories.qdrant_repository import (
     QdrantRepository,
 )
 from backend.services.storage import LocalStorage
+
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 def _failure_reason(exc: Exception) -> str:
@@ -136,10 +143,12 @@ def process_document(
     except Exception as exc:
         db.rollback()
 
+        organization_id = document.organization_id
+
         refreshed_document = get_document_by_id(
             db=db,
             document_id=document_id,
-            organization_id=document.organization_id,
+            organization_id=organization_id,
         )
 
         if refreshed_document:
@@ -148,6 +157,31 @@ def process_document(
                 document=refreshed_document,
                 failure_reason=_failure_reason(exc),
             )
+
+            # Chunks are committed before indexing, so a failure
+            # mid-pipeline would otherwise leave a FAILED document
+            # searchable. Purge the committed rows, drop the cached
+            # BM25 corpus, and best-effort remove any vectors written.
+            delete_chunks_for_document(
+                db=db,
+                document_id=document_id,
+                organization_id=organization_id,
+            )
+            db.commit()
+
+            invalidate_bm25_index(organization_id)
+
+            try:
+                qdrant_repository.delete_document_chunks(
+                    document_id=document_id,
+                    organization_id=organization_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to purge vectors for document %d "
+                    "during error cleanup",
+                    document_id,
+                )
 
         raise
 

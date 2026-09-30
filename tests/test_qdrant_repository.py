@@ -25,6 +25,28 @@ def repository(qdrant):
     return repository
 
 
+def _seed(
+    repository,
+    *,
+    chunk_id,
+    vector,
+    organization_id,
+    document_id,
+    chunk_index,
+):
+    repository.upsert_chunks(
+        [
+            (
+                chunk_id,
+                vector,
+                organization_id,
+                document_id,
+                chunk_index,
+            )
+        ]
+    )
+
+
 def test_collection_is_created(repository, qdrant):
     collections = qdrant.get_collections()
 
@@ -44,7 +66,7 @@ def test_collection_is_created_lazily_on_first_write(qdrant):
 
     vector = [1.0] + [0.0] * 1023
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector,
         organization_id=10,
@@ -98,7 +120,7 @@ def test_ensure_collection_runs_once_per_repository(
     repository.ensure_collection()
     repository.ensure_collection()
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector,
         organization_id=10,
@@ -106,8 +128,8 @@ def test_ensure_collection_runs_once_per_repository(
         chunk_index=0,
     )
 
-    repository.delete_chunk(
-        1,
+    repository.delete_document_chunks(
+        document_id=100,
         organization_id=10,
     )
 
@@ -118,7 +140,7 @@ def test_upsert_and_search(repository):
     vector_a = [1.0] + [0.0] * 1023
     vector_b = [0.0, 1.0] + [0.0] * 1022
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector_a,
         organization_id=10,
@@ -126,7 +148,7 @@ def test_upsert_and_search(repository):
         chunk_index=0,
     )
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=2,
         vector=vector_b,
         organization_id=10,
@@ -147,7 +169,7 @@ def test_upsert_and_search(repository):
 def test_search_is_tenant_scoped(repository):
     vector = [1.0] + [0.0] * 1023
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector,
         organization_id=10,
@@ -155,7 +177,7 @@ def test_search_is_tenant_scoped(repository):
         chunk_index=0,
     )
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=2,
         vector=vector,
         organization_id=20,
@@ -179,7 +201,7 @@ def test_search_is_tenant_scoped(repository):
 
 def test_wrong_embedding_dimension_is_rejected(repository):
     with pytest.raises(ValueError):
-        repository.upsert_chunk(
+        _seed(repository,
             chunk_id=1,
             vector=[1.0, 2.0],
             organization_id=10,
@@ -188,63 +210,10 @@ def test_wrong_embedding_dimension_is_rejected(repository):
         )
 
 
-def test_delete_chunk(repository):
-    vector = [1.0] + [0.0] * 1023
-
-    repository.upsert_chunk(
-        chunk_id=1,
-        vector=vector,
-        organization_id=10,
-        document_id=100,
-        chunk_index=0,
-    )
-
-    repository.delete_chunk(
-        1,
-        organization_id=10,
-    )
-
-    result = repository.search(
-        query_vector=vector,
-        organization_id=10,
-        limit=10,
-    )
-
-    assert result.points == []
-
-
-def test_delete_chunk_is_tenant_scoped(repository):
-    vector = [1.0] + [0.0] * 1023
-
-    repository.upsert_chunk(
-        chunk_id=1,
-        vector=vector,
-        organization_id=10,
-        document_id=100,
-        chunk_index=0,
-    )
-
-    repository.delete_chunk(
-        1,
-        organization_id=20,
-    )
-
-    result = repository.search(
-        query_vector=vector,
-        organization_id=10,
-        limit=10,
-    )
-
-    assert {
-        point.id
-        for point in result.points
-    } == {1}
-
-
 def test_delete_document_chunks_is_tenant_scoped(repository):
     vector = [1.0] + [0.0] * 1023
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector,
         organization_id=10,
@@ -252,7 +221,7 @@ def test_delete_document_chunks_is_tenant_scoped(repository):
         chunk_index=0,
     )
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=2,
         vector=vector,
         organization_id=20,
@@ -287,7 +256,7 @@ def test_delete_document_chunks_is_tenant_scoped(repository):
 def test_search_filters_by_document_ids(repository):
     vector = [1.0] + [0.0] * 1023
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector,
         organization_id=10,
@@ -295,7 +264,7 @@ def test_search_filters_by_document_ids(repository):
         chunk_index=0,
     )
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=2,
         vector=vector,
         organization_id=10,
@@ -339,7 +308,7 @@ def test_search_filters_by_document_ids(repository):
 def test_search_document_filter_stays_tenant_scoped(repository):
     vector = [1.0] + [0.0] * 1023
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=1,
         vector=vector,
         organization_id=10,
@@ -347,7 +316,7 @@ def test_search_document_filter_stays_tenant_scoped(repository):
         chunk_index=0,
     )
 
-    repository.upsert_chunk(
+    _seed(repository,
         chunk_id=2,
         vector=vector,
         organization_id=20,

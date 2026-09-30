@@ -4,7 +4,7 @@ import pytest
 
 from backend.core.config import settings
 from backend.db.models import User
-from backend.repositories.document_chunk_repository import (
+from tests.chunk_factory import (
     create_document_chunk,
 )
 from backend.repositories.document_repository import (

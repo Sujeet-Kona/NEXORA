@@ -3,12 +3,13 @@ from dataclasses import dataclass
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from backend.core.logging import LOGGER_NAME
 from backend.services.document_extraction import (
     ExtractedDocument,
 )
 
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(LOGGER_NAME)
 
 
 DEFAULT_CHUNK_SIZE = 3000

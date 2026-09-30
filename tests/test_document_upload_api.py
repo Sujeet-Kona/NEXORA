@@ -123,7 +123,7 @@ def test_upload_requires_authentication(client):
     assert response.status_code == 401
 
 
-def test_upload_pdf(client, tmp_path):
+def test_upload_pdf(client, db, tmp_path):
     token = register_and_login(
         client,
         "upload-pdf@example.com",
@@ -159,7 +159,12 @@ def test_upload_pdf(client, tmp_path):
     assert body["file_size"] == len(
         b"%PDF-1.7 fake pdf content"
     )
-    assert body["storage_key"]
+    assert (
+        db.query(Document)
+        .filter(Document.id == body["id"])
+        .first()
+        .storage_key
+    )
     assert body["status"] == "pending"
     assert body["page_count"] is None
     assert body["word_count"] is None
@@ -382,7 +387,16 @@ def test_upload_does_not_trust_client_tenant_fields(
 
     assert body["organization_id"] == organization_id
     assert body["uploaded_by"] == user.id
-    assert "../../" not in body["storage_key"]
+
+    stored = (
+        db.query(Document)
+        .filter(Document.id == body["id"])
+        .first()
+    )
+
+    assert "../../" not in stored.storage_key
+
+
 def test_upload_oversized_file_rejected(client):
     token = register_and_login(
         client,

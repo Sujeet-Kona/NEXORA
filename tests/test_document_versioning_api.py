@@ -184,6 +184,17 @@ def stored_file_names(
     )
 
 
+def _storage_key(db, document_id):
+    db.expire_all()
+
+    return (
+        db.query(Document)
+        .filter(Document.id == document_id)
+        .first()
+        .storage_key
+    )
+
+
 def test_created_document_reports_version_one(
     client,
 ):
@@ -302,6 +313,8 @@ def test_upload_version_replaces_file_and_bumps_version(
 
     document_id = document["id"]
 
+    original_key = _storage_key(db, document_id)
+
     app.dependency_overrides[get_qdrant_repository] = (
         lambda: Mock()
     )
@@ -319,16 +332,18 @@ def test_upload_version_replaces_file_and_bumps_version(
 
     body = response.json()
 
+    new_key = _storage_key(db, document_id)
+
     assert body["id"] == document_id
     assert body["version"] == 2
     assert body["status"] == "pending"
     assert body["name"] == "replacement.pdf"
     assert body["file_size"] == len(replacement_content)
     assert body["content_type"] == "application/pdf"
-    assert body["storage_key"] != document["storage_key"]
+    assert new_key != original_key
 
-    assert not (tmp_path / document["storage_key"]).exists()
-    assert (tmp_path / body["storage_key"]).read_bytes() == (
+    assert not (tmp_path / original_key).exists()
+    assert (tmp_path / new_key).read_bytes() == (
         replacement_content
     )
 
@@ -336,7 +351,7 @@ def test_upload_version_replaces_file_and_bumps_version(
         tmp_path,
         organization_id,
         document_id,
-    ) == [body["storage_key"].split("/")[-1]]
+    ) == [new_key.split("/")[-1]]
 
     db.expire_all()
 
@@ -350,7 +365,7 @@ def test_upload_version_replaces_file_and_bumps_version(
     assert stored_document.version == 2
     assert stored_document.status == "pending"
     assert stored_document.name == "replacement.pdf"
-    assert stored_document.storage_key == body["storage_key"]
+    assert stored_document.storage_key == new_key
 
 
 def test_upload_version_purges_existing_chunks_and_vectors(
@@ -591,7 +606,7 @@ def test_member_cannot_upload_version(
         tmp_path,
         organization_id,
         document_id,
-    ) == [document["storage_key"].split("/")[-1]]
+    ) == [stored_document.storage_key.split("/")[-1]]
 
 
 def test_non_member_cannot_upload_version(
@@ -814,6 +829,8 @@ def test_upload_version_fails_when_vectors_cannot_be_purged(
 
     document_id = document["id"]
 
+    original_key = _storage_key(db, document_id)
+
     qdrant = Mock()
     qdrant.delete_document_chunks.side_effect = RuntimeError(
         "Qdrant is unreachable",
@@ -843,9 +860,9 @@ def test_upload_version_fails_when_vectors_cannot_be_purged(
         tmp_path,
         organization_id,
         document_id,
-    ) == [document["storage_key"].split("/")[-1]]
+    ) == [original_key.split("/")[-1]]
 
-    assert (tmp_path / document["storage_key"]).exists()
+    assert (tmp_path / original_key).exists()
 
     db.expire_all()
 
@@ -857,7 +874,7 @@ def test_upload_version_fails_when_vectors_cannot_be_purged(
 
     assert stored_document.version == 1
     assert stored_document.name == "original.pdf"
-    assert stored_document.storage_key == document["storage_key"]
+    assert stored_document.storage_key == original_key
 
 
 def test_upload_version_rejects_invalid_content(
@@ -919,7 +936,7 @@ def test_upload_version_rejects_invalid_content(
         tmp_path,
         organization_id,
         document_id,
-    ) == [document["storage_key"].split("/")[-1]]
+    ) == [_storage_key(db, document_id).split("/")[-1]]
 
     db.expire_all()
 

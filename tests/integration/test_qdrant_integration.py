@@ -42,12 +42,16 @@ def test_real_qdrant_upsert_search_and_delete(
     organization_id = 910
     document_id = 9100
 
-    real_qdrant.upsert_chunk(
-        chunk_id=chunk_id,
-        vector=vector,
-        organization_id=organization_id,
-        document_id=document_id,
-        chunk_index=0,
+    real_qdrant.upsert_chunks(
+        [
+            (
+                chunk_id,
+                vector,
+                organization_id,
+                document_id,
+                0,
+            )
+        ]
     )
 
     result = real_qdrant.search(
@@ -97,8 +101,8 @@ def test_real_qdrant_upsert_search_and_delete(
             for point in excluded_result.points
         )
 
-        real_qdrant.delete_chunk(
-            chunk_id,
+        real_qdrant.delete_document_chunks(
+            document_id=document_id,
             organization_id=organization_id + 1,
         )
 
@@ -113,8 +117,8 @@ def test_real_qdrant_upsert_search_and_delete(
             for point in cross_tenant_result.points
         )
     finally:
-        real_qdrant.delete_chunk(
-            chunk_id,
+        real_qdrant.delete_document_chunks(
+            document_id=document_id,
             organization_id=organization_id,
         )
 

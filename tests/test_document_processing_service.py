@@ -534,9 +534,17 @@ def test_qdrant_failure_marks_document_failed(
     assert document.character_count == len(
         ("Employee leave policy. " * 100).strip()
     )
+
+    # A document that failed during indexing must not stay
+    # searchable: its committed chunks and vectors are purged.
     assert (
         db.query(DocumentChunk)
         .filter(DocumentChunk.document_id == document.id)
         .count()
-        == 1
+        == 0
+    )
+
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document.id,
+        organization_id=organization.id,
     )

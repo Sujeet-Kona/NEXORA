@@ -14,7 +14,7 @@ from backend.dependencies.rag import (
     get_qdrant_repository,
 )
 from backend.main import app
-from backend.repositories.document_chunk_repository import (
+from tests.chunk_factory import (
     create_document_chunk,
 )
 from backend.repositories.document_repository import (

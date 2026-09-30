@@ -43,7 +43,3 @@ class EmbeddingService:
         return self._embeddings.embed_query(
             text
         )
-
-    @property
-    def dimension(self) -> int:
-        return settings.embedding_dimension

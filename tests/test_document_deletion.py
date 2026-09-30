@@ -213,6 +213,15 @@ def test_delete_purges_vectors_before_removing_document_row(
         "order.pdf",
     )
 
+    db.expire_all()
+
+    original_key = (
+        db.query(Document)
+        .filter(Document.id == document["id"])
+        .first()
+        .storage_key
+    )
+
     row_present_at_purge_time = []
 
     def probe(
@@ -270,7 +279,7 @@ def test_delete_purges_vectors_before_removing_document_row(
 
     assert not Path(
         tmp_path,
-        document["storage_key"],
+        original_key,
     ).exists()
 
 
@@ -338,7 +347,7 @@ def test_delete_fails_when_vectors_cannot_be_purged(
 
     assert Path(
         tmp_path,
-        document["storage_key"],
+        row.storage_key,
     ).exists()
 
 

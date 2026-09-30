@@ -28,7 +28,6 @@ class DocumentResponse(BaseModel):
     organization_id: int
     uploaded_by: int
     name: str
-    storage_key: str | None
     file_size: int | None
     content_type: str | None
     page_count: int | None

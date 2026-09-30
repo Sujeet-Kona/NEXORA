@@ -10,3 +10,5 @@ storage/
 
 .venv-ragas/
 ragas-data/
+
+.DS_Store

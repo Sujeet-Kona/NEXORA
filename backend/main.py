@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from backend.api.router import router as api_router
+from backend.api.v1.router import router as api_router
 from backend.core.config import settings
 from backend.core.exception_handlers import register_exception_handlers
 from backend.core.logging import LOGGER_NAME, configure_logging

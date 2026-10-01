@@ -280,7 +280,7 @@ set in CI, so production fail-fast validation isn't triggered.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt   # runtime + pytest (prod image uses requirements.txt)
 docker compose up -d                      # Postgres + Qdrant
 ollama pull qwen3:8b                       # LLM
 cp .env.example .env                       # set DATABASE_URL + JWT_SECRET_KEY

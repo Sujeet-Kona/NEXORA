@@ -11,7 +11,7 @@ from backend.dependencies.database import get_db
 from backend.dependencies.organization_authorization import (
     require_organization_member,
 )
-from backend.dependencies.rag import (
+from backend.services.providers import (
     get_embedding_service,
     get_llm_client,
     get_qdrant_repository,

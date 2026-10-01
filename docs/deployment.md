@@ -60,10 +60,70 @@ status** of each part as of 2026-09-28.
 Only the API port is published; Postgres and Qdrant are reachable **only** on
 the internal compose network.
 
-## Start the production stack
+### WARNING: `docker compose` auto-loads the repo `.env` (dev-only)
+
+`docker compose` **automatically reads a file named `.env` from the project
+directory** and uses it to fill every `${VAR}` / `${VAR:-default}` in the
+compose file. This repository ships a **development** `.env` (git-ignored) whose
+values are unsafe for production but *silently pass* the startup guards:
+
+- `JWT_SECRET_KEY` in the dev `.env` is a 43-character random string. It is
+  **not** on the `WEAK_JWT_SECRETS` list and is `>= 32` chars, so the
+  production safety check in `backend/core/config.py` **accepts it**. If prod
+  boots with the dev secret, tokens are signed with a key that lives in a
+  developer's working copy — a real credential-exposure risk, with no error.
+- `OLLAMA_BASE_URL=http://localhost:11434` in the dev `.env` **overrides** the
+  compose default of `http://host.docker.internal:11434`. Inside the API
+  container `localhost` is the container itself, so generation calls fail at
+  runtime even though the stack starts and `/health` returns `ok`.
+
+**Therefore, for production you must supply an explicit env file and must not
+let the dev `.env` be picked up.** Always deploy with `--env-file` pointing at a
+production file (kept outside the repo, or a git-ignored `prod.env`), and
+generate a **fresh** `JWT_SECRET_KEY` for each environment:
 
 ```bash
-POSTGRES_PASSWORD='...' JWT_SECRET_KEY='...' \
+# Production env file (never commit; store in your secret manager)
+POSTGRES_USER=nexora
+POSTGRES_PASSWORD=<strong, unique>
+POSTGRES_DB=nexora
+JWT_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+OLLAMA_BASE_URL=http://host.docker.internal:11434   # or the GPU host address
+ENVIRONMENT=production
+
+docker compose --env-file /secure/path/prod.env \
+  -f docker-compose.prod.yml up -d --build
+```
+
+`--env-file` **replaces** the implicit `.env` lookup, so the dev file is not
+read. If you cannot use `--env-file`, export the variables in the shell instead
+(shell environment takes precedence over `.env`), or remove/rename the dev
+`.env` on the deploy host. Verify what compose actually resolved before
+starting:
+
+```bash
+docker compose --env-file /secure/path/prod.env \
+  -f docker-compose.prod.yml config | grep -E 'JWT_SECRET_KEY|OLLAMA_BASE_URL'
+```
+
+## Start the production stack
+
+Use an explicit production env file (see the **WARNING** above — a bare
+`docker compose ... up` will silently pick up the dev `.env`):
+
+```bash
+docker compose --env-file /secure/path/prod.env \
+  -f docker-compose.prod.yml up -d --build
+```
+
+If you pass secrets inline instead, you must also set `OLLAMA_BASE_URL`
+explicitly, otherwise the dev `.env` value (`localhost:11434`) overrides the
+compose default and generation fails inside the container:
+
+```bash
+POSTGRES_PASSWORD='...' \
+JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" \
+OLLAMA_BASE_URL='http://host.docker.internal:11434' \
   docker compose -f docker-compose.prod.yml up -d --build
 ```
 

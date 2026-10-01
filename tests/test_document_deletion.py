@@ -11,7 +11,7 @@ from backend.db.models import (
     OrganizationRole,
     User,
 )
-from backend.dependencies.rag import get_qdrant_repository
+from backend.services.providers import get_qdrant_repository
 from backend.main import app
 from backend.repositories.document_chunk_repository import (
     create_document_chunks,

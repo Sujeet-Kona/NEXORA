@@ -20,7 +20,6 @@ typing_extensions==4.16.0
 tzdata==2026.3
 uvicorn==0.52.4
 httpx==0.28.1
-pytest==9.1.1
 alembic==1.19.1
 pwdlib[argon2]==0.3.1
 PyJWT==2.13.0

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session
 
 from backend.core.logging import LOGGER_NAME
-from backend.dependencies.rag import (
+from backend.services.providers import (
     get_embedding_service,
     get_qdrant_repository,
 )

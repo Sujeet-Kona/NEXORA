@@ -5,6 +5,9 @@ from rank_bm25 import BM25Okapi
 from sqlalchemy.orm import Session
 
 from backend.db.models import DocumentChunk
+from backend.repositories.document_chunk_repository import (
+    get_chunks_for_organization,
+)
 
 _WORD_PATTERN = re.compile(r"\w+")
 
@@ -97,16 +100,9 @@ def get_bm25_index(
         if index is not None:
             return index
 
-        chunks = (
-            db.query(DocumentChunk)
-            .filter(
-                DocumentChunk.organization_id == organization_id,
-            )
-            .order_by(
-                DocumentChunk.document_id,
-                DocumentChunk.chunk_index,
-            )
-            .all()
+        chunks = get_chunks_for_organization(
+            db,
+            organization_id,
         )
 
         index = BM25Index(chunks)

@@ -8,7 +8,7 @@ from backend.db.models import (
     OrganizationRole,
     User,
 )
-from backend.dependencies.rag import (
+from backend.services.providers import (
     get_embedding_service,
     get_llm_client,
     get_qdrant_repository,

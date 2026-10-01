@@ -9,7 +9,7 @@ from backend.db.models import (
     User,
     UserRole,
 )
-from backend.dependencies.rag import get_qdrant_repository
+from backend.services.providers import get_qdrant_repository
 from backend.main import app
 from backend.services.audit_service import record_audit_event
 

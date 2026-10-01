@@ -1,4 +1,4 @@
-﻿from functools import lru_cache
+from functools import lru_cache
 
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService

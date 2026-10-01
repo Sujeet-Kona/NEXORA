@@ -50,6 +50,23 @@ def get_chunks_for_document(
     )
 
 
+def get_chunks_for_organization(
+    db: Session,
+    organization_id: int,
+) -> list[DocumentChunk]:
+    return (
+        db.query(DocumentChunk)
+        .filter(
+            DocumentChunk.organization_id == organization_id,
+        )
+        .order_by(
+            DocumentChunk.document_id,
+            DocumentChunk.chunk_index,
+        )
+        .all()
+    )
+
+
 def delete_chunks_for_document(
     db: Session,
     document_id: int,

@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -27,14 +27,36 @@ from backend.core.logging import LOGGER_NAME
 logger = logging.getLogger(LOGGER_NAME)
 
 
-async def invalid_credentials_handler(
-    request: Request,
-    exc: InvalidCredentialsError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=401,
-        content={"detail": str(exc)},
-    )
+# Domain exceptions whose response is exactly {"detail": str(exc)} at a fixed
+# status code. Their handlers are generated from this table; anything needing a
+# custom body, headers, or logging stays a named handler below.
+SIMPLE_EXCEPTION_STATUS: dict[type[Exception], int] = {
+    InvalidCredentialsError: 401,
+    InvalidUserIdError: 400,
+    UserNotFoundError: 404,
+    UserAlreadyExistsError: 409,
+    OrganizationNotFoundError: 404,
+    OrganizationMembershipRequiredError: 403,
+    OrganizationAccessDeniedError: 403,
+    OrganizationMembershipAlreadyExistsError: 409,
+    DocumentNotFoundError: 404,
+    InvalidDocumentUploadError: 400,
+    DocumentDeletionFailedError: 503,
+    InvalidDocumentStatusTransitionError: 409,
+}
+
+
+def _detail_handler(status_code: int):
+    async def handler(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": str(exc)},
+        )
+
+    return handler
 
 
 async def too_many_login_attempts_handler(
@@ -55,96 +77,6 @@ async def too_many_login_attempts_handler(
     )
 
 
-async def invalid_user_id_handler(
-    request: Request,
-    exc: InvalidUserIdError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=400,
-        content={"detail": str(exc)},
-    )
-
-
-async def user_not_found_handler(
-    request: Request,
-    exc: UserNotFoundError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=404,
-        content={"detail": str(exc)},
-    )
-
-
-async def user_already_exists_handler(
-    request: Request,
-    exc: UserAlreadyExistsError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": str(exc)},
-    )
-
-
-async def organization_not_found_handler(
-    request: Request,
-    exc: OrganizationNotFoundError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=404,
-        content={"detail": str(exc)},
-    )
-
-
-async def organization_membership_required_handler(
-    request: Request,
-    exc: OrganizationMembershipRequiredError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=403,
-        content={"detail": str(exc)},
-    )
-
-
-async def organization_access_denied_handler(
-    request: Request,
-    exc: OrganizationAccessDeniedError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=403,
-        content={"detail": str(exc)},
-    )
-
-
-async def organization_membership_already_exists_handler(
-    request: Request,
-    exc: OrganizationMembershipAlreadyExistsError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": str(exc)},
-    )
-
-
-async def document_not_found_handler(
-    request: Request,
-    exc: DocumentNotFoundError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=404,
-        content={"detail": str(exc)},
-    )
-
-
-async def invalid_document_upload_handler(
-    request: Request,
-    exc: InvalidDocumentUploadError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=400,
-        content={"detail": str(exc)},
-    )
-
-
 async def document_upload_failed_handler(
     request: Request,
     exc: DocumentUploadFailedError,
@@ -152,26 +84,6 @@ async def document_upload_failed_handler(
     return JSONResponse(
         status_code=500,
         content={"detail": "Document upload failed"},
-    )
-
-
-async def document_deletion_failed_handler(
-    request: Request,
-    exc: DocumentDeletionFailedError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=503,
-        content={"detail": str(exc)},
-    )
-
-
-async def invalid_document_status_transition_handler(
-    request: Request,
-    exc: InvalidDocumentStatusTransitionError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=409,
-        content={"detail": str(exc)},
     )
 
 
@@ -214,10 +126,11 @@ async def llm_configuration_error_handler(
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    app.add_exception_handler(
-        InvalidCredentialsError,
-        invalid_credentials_handler,
-    )
+    for exc_class, status_code in SIMPLE_EXCEPTION_STATUS.items():
+        app.add_exception_handler(
+            exc_class,
+            _detail_handler(status_code),
+        )
 
     app.add_exception_handler(
         TooManyLoginAttemptsError,
@@ -225,63 +138,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     )
 
     app.add_exception_handler(
-        InvalidUserIdError,
-        invalid_user_id_handler,
-    )
-
-    app.add_exception_handler(
-        UserNotFoundError,
-        user_not_found_handler,
-    )
-
-    app.add_exception_handler(
-        UserAlreadyExistsError,
-        user_already_exists_handler,
-    )
-
-    app.add_exception_handler(
-        OrganizationNotFoundError,
-        organization_not_found_handler,
-    )
-
-    app.add_exception_handler(
-        OrganizationMembershipRequiredError,
-        organization_membership_required_handler,
-    )
-
-    app.add_exception_handler(
-        OrganizationAccessDeniedError,
-        organization_access_denied_handler,
-    )
-
-    app.add_exception_handler(
-        OrganizationMembershipAlreadyExistsError,
-        organization_membership_already_exists_handler,
-    )
-
-    app.add_exception_handler(
-        DocumentNotFoundError,
-        document_not_found_handler,
-    )
-
-    app.add_exception_handler(
-        InvalidDocumentUploadError,
-        invalid_document_upload_handler,
-    )
-
-    app.add_exception_handler(
         DocumentUploadFailedError,
         document_upload_failed_handler,
-    )
-
-    app.add_exception_handler(
-        DocumentDeletionFailedError,
-        document_deletion_failed_handler,
-    )
-
-    app.add_exception_handler(
-        InvalidDocumentStatusTransitionError,
-        invalid_document_status_transition_handler,
     )
 
     app.add_exception_handler(

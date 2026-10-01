@@ -1,0 +1,6 @@
+# Development / test dependencies. Installs the runtime stack plus test tooling.
+# Production images install requirements.txt only (see Dockerfile), so pytest
+# and other test-only packages never ship to prod.
+-r requirements.txt
+
+pytest==9.1.1

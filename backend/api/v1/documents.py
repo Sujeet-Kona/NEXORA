@@ -12,7 +12,7 @@ from backend.dependencies.database import (
     get_session_factory,
 )
 from backend.dependencies.pagination import Pagination
-from backend.dependencies.rag import get_qdrant_repository
+from backend.services.providers import get_qdrant_repository
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.schemas.document import (
     DocumentCreate,

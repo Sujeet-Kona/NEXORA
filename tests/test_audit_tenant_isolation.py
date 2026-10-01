@@ -6,7 +6,7 @@ from backend.db.models import (
     AuditAction,
     AuditLog,
 )
-from backend.dependencies.rag import get_qdrant_repository
+from backend.services.providers import get_qdrant_repository
 from backend.main import app
 
 

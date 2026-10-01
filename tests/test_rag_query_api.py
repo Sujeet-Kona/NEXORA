@@ -7,7 +7,7 @@ import pytest
 from backend.core.config import settings
 from backend.core.exceptions import LLMGenerationError
 from backend.db.models import User
-from backend.dependencies.rag import (
+from backend.services.providers import (
     get_embedding_service,
     get_llm_client,
     get_qdrant_repository,

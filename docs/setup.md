@@ -26,12 +26,16 @@ source .venv/bin/activate
 
 ## 2. Install dependencies
 
+For local development (includes the test tooling):
+
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
 ```
 
-All dependencies are pinned to exact versions in `requirements.txt`. Note that
-`sentence-transformers` pulls in `torch`, which is a large download.
+`requirements-dev.txt` installs the pinned runtime stack from `requirements.txt`
+plus `pytest`. Production images install `requirements.txt` only, so test
+dependencies never ship to prod. Note that `sentence-transformers` pulls in
+`torch`, which is a large download.
 
 ## 3. Start Postgres and Qdrant
 

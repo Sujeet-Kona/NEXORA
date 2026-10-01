@@ -57,15 +57,6 @@ def _require_admin_or_owner(
         )
 
 
-def _require_owner(
-    membership: OrganizationMembership,
-) -> None:
-    if membership.role != OrganizationRole.OWNER:
-        raise OrganizationAccessDeniedError(
-            "Organization owner access required"
-        )
-
-
 def add_organization_member_service(
     db: Session,
     organization_id: int,

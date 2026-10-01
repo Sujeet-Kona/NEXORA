@@ -9,9 +9,11 @@ from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService
 from backend.services.generation_service import (
     NO_CONTEXT_ANSWER,
+    StreamedCitationFilter,
     finalize_streamed_answer,
     generate_answer,
     stream_answer,
+    usable_chunks,
 )
 from backend.services.hybrid_retrieval_service import (
     hybrid_retrieve_chunks,
@@ -121,6 +123,8 @@ def _stream_events(
 ) -> Iterator[dict]:
     ttft_ms: float | None = None
 
+    chunks = usable_chunks(chunks)
+
     if not chunks:
         ttft_ms = (time.perf_counter() - start) * 1000
 
@@ -139,6 +143,7 @@ def _stream_events(
         return
 
     collected: list[str] = []
+    citation_filter = StreamedCitationFilter(len(chunks))
 
     try:
         for delta in stream_answer(
@@ -156,13 +161,23 @@ def _stream_events(
 
             collected.append(delta)
 
-            yield {"type": "token", "delta": delta}
+            # Out-of-range citation markers are removed before they
+            # reach the client; the final answer is re-validated below.
+            safe_delta = citation_filter.feed(delta)
+
+            if safe_delta:
+                yield {"type": "token", "delta": safe_delta}
     except LLMGenerationError:
         yield {
             "type": "error",
             "detail": "LLM provider request failed",
         }
         return
+
+    remainder = citation_filter.flush()
+
+    if remainder:
+        yield {"type": "token", "delta": remainder}
 
     raw_answer = "".join(collected)
 

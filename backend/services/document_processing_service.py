@@ -140,6 +140,12 @@ def process_document(
             status=DocumentStatus.READY,
         )
 
+        # Chunks only become searchable once the document is READY,
+        # so the cached BM25 corpus must be rebuilt now.
+        invalidate_bm25_index(
+            document.organization_id,
+        )
+
     except Exception as exc:
         db.rollback()
 

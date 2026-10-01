@@ -7,6 +7,7 @@ from qdrant_client import QdrantClient
 from backend.core.config import settings
 from backend.db.models import (
     Document,
+    DocumentStatus,
     OrganizationMembership,
     OrganizationRole,
     User,
@@ -617,6 +618,9 @@ def test_deleted_document_vectors_stop_starving_retrieval(
         organization_id=organization.id,
         chunks=[("kept chunk", 1, 1)],
     )
+
+    removed_document.status = DocumentStatus.READY
+    kept_document.status = DocumentStatus.READY
 
     db.commit()
 

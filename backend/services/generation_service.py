@@ -70,8 +70,8 @@ def _build_user_prompt(
     )
 
 
-def _strip_invalid_citations(
-    answer: str,
+def _remove_invalid_markers(
+    text: str,
     valid_count: int,
 ) -> str:
     def replace_marker(match: re.Match) -> str:
@@ -82,10 +82,65 @@ def _strip_invalid_citations(
 
         return ""
 
-    return _CITATION_MARKER.sub(
-        replace_marker,
-        answer,
-    ).strip()
+    return _CITATION_MARKER.sub(replace_marker, text)
+
+
+def _strip_invalid_citations(
+    answer: str,
+    valid_count: int,
+) -> str:
+    return _remove_invalid_markers(answer, valid_count).strip()
+
+
+# A trailing, still-incomplete marker such as " [" or "[1" that the
+# next streamed delta may complete.
+_PARTIAL_MARKER_TAIL = re.compile(r" ?\[\d{0,2}$")
+
+
+class StreamedCitationFilter:
+    """Removes citation markers that point at no passage while streaming.
+
+    Deltas are arbitrary text fragments, so a marker can arrive split
+    across deltas (``"[1"`` then ``"2]"``). An incomplete trailing
+    marker is held back until the next delta decides whether it is a
+    real marker. Valid markers pass through unchanged.
+    """
+
+    def __init__(self, valid_count: int):
+        self._valid_count = valid_count
+        self._pending = ""
+
+    def feed(self, delta: str) -> str:
+        text = self._pending + delta
+        tail = _PARTIAL_MARKER_TAIL.search(text)
+
+        if tail:
+            self._pending = text[tail.start():]
+            text = text[:tail.start()]
+        else:
+            self._pending = ""
+
+        return _remove_invalid_markers(text, self._valid_count)
+
+    def flush(self) -> str:
+        text, self._pending = self._pending, ""
+
+        return text
+
+
+def usable_chunks(
+    chunks: list[RetrievedChunk],
+) -> list[RetrievedChunk]:
+    """Chunks that make it into the prompt.
+
+    Prompt passage numbers ([1]..[N]) and API ``citation_index`` values
+    are both positions in this list, so the two can never drift apart.
+    """
+    return [
+        chunk
+        for chunk in chunks
+        if chunk.text.strip()
+    ]
 
 
 def generate_answer(
@@ -98,6 +153,8 @@ def generate_answer(
         raise ValueError(
             "Question cannot be empty"
         )
+
+    chunks = usable_chunks(chunks)
 
     if not chunks:
         return GeneratedAnswer(

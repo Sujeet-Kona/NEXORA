@@ -881,3 +881,29 @@ def test_query_stream_blocks_non_members(
     )
 
     assert response.status_code == 403
+
+
+def test_query_rejects_unbounded_inputs(client):
+    token = register_and_login(client, "rag-bounds@example.com")
+    organization_id = create_organization(
+        client, token, "RAG Bounds Company"
+    )
+
+    too_long_question = client.post(
+        f"/api/v1/organizations/{organization_id}/query",
+        json={"question": "q" * 2001},
+        headers=auth_header(token),
+    )
+
+    assert too_long_question.status_code == 422
+
+    too_many_documents = client.post(
+        f"/api/v1/organizations/{organization_id}/query",
+        json={
+            "question": "How many leave days?",
+            "document_ids": list(range(1, 102)),
+        },
+        headers=auth_header(token),
+    )
+
+    assert too_many_documents.status_code == 422

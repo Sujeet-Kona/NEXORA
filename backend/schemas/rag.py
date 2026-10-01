@@ -2,10 +2,11 @@
 
 
 class RAGQueryRequest(BaseModel):
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=2000)
     document_ids: list[int] | None = Field(
         default=None,
         min_length=1,
+        max_length=100,
     )
 
 

@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from backend.db.models import DocumentChunk
+from backend.db.models import Document, DocumentChunk, DocumentStatus
 
 
 def create_document_chunk(
@@ -22,5 +22,11 @@ def create_document_chunk(
     )
 
     db.add(chunk)
+
+    # Retrieval only sees chunks of READY documents, so fixtures that
+    # create searchable chunks mark the parent document READY.
+    db.query(Document).filter(Document.id == document_id).update(
+        {"status": DocumentStatus.READY}
+    )
 
     return chunk

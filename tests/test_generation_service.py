@@ -350,3 +350,84 @@ def test_finalize_streamed_answer_keeps_valid_markers():
     )
 
     assert finalized == "First [1] and second [2]."
+
+
+def _filtered_stream(deltas, valid_count):
+    from backend.services.generation_service import (
+        StreamedCitationFilter,
+    )
+
+    citation_filter = StreamedCitationFilter(valid_count)
+    parts = [citation_filter.feed(delta) for delta in deltas]
+    parts.append(citation_filter.flush())
+
+    return "".join(parts)
+
+
+def test_stream_filter_removes_out_of_range_markers():
+    assert _filtered_stream(
+        ["Leave is 20 days [1] and a bonus [7]."],
+        valid_count=2,
+    ) == "Leave is 20 days [1] and a bonus."
+
+
+def test_stream_filter_handles_markers_split_across_deltas():
+    # " [" / "7" / "]" is one invalid marker; " [" / "1" / "]" is valid.
+    assert _filtered_stream(
+        ["Bonus", " [", "7", "] ok, leave", " [", "1", "]."],
+        valid_count=2,
+    ) == "Bonus ok, leave [1]."
+
+
+def test_stream_filter_keeps_unterminated_bracket_text():
+    assert _filtered_stream(
+        ["See section [", "A of the policy"],
+        valid_count=2,
+    ) == "See section [A of the policy"
+
+    assert _filtered_stream(
+        ["ends with a fragment ["],
+        valid_count=2,
+    ) == "ends with a fragment ["
+
+
+def test_stream_filter_matches_final_sanitization():
+    deltas = ["A [1] B", " [", "3", "] C [2]", "."]
+    streamed = _filtered_stream(deltas, valid_count=2)
+
+    assert streamed == finalize_streamed_answer(
+        "".join(deltas),
+        [make_usable_chunk(1), make_usable_chunk(2)],
+    )
+
+
+def make_usable_chunk(chunk_id, text="passage text"):
+    return RetrievedChunk(
+        chunk_id=chunk_id,
+        document_id=1,
+        organization_id=1,
+        chunk_index=chunk_id,
+        text=text,
+        score=0.9,
+        page_start=1,
+        page_end=1,
+        document_name="doc.pdf",
+    )
+
+
+def test_blank_chunks_never_shift_citation_numbers():
+    llm = FakeLLM()
+
+    generated = generate_answer(
+        question="How many leave days?",
+        chunks=[
+            make_usable_chunk(1, text="   "),
+            make_usable_chunk(2, text="real passage"),
+        ],
+        llm_client=llm,
+    )
+
+    # The prompt numbers only the usable chunk as [1], and the sources
+    # returned for citation_index=1 are that same chunk.
+    assert "[1]\nreal passage" in llm.user_prompt
+    assert [chunk.chunk_id for chunk in generated.sources] == [2]

@@ -47,6 +47,8 @@ from backend.services.storage import LocalStorage
 logger = logging.getLogger(LOGGER_NAME)
 
 
+MAX_FILENAME_BYTES = 200
+
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -109,6 +111,13 @@ def _validate_upload(
     if not safe_name:
         raise InvalidDocumentUploadError(
             "Filename cannot be empty"
+        )
+
+    # Keeps the stored name inside the String(255) column and, with
+    # the storage prefix, inside common filesystem filename limits.
+    if len(safe_name.encode("utf-8")) > MAX_FILENAME_BYTES:
+        raise InvalidDocumentUploadError(
+            "Filename is too long"
         )
 
     if len(content) == 0:
@@ -527,6 +536,10 @@ def update_document_status_service(
         db=db,
         document=document,
         status=status,
+    )
+
+    invalidate_bm25_index(
+        organization_id,
     )
 
     record_audit_event(

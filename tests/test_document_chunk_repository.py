@@ -1,4 +1,4 @@
-from backend.db.models import DocumentChunk, User
+from backend.db.models import DocumentChunk, DocumentStatus, User
 from backend.repositories.document_chunk_repository import (
     create_document_chunks,
     get_chunks_by_ids_for_organization,
@@ -185,6 +185,9 @@ def test_get_chunks_by_ids_filters_by_document(db):
         chunks=[("other document chunk", 2, 2)],
     )[0]
 
+    document.status = DocumentStatus.READY
+    other_document.status = DocumentStatus.READY
+
     db.commit()
 
     filtered = get_chunks_by_ids_for_organization(
@@ -236,3 +239,56 @@ def test_get_chunks_by_ids_document_filter_is_tenant_scoped(db):
     )
 
     assert filtered == []
+
+
+def test_retrieval_queries_only_return_chunks_of_ready_documents(db):
+    from backend.repositories.document_chunk_repository import (
+        get_chunks_for_organization,
+    )
+
+    document, organization = create_document_for_owner(
+        db,
+        "chunk-repository-status-gate@example.com",
+    )
+
+    chunk = create_document_chunks(
+        db=db,
+        document_id=document.id,
+        organization_id=organization.id,
+        chunks=[("gated chunk", 1, 1)],
+    )[0]
+
+    db.commit()
+
+    for status in (
+        DocumentStatus.PENDING,
+        DocumentStatus.PROCESSING,
+        DocumentStatus.FAILED,
+    ):
+        document.status = status
+        db.commit()
+
+        assert get_chunks_for_organization(db, organization.id) == []
+        assert (
+            get_chunks_by_ids_for_organization(
+                db=db,
+                chunk_ids=[chunk.id],
+                organization_id=organization.id,
+            )
+            == []
+        )
+
+    document.status = DocumentStatus.READY
+    db.commit()
+
+    assert [
+        c.id for c in get_chunks_for_organization(db, organization.id)
+    ] == [chunk.id]
+    assert [
+        c.id
+        for c in get_chunks_by_ids_for_organization(
+            db=db,
+            chunk_ids=[chunk.id],
+            organization_id=organization.id,
+        )
+    ] == [chunk.id]

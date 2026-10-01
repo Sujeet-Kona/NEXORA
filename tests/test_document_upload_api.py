@@ -806,3 +806,33 @@ def test_upload_file_at_exact_limit_is_accepted(client):
 
     assert response.status_code == 201
     assert response.json()["file_size"] == len(content)
+
+
+def test_upload_overlong_filename_rejected(client):
+    token = register_and_login(
+        client,
+        "upload-longname@example.com",
+    )
+
+    organization_id = create_organization(
+        client,
+        token,
+        "Upload Long Name Company",
+    )
+
+    response = client.post(
+        f"/api/v1/organizations/{organization_id}/documents/upload",
+        files={
+            "file": (
+                "a" * 250 + ".pdf",
+                b"%PDF-1.4 test",
+                "application/pdf",
+            )
+        },
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Filename is too long"}

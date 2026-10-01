@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from backend.db.models import DocumentChunk
+from backend.db.models import Document, DocumentChunk, DocumentStatus
 
 
 ChunkRecord = tuple[str, int | None, int | None]
@@ -54,10 +54,16 @@ def get_chunks_for_organization(
     db: Session,
     organization_id: int,
 ) -> list[DocumentChunk]:
+    # Only chunks of READY documents are searchable: chunks are written
+    # before embedding finishes, so PENDING/PROCESSING/FAILED documents
+    # must not be visible to lexical retrieval.
     return (
         db.query(DocumentChunk)
+        .join(Document, Document.id == DocumentChunk.document_id)
         .filter(
             DocumentChunk.organization_id == organization_id,
+            Document.organization_id == organization_id,
+            Document.status == DocumentStatus.READY,
         )
         .order_by(
             DocumentChunk.document_id,
@@ -126,9 +132,17 @@ def get_chunks_by_ids_for_organization(
     if not chunk_ids:
         return []
 
-    query = db.query(DocumentChunk).filter(
-        DocumentChunk.id.in_(chunk_ids),
-        DocumentChunk.organization_id == organization_id,
+    # Dense hits are re-hydrated from PostgreSQL, which is the
+    # authoritative gate for document status (READY only).
+    query = (
+        db.query(DocumentChunk)
+        .join(Document, Document.id == DocumentChunk.document_id)
+        .filter(
+            DocumentChunk.id.in_(chunk_ids),
+            DocumentChunk.organization_id == organization_id,
+            Document.organization_id == organization_id,
+            Document.status == DocumentStatus.READY,
+        )
     )
 
     if document_ids is not None:

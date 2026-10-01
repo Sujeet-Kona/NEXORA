@@ -2,7 +2,12 @@
 
 import pytest
 
-from backend.db.models import DocumentChunk, User
+from backend.db.models import (
+    Document,
+    DocumentChunk,
+    DocumentStatus,
+    User,
+)
 from backend.repositories.document_repository import create_document
 from backend.services.organization_service import (
     create_organization_service,
@@ -45,6 +50,9 @@ def create_chunk(
     )
 
     db.add(chunk)
+    db.query(Document).filter(Document.id == document_id).update(
+        {"status": DocumentStatus.READY}
+    )
     db.commit()
     db.refresh(chunk)
 
@@ -230,10 +238,10 @@ def test_retrieve_chunks_keeps_foreign_document_names_hidden(
         qdrant_repository=qdrant,
     )
 
-    assert len(results) == 1
-    assert results[0].document_name is None
-    assert results[0].page_start == 1
-    assert results[0].page_end == 1
+    # A chunk whose document belongs to another organization is
+    # dropped outright, so neither its text nor the foreign document
+    # name can reach the caller.
+    assert results == []
 
 
 def test_retrieve_chunks_returns_empty_when_no_results(db):

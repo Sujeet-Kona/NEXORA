@@ -242,3 +242,29 @@ def test_stream_validates_question_eagerly():
             llm_client=FakeStreamLLM(),
             retrieve_fn=fake_retrieve,
         )
+
+
+def test_stream_tokens_never_expose_out_of_range_markers():
+    llm = FakeStreamLLM(
+        deltas=[
+            "Leave is 20 days [1] and a bonus",
+            " [",
+            "3",
+            "].",
+        ]
+    )
+
+    events = collect_stream(llm_client=llm)
+
+    streamed = "".join(
+        event["delta"]
+        for event in events
+        if event["type"] == "token"
+    )
+
+    assert "[3]" not in streamed
+    assert "[1]" in streamed
+    assert events[-1]["answer"] == (
+        "Leave is 20 days [1] and a bonus."
+    )
+    assert streamed == events[-1]["answer"]

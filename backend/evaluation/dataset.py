@@ -1,6 +1,11 @@
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
+from backend.evaluation.research_paper_cases import (
+    PAPER_CASE_DATA,
+    PAPER_NEGATIVE_CASE_DATA,
+)
 from backend.services.document_chunking import (
     split_document,
 )
@@ -16,6 +21,7 @@ DOCX_CONTENT_TYPE = (
     "application/vnd.openxmlformats-"
     "officedocument.wordprocessingml.document"
 )
+PDF_CONTENT_TYPE = "application/pdf"
 
 REFUSAL_MARKERS = (
     "do not contain enough information",
@@ -303,6 +309,16 @@ def load_cases() -> list[EvaluationCase]:
         for case in _CASE_DATA
     ]
 
+    cases.extend(
+        EvaluationCase(
+            question=case["question"],
+            document=case["document"],
+            anchor=case["anchor"],
+            expected=case["expected"],
+        )
+        for case in PAPER_CASE_DATA
+    )
+
     if not cases:
         raise RuntimeError("Evaluation dataset is empty")
 
@@ -335,7 +351,7 @@ def load_negative_cases() -> list[NegativeCase]:
             question=case["question"],
             topic=case["topic"],
         )
-        for case in _NEGATIVE_CASE_DATA
+        for case in _NEGATIVE_CASE_DATA + PAPER_NEGATIVE_CASE_DATA
     ]
 
 
@@ -343,7 +359,10 @@ def build_corpus_chunks() -> list[CorpusChunk]:
     chunks: list[CorpusChunk] = []
     chunk_id = 0
 
-    paths = sorted(BENCHMARK_DATA_DIR.glob("*.docx"))
+    paths = [
+        *sorted(BENCHMARK_DATA_DIR.glob("*.docx")),
+        *sorted(BENCHMARK_DATA_DIR.glob("*.pdf")),
+    ]
 
     if not paths:
         raise RuntimeError(
@@ -351,9 +370,15 @@ def build_corpus_chunks() -> list[CorpusChunk]:
         )
 
     for document_id, path in enumerate(paths, start=1):
+        content_type = (
+            DOCX_CONTENT_TYPE
+            if path.suffix.lower() == ".docx"
+            else PDF_CONTENT_TYPE
+        )
+
         extracted_document = extract_document(
             filename=path.name,
-            content_type=DOCX_CONTENT_TYPE,
+            content_type=content_type,
             content=path.read_bytes(),
         )
 
@@ -377,15 +402,38 @@ def build_corpus_chunks() -> list[CorpusChunk]:
     return chunks
 
 
+def _normalize_match_text(text: str) -> str:
+    # PDF extraction can introduce Unicode ligatures such as:
+    # "ﬁne-tuning" -> "fine-tuning"
+    # "inefﬁcient" -> "inefficient"
+    text = (
+        text
+        .replace("ﬁ", "fi")
+        .replace("ﬂ", "fl")
+        .replace("ﬀ", "ff")
+        .replace("ﬃ", "ffi")
+        .replace("ﬄ", "ffl")
+    )
+
+    # PDF extraction can split a word across lines as:
+    # "clas-\\nsification" -> "classification"
+    # Only remove the hyphen when both sides are part of a word.
+    text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
+
+    return " ".join(text.split())
+
+
 def ground_truth_chunk_ids(
     chunks: list[CorpusChunk],
     case: EvaluationCase,
-) -> set[int]:
+) -> set[str]:
+    normalized_anchor = _normalize_match_text(case.anchor)
+
     return {
         chunk.id
         for chunk in chunks
         if chunk.document_name == case.document
-        and case.anchor in chunk.text
+        and normalized_anchor in _normalize_match_text(chunk.text)
     }
 
 

@@ -86,6 +86,7 @@ def index_document_chunks(
                 chunk.organization_id,
                 chunk.document_id,
                 chunk.chunk_index,
+                document.version,
             )
             for chunk, vector in zip(
                 batch,

@@ -3,7 +3,7 @@
 import pytest
 
 from backend.core.config import settings
-from backend.db.models import User
+from backend.db.models import DocumentChunk, User
 from tests.chunk_factory import (
     create_document_chunk,
 )
@@ -43,9 +43,27 @@ def make_chunk(
 
 def test_bm25_returns_matching_text():
     chunks = [
-        make_chunk(1, "annual leave policy"),
-        make_chunk(2, "password security policy"),
-        make_chunk(3, "remote work policy"),
+        DocumentChunk(
+            id=1,
+            document_id=1,
+            organization_id=2,
+            chunk_index=0,
+            text="annual leave policy",
+        ),
+        DocumentChunk(
+            id=2,
+            document_id=1,
+            organization_id=2,
+            chunk_index=1,
+            text="password security policy",
+        ),
+        DocumentChunk(
+            id=3,
+            document_id=1,
+            organization_id=2,
+            chunk_index=2,
+            text="remote work policy",
+        ),
     ]
 
     index = bm25_service.BM25Index(
@@ -58,7 +76,7 @@ def test_bm25_returns_matching_text():
     )
 
     assert results
-    assert results[0][0].chunk_id == 1
+    assert results[0][0].id == 1
 
 
 def test_rrf_fusion_promotes_documents_in_both_rankings():
@@ -453,3 +471,51 @@ def test_min_relevance_setting_rejects_out_of_range_values():
                 retrieval_min_relevance=bad_value,
                 **base,
             )
+
+
+def test_rrf_rejects_non_positive_k():
+    """RRF constant k controls the reciprocal rank weight. k <= 0 produces
+    division-by-zero or nonsensical negative ranking."""
+    with pytest.raises(ValueError, match="strictly positive"):
+        _rrf_fuse(
+            [
+                [make_chunk(1, "a")],
+                [make_chunk(2, "b")],
+            ],
+            k=0,
+        )
+
+
+def test_empty_merged_candidates_short_circuits_rerank(monkeypatch):
+    """If RRF + rerank_limit yields zero candidates the cross-encoder call
+    must be skipped (avoid HF init entirely in offline tests)."""
+    import backend.services.hybrid_retrieval_service as hrm
+
+    call_counter = {"count": 0}
+    original_rerank = hrm.Reranker.rerank
+
+    def counted_rerank(self, query, chunks):
+        call_counter["count"] += 1
+        return original_rerank(self, query, chunks)
+
+    # Dense + Lexical both return nothing → fused is empty.
+    first = StubRetriever([])
+    second = StubRetriever([])
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.Reranker.rerank",
+        counted_rerank,
+    )
+
+    results = hybrid_retrieve_chunks(
+        db=None,
+        organization_id=1,
+        query="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        retrievers=[first, second],
+    )
+
+    assert results == []
+    # Short-circuit must happen: rerank method must not be invoked at all.
+    assert call_counter["count"] == 0

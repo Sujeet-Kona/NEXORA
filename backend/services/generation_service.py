@@ -122,6 +122,7 @@ class StreamedCitationFilter:
 
         return _remove_invalid_markers(text, self._valid_count)
 
+
     def flush(self) -> str:
         text, self._pending = self._pending, ""
 

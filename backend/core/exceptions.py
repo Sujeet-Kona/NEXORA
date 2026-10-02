@@ -81,3 +81,8 @@ class LLMGenerationError(NexoraError):
 
 class LLMConfigurationError(NexoraError):
     """Raised when the LLM provider is misconfigured."""
+
+
+class VectorStoreError(NexoraError):
+    """Raised when the vector store backend (Qdrant) fails a
+    read/write/delete operation on the underlying network/server."""

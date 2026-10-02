@@ -1,10 +1,12 @@
 from dataclasses import dataclass, replace
+import logging
 import math
 
 from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
 
 from backend.core.config import settings
+from backend.core.logging import LOGGER_NAME
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService
 from backend.services.retrieval_service import RetrievedChunk
@@ -13,6 +15,9 @@ from backend.services.retrievers import (
     LexicalRetriever,
     Retriever,
 )
+
+
+logger = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass(frozen=True)
@@ -90,10 +95,16 @@ def _rrf_fuse(
     rankings: list[list[RetrievedChunk]],
     k: int = 60,
 ) -> list[HybridCandidate]:
+    if k <= 0:
+        raise ValueError(
+            "RRF constant k must be strictly positive"
+        )
+
     scores: dict[int, float] = {}
     chunks: dict[int, RetrievedChunk] = {}
 
     for ranking in rankings:
+        # Each retriever is weighted equally; we sum their rank scores.
         for rank, chunk in enumerate(ranking, start=1):
             scores[chunk.chunk_id] = (
                 scores.get(chunk.chunk_id, 0.0)
@@ -153,6 +164,11 @@ def hybrid_retrieve_chunks(
     if rerank_limit is None:
         rerank_limit = settings.retrieval_rerank_top_k
 
+    if rerank_limit <= 0:
+        raise ValueError(
+            "rerank_limit must be greater than zero"
+        )
+
     if limit is not None:
         if limit <= 0:
             raise ValueError("Limit must be greater than zero")
@@ -165,6 +181,18 @@ def hybrid_retrieve_chunks(
         raise ValueError(
             "Final limit must be greater than zero"
         )
+
+    # A rerank candidate pool smaller than the final answer pool means
+    # the cross-encoder cannot improve ranking and would silently drop
+    # results. Warn and widen the pool transparently.
+    if rerank_limit < final_limit:
+        logger.warning(
+            "rerank_limit=%d < final_limit=%d; cross-encoder cannot "
+            "improve diversity. Widening rerank pool automatically.",
+            rerank_limit,
+            final_limit,
+        )
+        rerank_limit = final_limit
 
     rankings = [
         retriever.retrieve(
@@ -182,6 +210,11 @@ def hybrid_retrieve_chunks(
         candidate.chunk
         for candidate in fused[:rerank_limit]
     ]
+
+    if not candidates:
+        # Nothing to rerank; the cross-encoder has nothing meaningful to
+        # do. Skip the (expensive) empty forward pass.
+        return []
 
     reranked = get_reranker().rerank(
         query=query,

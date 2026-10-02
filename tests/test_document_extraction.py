@@ -41,14 +41,14 @@ def make_multi_page_pdf() -> bytes:
 
     first_page.insert_text(
         (72, 72),
-        "First page content",
+        "First page content with enough searchable text to be classified as a text-bearing page.",
     )
 
     second_page = document.new_page()
 
     second_page.insert_text(
         (72, 72),
-        "Second page content",
+        "Second page content with enough searchable text to be classified as a text-bearing page.",
     )
 
     content = document.tobytes()
@@ -192,6 +192,87 @@ def test_image_only_pdf_reports_zero_text_stats():
     assert extracted.text == ""
     assert extracted.word_count == 0
     assert extracted.character_count == 0
+    # A single entirely-empty page triggers image-only flagging and
+    # therefore crosses the usable-text-ratio threshold that suggests
+    # an OCR backend should be preferred.
+    assert extracted.image_only_pages == (1,)
+    assert extracted.pages[0].image_only is True
+    assert extracted.recommends_ocr is True
+
+
+def make_multi_page_mostly_image_pdf() -> bytes:
+    """Three pages: first two image-only, third has text.
+
+    Usable ratio = 1/3 ≈ 0.33 < 0.40 → recommends OCR.
+    """
+    document = fitz.open()
+
+    # Two pure-image pages.
+    for _ in range(2):
+        page = document.new_page(width=200, height=200)
+        pixmap = fitz.Pixmap(
+            fitz.csRGB,
+            fitz.IRect(0, 0, 20, 20),
+            False,
+        )
+        page.insert_image(
+            fitz.Rect(0, 0, 200, 200),
+            pixmap=pixmap,
+        )
+
+    # One text-bearing page.
+    text_page = document.new_page()
+    text_page.insert_text(
+        (72, 72),
+        "Policy content here, with enough extracted text to classify this page as text-bearing.",
+    )
+
+    content = document.tobytes()
+    document.close()
+    return content
+
+
+def test_mostly_image_pdf_recommends_ocr():
+    extracted = extract_pdf_document(
+        make_multi_page_mostly_image_pdf(),
+    )
+
+    assert extracted.page_count == 3
+    assert extracted.image_only_pages == (1, 2)
+    assert extracted.recommends_ocr is True
+    # Third page still has usable text → overall stats are non-zero but
+    # the OCR hint still fires because the majority of pages failed.
+    assert extracted.character_count > 0
+
+
+def test_text_only_pdf_does_not_recommend_ocr():
+    """A normal text-only PDF must NOT trigger the OCR hint."""
+    extracted = extract_pdf_document(
+        make_multi_page_pdf(),
+    )
+
+    assert extracted.recommends_ocr is False
+    assert extracted.image_only_pages == tuple()
+
+
+def test_extracted_document_defaults_metadata_and_flags():
+    """New dataclass fields have safe, well-typed defaults so callers that
+    only get pages (e.g. old call sites) remain working."""
+    extracted = extract_pdf_document(make_pdf())
+
+    # Sane defaults
+    assert isinstance(extracted.metadata, dict)
+    assert isinstance(extracted.image_only_pages, tuple)
+    assert isinstance(extracted.recommends_ocr, bool)
+    # page_count_pdf key should always be populated because we set it
+    # explicitly.
+    assert "page_count_pdf" in extracted.metadata
+    assert extracted.metadata["page_count_pdf"] == extracted.page_count
+    # All pages must carry the image_only flag (bool, not None).
+    assert all(
+        isinstance(page.image_only, bool)
+        for page in extracted.pages
+    )
 
 
 def test_extract_docx_document_is_one_logical_page():
@@ -256,3 +337,72 @@ def test_unsupported_format_raises():
             content_type="application/octet-stream",
             content=b"bad",
         )
+
+
+def make_docx_with_headings() -> bytes:
+    """A DOCX using real heading styles so heading detection can be
+    exercised."""
+    document = DocxDocument()
+
+    # Built-in styles for H1/H2.
+    document.add_heading("Security Policy Overview", level=1)
+    document.add_paragraph(
+        "This document describes the company security policy."
+    )
+    document.add_heading("Authentication", level=2)
+    document.add_paragraph("MFA is required for all accounts.")
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def test_docx_heading_prefix_preserved():
+    extracted = extract_docx_document(
+        make_docx_with_headings(),
+    )
+
+    text = extracted.text
+
+    # Heading 1 → "# " prefix.
+    assert "# Security Policy Overview" in text
+    # Heading 2 → "## " prefix.
+    assert "## Authentication" in text
+    # Non-heading paragraphs do NOT get a heading prefix.
+    assert "MFA is required for all accounts." in text
+    assert "# MFA" not in text  # guard against false positive prefixing
+
+
+def test_docx_table_handles_multiline_cell_content():
+    """Multi-line cells must be collapsed to single space-separated lines
+    rather than introducing stray newlines that break row boundaries."""
+    document = DocxDocument()
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "First line\nSecond line"
+    table.cell(0, 1).text = "Simple"
+
+    buffer = BytesIO()
+    document.save(buffer)
+    extracted = extract_docx_document(buffer.getvalue())
+
+    row = extracted.pages[0].text
+    # Cell joined without inner newlines.
+    assert "First line Second line | Simple" in row
+
+
+def test_docx_core_properties_collected():
+    document = DocxDocument()
+    try:
+        document.core_properties.title = "Test Policy Title"
+        document.core_properties.author = "Nexora HR"
+    except Exception:
+        pytest.skip("Core properties not writable in current env")
+
+    document.add_paragraph("Body.")
+
+    buffer = BytesIO()
+    document.save(buffer)
+    extracted = extract_docx_document(buffer.getvalue())
+
+    assert extracted.metadata.get("title") == "Test Policy Title"
+    assert extracted.metadata.get("author") == "Nexora HR"

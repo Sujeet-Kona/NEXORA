@@ -240,6 +240,7 @@ def test_indexed_payload_comes_from_chunk(
         organization.id,
         document.id,
         7,
+        document.version,
     )
 def test_index_document_reindexes_existing_vectors(db):
     owner = create_user(

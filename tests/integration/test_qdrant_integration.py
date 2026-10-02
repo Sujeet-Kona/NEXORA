@@ -50,6 +50,7 @@ def test_real_qdrant_upsert_search_and_delete(
                 organization_id,
                 document_id,
                 0,
+                    1,
             )
         ]
     )

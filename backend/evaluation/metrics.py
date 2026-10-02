@@ -42,6 +42,49 @@ def reciprocal_rank(
     return 0.0
 
 
+def average_precision_at_k(
+    relevant: set[int],
+    retrieved: list[int],
+    k: int,
+) -> float:
+    """Mean-average-precision-style single-query AP@K.
+
+    Sums precision@i for each position i where a relevant document is
+    retrieved, divided by the TOTAL relevant count (not by the number
+    retrieved). This is the canonical AP score used in BEIR benchmarks.
+    """
+    if k < 1:
+        raise ValueError("k must be at least 1")
+    if not relevant:
+        raise ValueError("relevant must be non-empty")
+
+    hits = 0.0
+    precision_sum = 0.0
+
+    for i, chunk_id in enumerate(retrieved[:k], start=1):
+        if chunk_id in relevant:
+            hits += 1.0
+            precision_sum += hits / i
+
+    return precision_sum / len(relevant)
+
+
+def mean_reciprocal_rank(
+    queries: list[tuple[set[int], list[int]]],
+) -> float:
+    """MRR across a list of (relevant_set, retrieved_list) queries."""
+    if not queries:
+        raise ValueError("queries must be non-empty")
+
+    return (
+        sum(
+            reciprocal_rank(relevant, retrieved)
+            for relevant, retrieved in queries
+        )
+        / len(queries)
+    )
+
+
 def normalize_answer_text(text: str) -> str:
     return " ".join(text.lower().split())
 

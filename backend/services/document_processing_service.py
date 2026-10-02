@@ -63,6 +63,50 @@ def process_document(
             "Document not found"
         )
 
+    # --- Idempotency guard ------------------------------------------------
+    # BackgroundTasks can be scheduled more than once for the same
+    # document on rare edge cases (client re-submits, app restarts with
+    # stale pending state, or a retry in an outer layer). Transitioning
+    # from anything other than PENDING into PROCESSING is almost always a
+    # bug, so we return early with a structured warning instead of
+    # double-processing.
+    current_status = DocumentStatus(document.status)
+
+    if current_status == DocumentStatus.PROCESSING:
+        logger.warning(
+            "Document %d is already PROCESSING; skipping duplicate "
+            "processing invocation",
+            document.id,
+            extra={"document_id": document.id},
+        )
+        return
+
+    if current_status == DocumentStatus.READY:
+        logger.info(
+            "Document %d is already READY; skipping processing "
+            "(re-upload to re-index)",
+            document.id,
+            extra={"document_id": document.id},
+        )
+        return
+
+    if current_status not in {
+        DocumentStatus.PENDING,
+        DocumentStatus.FAILED,
+    }:
+        # FAILED → PROCESSING is the explicit re-run path (caller must
+        # first set FAILED→PENDING, which is allowed by the transition
+        # matrix). We remain permissive here but log.
+        logger.warning(
+            "Processing document %d from unexpected status=%s",
+            document.id,
+            current_status.value,
+            extra={
+                "document_id": document.id,
+                "from_status": current_status.value,
+            },
+        )
+
     document.failure_reason = None
 
     update_document_status(

@@ -239,3 +239,117 @@ def test_split_document_without_page_mapping_warns(
     assert spans[0].page_start is None
     assert spans[0].page_end is None
     assert "Could not map 1 of 1 chunks" in caplog.text
+
+
+def test_split_text_structural_heading_boundary():
+    """Text with a heading line must not glue the heading onto the prior
+    section when the two are separated by only a single newline."""
+    text = (
+        "Intro paragraph with some filler content.\n"
+        "# Heading Section\n"
+        "Body content under the heading goes here."
+    )
+
+    chunks = split_text(text, chunk_size=120, chunk_overlap=0)
+
+    # The heading must start its own chunk rather than being glued on
+    # to the intro paragraph. "# Heading Section" is short enough that
+    # it would fit with the intro if boundaries were not respected.
+    heading_chunks = [
+        c for c in chunks if c.startswith("# Heading Section")
+    ]
+
+    assert heading_chunks, (
+        "Expected at least one chunk starting with the heading, "
+        f"got: {chunks}"
+    )
+
+
+def test_split_text_filters_empty_chunks():
+    """If structural processing or the splitter emit whitespace-only
+    fragments they must not appear in the final result."""
+    text = (
+        "Proper body text. " * 20
+        + "\n\n  \n\n  \n\n"
+        + "More proper body text. " * 20
+    )
+
+    chunks = split_text(text, chunk_size=100, chunk_overlap=0)
+
+    assert chunks
+    assert all(c.strip() for c in chunks), (
+        f"No chunk should be empty or whitespace-only, got: {chunks}"
+    )
+
+
+def test_split_text_collapses_consecutive_duplicates():
+    """A duplicated chunk at a page boundary must be deduplicated."""
+    # Construct a short text that, combined with overlap, produces a
+    # duplicated tail then tail-then-head chunk.
+    sentence = "Repeat the same boundary sentence."
+    # With chunk_size ~half the sentence and overlap matching the tail,
+    # consecutive duplicate collapses cover the edge case the splitter
+    # would otherwise emit twice.
+    text = (sentence + " ") * 2 + sentence
+
+    chunks = split_text(text, chunk_size=len(sentence) + 1, chunk_overlap=0)
+
+    for i in range(len(chunks) - 1):
+        assert chunks[i] != chunks[i + 1], (
+            f"Consecutive duplicate chunks must be collapsed: "
+            f"chunk[{i}] == chunk[{i+1}]"
+        )
+
+
+def test_chunk_size_configurable():
+    """chunk_size and chunk_overlap parameters must be respected: every
+    output chunk must be <= chunk_size in length (after our stripping)."""
+    long_text = "Line of policy content. " * 500
+
+    for size, overlap in [(500, 50), (2000, 300)]:
+        chunks = split_text(
+            long_text,
+            chunk_size=size,
+            chunk_overlap=overlap,
+        )
+        assert chunks, f"Expected non-empty chunks for size={size}"
+        for chunk in chunks:
+            assert len(chunk) <= size, (
+                f"Chunk len={len(chunk)} exceeds configured size={size}"
+            )
+
+
+def test_known_corpus_document_chunk_count_reasonable():
+    """Using the real benchmark-data leave_policy.docx, ensure chunking
+    produces a finite, sensible number of chunks. This guards against a
+    regression where a separator bug explodes the chunk count."""
+    from pathlib import Path
+    from backend.evaluation.dataset import (
+        BENCHMARK_DATA_DIR,
+        DOCX_CONTENT_TYPE,
+    )
+    from backend.services.document_extraction import extract_document
+
+    path = BENCHMARK_DATA_DIR / "leave_policy.docx"
+    if not path.is_file():
+        pytest.skip("benchmark-data corpus not available")
+
+    doc = extract_document(
+        filename=path.name,
+        content_type=DOCX_CONTENT_TYPE,
+        content=path.read_bytes(),
+    )
+
+    spans = split_document(doc)
+
+    assert 1 <= len(spans) <= 50, (
+        f"leave_policy produced an unreasonable chunk count: {len(spans)}"
+    )
+    assert all(span.text.strip() for span in spans)
+    # Every span must have metadata populated, not None everywhere.
+    page_populated = sum(
+        1 for s in spans if s.page_start is not None
+    )
+    assert page_populated >= len(spans) // 2, (
+        "Majority of spans must have page provenance attached"
+    )

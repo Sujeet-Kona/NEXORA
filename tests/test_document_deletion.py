@@ -650,6 +650,7 @@ def test_deleted_document_vectors_stop_starving_retrieval(
                 organization.id,
                 removed_document_id,
                 chunk.chunk_index,
+                removed_document.version,
             )
             for chunk in removed_chunks
         ]
@@ -663,6 +664,7 @@ def test_deleted_document_vectors_stop_starving_retrieval(
                 organization.id,
                 kept_document_id,
                 kept_chunks[0].chunk_index,
+                kept_document.version,
             )
         ]
     )

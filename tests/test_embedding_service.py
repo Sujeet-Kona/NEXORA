@@ -1,5 +1,6 @@
 ﻿import pytest
 
+from backend.core.config import settings
 from backend.services.embedding_service import EmbeddingService
 
 
@@ -11,7 +12,7 @@ class FakeEmbeddings:
         ]
 
     def embed_query(self, text):
-        return [1.0, 2.0]
+        return [1.0] * settings.embedding_dimension
 
 
 def make_service():
@@ -41,7 +42,7 @@ def test_embed_query():
         "What is the leave policy?"
     )
 
-    assert result == [1.0, 2.0]
+    assert result == [1.0] * settings.embedding_dimension
 
 
 def test_empty_documents():

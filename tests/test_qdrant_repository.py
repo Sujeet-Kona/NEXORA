@@ -33,6 +33,7 @@ def _seed(
     organization_id,
     document_id,
     chunk_index,
+    document_version=1,
 ):
     repository.upsert_chunks(
         [
@@ -42,6 +43,7 @@ def _seed(
                 organization_id,
                 document_id,
                 chunk_index,
+                document_version,
             )
         ]
     )
@@ -91,6 +93,7 @@ def test_collection_is_created_lazily_on_first_write(qdrant):
         point.id
         for point in result.points
     } == {1}
+    assert result.points[0].payload["version"] == 1
 
 
 def test_ensure_collection_runs_once_per_repository(

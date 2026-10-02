@@ -6,10 +6,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from backend.core.config import settings
-from backend.dependencies.auth import CurrentUser
 from backend.dependencies.database import get_db
 from backend.dependencies.organization_authorization import (
-    require_organization_member,
+    CurrentOrganizationMember,
 )
 from backend.services.providers import (
     get_embedding_service,
@@ -65,7 +64,7 @@ def _build_sources(
 def query_knowledge_base(
     organization_id: int,
     request: RAGQueryRequest,
-    current_user: CurrentUser,
+    _member: CurrentOrganizationMember,
     db: Session = Depends(get_db),
     embedding_service: EmbeddingService = Depends(
         get_embedding_service,
@@ -77,12 +76,6 @@ def query_knowledge_base(
         get_llm_client,
     ),
 ):
-    require_organization_member(
-        db=db,
-        organization_id=organization_id,
-        current_user=current_user,
-    )
-
     result = answer_question(
         db=db,
         organization_id=organization_id,
@@ -133,7 +126,7 @@ def _sse_stream(events: Iterator[dict]) -> Iterator[str]:
 def query_knowledge_base_stream(
     organization_id: int,
     request: RAGQueryRequest,
-    current_user: CurrentUser,
+    _member: CurrentOrganizationMember,
     db: Session = Depends(get_db),
     embedding_service: EmbeddingService = Depends(
         get_embedding_service,
@@ -145,12 +138,6 @@ def query_knowledge_base_stream(
         get_llm_client,
     ),
 ):
-    require_organization_member(
-        db=db,
-        organization_id=organization_id,
-        current_user=current_user,
-    )
-
     events = stream_answer_question(
         db=db,
         organization_id=organization_id,

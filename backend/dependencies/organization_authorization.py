@@ -1,7 +1,11 @@
-﻿from fastapi import HTTPException, status
+﻿from typing import Annotated
+
+from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from backend.db.models import OrganizationMembership, OrganizationRole, User
+from backend.dependencies.auth import CurrentUser
+from backend.dependencies.database import get_db
 from backend.repositories.organization_repository import get_membership
 
 
@@ -80,3 +84,21 @@ def require_organization_owner(
         )
 
     return current_user
+
+
+def require_organization_member_dependency(
+    organization_id: int,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+) -> User:
+    return require_organization_member(
+        db=db,
+        organization_id=organization_id,
+        current_user=current_user,
+    )
+
+
+CurrentOrganizationMember = Annotated[
+    User,
+    Depends(require_organization_member_dependency),
+]

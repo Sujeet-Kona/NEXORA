@@ -1,11 +1,7 @@
 ﻿import pytest
 
 from backend.core.exceptions import LLMGenerationError
-from backend.db.database import SessionLocal
-from backend.repositories.qdrant_repository import QdrantRepository
-from backend.services.embedding_service import EmbeddingService
 from backend.services.generation_service import NO_CONTEXT_ANSWER
-from backend.services.llm.base import LLMClient
 from backend.services.rag_service import (
     answer_question,
     stream_answer_question,
@@ -44,60 +40,48 @@ def fake_retrieve(**kwargs):
 
 
 def test_answer_question_orchestrates_retrieval_and_generation():
-    db = SessionLocal()
+    result = answer_question(
+        db=None,
+        organization_id=2,
+        question=(
+            "How many annual leave days do employees receive?"
+        ),
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeLLM(),
+        retrieve_fn=fake_retrieve,
+    )
 
-    try:
-        result = answer_question(
-            db=db,
-            organization_id=2,
-            question=(
-                "How many annual leave days do employees receive?"
-            ),
-            embedding_service=EmbeddingService(),
-            qdrant_repository=QdrantRepository(),
-            llm_client=FakeLLM(),
-            retrieve_fn=fake_retrieve,
-        )
+    assert (
+        result.answer
+        == "Employees receive 20 days of annual leave per year."
+    )
 
-        assert (
-            result.answer
-            == "Employees receive 20 days of annual leave per year."
-        )
-
-        assert len(result.sources) == 1
-        assert result.sources[0].chunk_id == 101
-
-    finally:
-        db.close()
+    assert len(result.sources) == 1
+    assert result.sources[0].chunk_id == 101
 
 
 def test_answer_question_forwards_document_ids():
-    db = SessionLocal()
-
     captured = {}
 
     def capture_retrieve(**kwargs):
         captured.update(kwargs)
         return [make_chunk()]
 
-    try:
-        result = answer_question(
-            db=db,
-            organization_id=2,
-            question=(
-                "How many annual leave days do employees receive?"
-            ),
-            embedding_service=EmbeddingService(),
-            qdrant_repository=QdrantRepository(),
-            llm_client=FakeLLM(),
-            retrieve_fn=capture_retrieve,
-            document_ids=[42],
-        )
+    result = answer_question(
+        db=None,
+        organization_id=2,
+        question=(
+            "How many annual leave days do employees receive?"
+        ),
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeLLM(),
+        retrieve_fn=capture_retrieve,
+        document_ids=[42],
+    )
 
-        assert result.sources[0].chunk_id == 101
-
-    finally:
-        db.close()
+    assert result.sources[0].chunk_id == 101
 
     assert captured["document_ids"] == [42]
     assert captured["organization_id"] == 2

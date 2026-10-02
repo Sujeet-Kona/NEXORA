@@ -74,6 +74,7 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         String(50),
         default=UserRole.MEMBER,
+        server_default="member",
         nullable=False,
     )
 
@@ -288,6 +289,7 @@ class Document(Base):
     uploaded_by: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
         nullable=False,
+        index=True,
     )
 
     name: Mapped[str] = mapped_column(
@@ -334,6 +336,7 @@ class Document(Base):
 
     version: Mapped[int] = mapped_column(
         default=1,
+        server_default="1",
         nullable=False,
     )
 
@@ -387,6 +390,7 @@ class AuditLog(Base):
     actor_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
 
     action: Mapped[AuditAction] = mapped_column(

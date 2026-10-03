@@ -5,9 +5,10 @@ questions in plain English, and get **grounded, cited answers** — never
 hallucinations. Built as a FastAPI modular monolith.
 
 > This README describes what NEXORA **actually does today**, verified by tests
-> and benchmarks. Deeper detail lives in [`docs/`](docs/). Numbers quoted here
-> were measured on **2026-09-28** on a local machine and are **indicative**, not
-> a production SLA.
+> and the available benchmark evidence. Deeper detail lives in [`docs/`](docs/).
+> Benchmark metrics are explicitly dated; the current corpus is larger than the
+> historical live benchmark corpus, so historical numbers are not presented as
+> current measurements.
 
 ---
 

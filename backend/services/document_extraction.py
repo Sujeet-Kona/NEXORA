@@ -72,6 +72,11 @@ class ExtractedDocument:
         return len(self.text.split())
 
 
+def _sanitize_extracted_text(text: str) -> str:
+    """Remove characters that PostgreSQL TEXT cannot store."""
+    return text.replace("\x00", "")
+
+
 def _extract_pdf_page_content(
     page: pymupdf.Page,
     page_number: int,
@@ -84,7 +89,9 @@ def _extract_pdf_page_content(
     algorithm. Returns a hint about whether the page looks scanned.
     """
     # 1) Extract standard text stream.
-    base_text = page.get_text("text") or ""
+    base_text = _sanitize_extracted_text(
+        page.get_text("text") or ""
+    )
 
     # 2) Try to recover tables that were flattened / dropped by plain
     #    text extraction. Each cell is joined with its row.
@@ -127,7 +134,9 @@ def _extract_pdf_page_content(
             combined = (combined.rstrip() + "\n" + tables_block).strip()
 
     clean_text = "\n".join(
-        line.strip() for line in combined.splitlines() if line.strip()
+        line.strip()
+        for line in _sanitize_extracted_text(combined).splitlines()
+        if line.strip()
     )
 
     # Heuristic: a page with fewer than MIN_TEXT_CHARS_PER_PAGE after
@@ -304,7 +313,7 @@ def extract_docx_document(
         for element in document.element.body:
             if element in paragraphs_by_element:
                 paragraph = paragraphs_by_element[element]
-                raw_text = paragraph.text.strip()
+                raw_text = _sanitize_extracted_text(paragraph.text).strip()
 
                 if not raw_text:
                     continue

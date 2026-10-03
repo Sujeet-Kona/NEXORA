@@ -6,6 +6,7 @@ import pytest
 
 from backend.core.exceptions import DocumentExtractionError
 from backend.services.document_extraction import (
+    _sanitize_extracted_text,
     extract_docx_document,
     extract_document,
     extract_pdf_document,
@@ -118,6 +119,15 @@ DOCX_TEXT = (
     "Component | Purpose\n"
     "MFA | Account protection"
 )
+
+
+def test_sanitize_extracted_text_removes_nul_bytes_preserves_unicode():
+    text = "parameter \x00 value Φ ∆ Θ"
+
+    sanitized = _sanitize_extracted_text(text)
+
+    assert "\x00" not in sanitized
+    assert sanitized == "parameter  value Φ ∆ Θ"
 
 
 def test_extract_pdf_document_returns_numbered_pages():

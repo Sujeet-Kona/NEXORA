@@ -482,13 +482,26 @@ def run_live() -> None:
             "hybrid_full": [],
         }
 
+        corpus_chunks = [
+            type(
+                "LiveCorpusChunk",
+                (),
+                {
+                    "id": str(chunk.id),
+                    "document_name": document_names.get(chunk.document_id),
+                    "text": chunk.text,
+                },
+            )()
+            for chunk in chunks
+        ]
+
         for case in cases:
             relevant = {
-                chunk.id
-                for chunk in chunks
-                if document_names.get(chunk.document_id)
-                == case.document
-                and case.anchor in chunk.text
+                int(chunk_id)
+                for chunk_id in ground_truth_chunk_ids(
+                    corpus_chunks,
+                    case,
+                )
             }
 
             if not relevant:

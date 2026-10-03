@@ -8,6 +8,10 @@ from backend.core.exceptions import (
     EmptyDocumentTextError,
 )
 from backend.db.models import DocumentChunk, DocumentStatus, User
+from backend.services import bm25_service
+from backend.repositories.document_chunk_repository import (
+    create_document_chunks,
+)
 from backend.repositories.document_repository import (
     create_document,
     update_document_failure,
@@ -537,6 +541,212 @@ def test_qdrant_failure_marks_document_failed(
 
     # A document that failed during indexing must not stay
     # searchable: its committed chunks and vectors are purged.
+    assert (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .count()
+        == 0
+    )
+
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document.id,
+        organization_id=organization.id,
+    )
+
+def test_failed_processing_invalidates_organization_bm25_cache(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-bm25-cache@example.com",
+        "Processing BM25 Cache",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Processing BM25 Cache Company",
+        user_id=owner.id,
+    )
+
+    existing = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="existing.pdf",
+        storage_key="documents/existing.pdf",
+        content_type="application/pdf",
+    )
+    existing.status = DocumentStatus.READY
+
+    create_document_chunks(
+        db=db,
+        document_id=existing.id,
+        organization_id=organization.id,
+        chunks=[
+            ("existing annual leave policy", 1, 1),
+        ],
+    )
+    db.commit()
+
+    cached = bm25_service.get_bm25_index(
+        db=db,
+        organization_id=organization.id,
+    )
+
+    assert [
+        chunk.id
+        for chunk, _score in cached.search(
+            query="annual leave",
+            limit=5,
+        )
+    ] == [
+        chunk.id
+        for chunk in (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == existing.id,
+            )
+            .all()
+        )
+    ]
+
+    failed = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="failed.pdf",
+        storage_key="documents/failed.pdf",
+        content_type="application/pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.index_document_chunks",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError("Qdrant unavailable")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="Qdrant unavailable"):
+        process_document(
+            db=db,
+            document_id=failed.id,
+            embedding_service=Mock(),
+            qdrant_repository=Mock(),
+        )
+
+    rebuilt = bm25_service.get_bm25_index(
+        db=db,
+        organization_id=organization.id,
+    )
+
+    rebuilt_ids = {
+        chunk.id
+        for chunk, _score in rebuilt.search(
+            query="annual leave",
+            limit=5,
+        )
+    }
+
+    existing_chunk_ids = {
+        chunk.id
+        for chunk in (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == existing.id,
+            )
+            .all()
+        )
+    }
+
+    failed_chunk_ids = {
+        chunk.id
+        for chunk in (
+            db.query(DocumentChunk)
+            .filter(
+                DocumentChunk.document_id == failed.id,
+            )
+            .all()
+        )
+    }
+
+    assert rebuilt_ids == existing_chunk_ids
+    assert rebuilt_ids.isdisjoint(failed_chunk_ids)
+
+
+def test_cleanup_failure_does_not_mask_original_processing_error(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-cleanup-failure@example.com",
+        "Processing Cleanup Failure",
+    )
+
+    organization = create_organization_service(
+        db=db,
+        name="Processing Cleanup Failure Company",
+        user_id=owner.id,
+    )
+
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="cleanup-failure.pdf",
+        storage_key="documents/cleanup-failure.pdf",
+        content_type="application/pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.index_document_chunks",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError("embedding/index failure")
+        ),
+    )
+
+    qdrant = Mock()
+    qdrant.delete_document_chunks.side_effect = RuntimeError(
+        "cleanup Qdrant failure"
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="embedding/index failure",
+    ):
+        process_document(
+            db=db,
+            document_id=document.id,
+            embedding_service=Mock(),
+            qdrant_repository=qdrant,
+        )
+
+    db.refresh(document)
+
+    assert document.status == DocumentStatus.FAILED
+    assert document.failure_reason == "Document processing failed"
+
     assert (
         db.query(DocumentChunk)
         .filter(DocumentChunk.document_id == document.id)

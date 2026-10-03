@@ -34,6 +34,7 @@ from backend.db.models import (
 from backend.evaluation.dataset import (
     BENCHMARK_DATA_DIR,
     DOCX_CONTENT_TYPE,
+    PDF_CONTENT_TYPE,
     build_corpus_chunks,
     ground_truth_chunk_ids,
     load_cases,
@@ -224,8 +225,18 @@ def seed_live_corpus(
     organization_id: int,
     user_id: int,
 ) -> None:
-    for path in sorted(BENCHMARK_DATA_DIR.glob("*.docx")):
+    corpus_paths = [
+        *sorted(BENCHMARK_DATA_DIR.glob("*.docx")),
+        *sorted(BENCHMARK_DATA_DIR.glob("*.pdf")),
+    ]
+
+    for path in corpus_paths:
         content = path.read_bytes()
+        content_type = (
+            DOCX_CONTENT_TYPE
+            if path.suffix.lower() == ".docx"
+            else PDF_CONTENT_TYPE
+        )
 
         document = create_document_pending(
             db=db,
@@ -246,7 +257,7 @@ def seed_live_corpus(
             document=document,
             storage_key=storage_key,
             file_size=len(content),
-            content_type=DOCX_CONTENT_TYPE,
+            content_type=content_type,
         )
 
         process_document(

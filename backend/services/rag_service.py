@@ -16,20 +16,31 @@ from backend.services.generation_service import (
     usable_chunks,
 )
 from backend.services.hybrid_retrieval_service import hybrid_retrieve_chunks
-from backend.services.llm.base import LLMClient
+from backend.services.llm.base import LLMClient, LLMUsage
 from backend.services.retrieval_service import RetrievedChunk
+
+
+@dataclass(frozen=True)
+class RAGTiming:
+    retrieval_ms: float
+    generation_ms: float
+    ttft_ms: float | None
+    total_ms: float
 
 
 @dataclass(frozen=True)
 class RAGResponse:
     answer: str
     sources: list[RetrievedChunk]
+    timing: RAGTiming
+    usage: LLMUsage | None
 
 
 def answer_question(*, db: Session, organization_id: int, question: str, embedding_service: EmbeddingService, qdrant_repository: QdrantRepository, llm_client: LLMClient, retrieval_limit: int = 5, document_ids: list[int] | None = None, retrieve_fn: Callable = hybrid_retrieve_chunks) -> RAGResponse:
     if not question.strip():
         raise ValueError("Question cannot be empty")
 
+    start = time.perf_counter()
     normalized_question = question.strip()
     retrieval_start = time.perf_counter()
     chunks = retrieve_fn(db=db, organization_id=organization_id, query=normalized_question, embedding_service=embedding_service, qdrant_repository=qdrant_repository, limit=retrieval_limit, document_ids=document_ids)
@@ -38,12 +49,12 @@ def answer_question(*, db: Session, organization_id: int, question: str, embeddi
     generation_start = time.perf_counter()
     generated = generate_answer(question=normalized_question, chunks=chunks, llm_client=llm_client)
     generation_ms = (time.perf_counter() - generation_start) * 1000
+    total_ms = (time.perf_counter() - start) * 1000
 
-    return RAGResponse(answer=generated.answer, sources=generated.sources)
+    return RAGResponse(answer=generated.answer, sources=generated.sources, timing=RAGTiming(retrieval_ms=retrieval_ms, generation_ms=generation_ms, ttft_ms=None, total_ms=total_ms), usage=llm_client.last_usage)
 
 
 def stream_answer_question(*, db: Session, organization_id: int, question: str, embedding_service: EmbeddingService, qdrant_repository: QdrantRepository, llm_client: LLMClient, retrieval_limit: int = 5, document_ids: list[int] | None = None, retrieve_fn: Callable = hybrid_retrieve_chunks) -> Iterator[dict]:
-    """Retrieve eagerly, then return a generator of stream events."""
     if not question.strip():
         raise ValueError("Question cannot be empty")
 
@@ -62,7 +73,7 @@ def _stream_events(*, question: str, chunks: list[RetrievedChunk], llm_client: L
     if not chunks:
         ttft_ms = (time.perf_counter() - start) * 1000
         yield {"type": "token", "delta": NO_CONTEXT_ANSWER}
-        yield {"type": "done", "answer": NO_CONTEXT_ANSWER, "sources": [], "timing": {"retrieval_ms": retrieval_ms, "generation_ms": 0.0, "ttft_ms": ttft_ms, "total_ms": (time.perf_counter() - start) * 1000}}
+        yield {"type": "done", "answer": NO_CONTEXT_ANSWER, "sources": [], "timing": {"retrieval_ms": retrieval_ms, "generation_ms": 0.0, "ttft_ms": ttft_ms, "total_ms": (time.perf_counter() - start) * 1000}, "usage": None}
         return
 
     collected: list[str] = []
@@ -96,4 +107,4 @@ def _stream_events(*, question: str, chunks: list[RetrievedChunk], llm_client: L
     generation_ms = (time.perf_counter() - generation_start) * 1000
     total_ms = (time.perf_counter() - start) * 1000
 
-    yield {"type": "done", "answer": answer, "sources": list(chunks), "timing": {"retrieval_ms": retrieval_ms, "generation_ms": generation_ms, "ttft_ms": ttft_ms if ttft_ms is not None else total_ms, "total_ms": total_ms}}
+    yield {"type": "done", "answer": answer, "sources": list(chunks), "timing": {"retrieval_ms": retrieval_ms, "generation_ms": generation_ms, "ttft_ms": ttft_ms if ttft_ms is not None else total_ms, "total_ms": total_ms}, "usage": llm_client.last_usage}

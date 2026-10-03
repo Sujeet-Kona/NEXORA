@@ -3,6 +3,8 @@ import pytest
 from backend.evaluation.dataset import REFUSAL_MARKERS
 from backend.evaluation.metrics import (
     fact_matches,
+    citation_indices,
+    citations_are_valid_and_grounded,
     indicates_refusal,
     latency_summary,
     normalize_answer_text,
@@ -216,4 +218,43 @@ def mean_reciprocal_rank(
             for relevant, retrieved in queries
         )
         / len(queries)
+    )
+
+class CitationSource:
+    def __init__(self, chunk_id):
+        self.chunk_id = chunk_id
+
+
+def test_citation_indices_extract_unique_indices_in_order():
+    assert citation_indices("Fact [2], more [1], repeated [2].") == [2, 1]
+
+
+def test_citations_require_valid_index_and_relevant_source():
+    sources = [
+        CitationSource(10),
+        CitationSource(20),
+    ]
+
+    assert citations_are_valid_and_grounded(
+        "Supported fact [2].",
+        sources,
+        {20},
+    )
+
+    assert not citations_are_valid_and_grounded(
+        "Supported fact.",
+        sources,
+        {20},
+    )
+
+    assert not citations_are_valid_and_grounded(
+        "Unsupported citation [3].",
+        sources,
+        {20},
+    )
+
+    assert not citations_are_valid_and_grounded(
+        "Cites the wrong source [1].",
+        sources,
+        {20},
     )

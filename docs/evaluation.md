@@ -13,18 +13,11 @@ proof). Nothing here is estimated.
 
 Defined in `backend/evaluation/dataset.py`:
 
-- **Corpus:** the 10 policy/report `.docx` files in `benchmark-data/`
-  (attendance, emergency alert system, employee conduct, expense, information
-  security, leave, password authentication, remote work, travel, workplace
-  safety). After production extraction + chunking (size 3000 / overlap 400) this
-  is ~31 chunks.
-- **30 positive cases** (`EvaluationCase`): 3 per document. Each has a
-  `question`, the source `document`, an `anchor` sentence, and one or more
-  `expected` answer facts (e.g. `("20 days", "twenty days")`).
-- **3 negative cases** (`NegativeCase`): topics verified **absent** from the
-  corpus (cryptocurrency investment policy, paid parental leave weeks, gym
-  reimbursement). These test that the system **refuses** instead of inventing an
-  answer.
+- **Current corpus:** **16 documents / 220 chunks** after production extraction + chunking (size 3000 / overlap 400): 10 policy/report `.docx` files plus 6 research-paper PDFs.
+- **Current labeled cases:** **60 positive + 6 negative** cases. The original 30 positive + 3 negative cases remain the historical 2026-09-28 benchmark set; the additional cases come from the research-paper corpus.
+- **Ground truth:** every chunk of the labeled document whose text contains the case's anchor sentence, using the same normalized matching logic in offline and live retrieval evaluation.
+
+> **Measurement status (2026-10-03).** The current corpus and benchmark harness are aligned, but the live retrieval and answer-quality metrics quoted below are still the **historical 2026-09-28 measurements** on the smaller 10-doc corpus. Do not present those numbers as measurements of the current 16-doc corpus.
 - **Ground truth:** every chunk of the labeled document whose text contains the
   case's anchor sentence (1–2 relevant chunks per case).
 
@@ -43,7 +36,7 @@ Defined in `backend/evaluation/dataset.py`:
 - **Recall@k / Prec@k / MRR** — standard IR metrics; see
   [retrieval.md](retrieval.md) for plain-English definitions.
 
-## Answer-quality results (measured 2026-09-28)
+## Historical answer-quality results (measured 2026-09-28)
 
 Run: `.venv/bin/python -m backend.evaluation.answer_benchmark` against local
 Postgres 17 (:5433) + Qdrant 1.19.1 (:6333) + Ollama `qwen3:8b` (:11434),
@@ -85,7 +78,7 @@ points.
 - The corpus is 30 questions over 10 short documents — a **small** set. One case
   is ±0.033 on aggregate metrics.
 
-## Retrieval-quality results (measured 2026-09-28)
+## Historical retrieval-quality results (measured 2026-09-28)
 
 See [retrieval.md](retrieval.md) for the full table. Headline: `hybrid_full`
 (RRF + cross-encoder) reaches **Recall@1 = 0.6667** and **MRR = 1.0000**,
@@ -115,7 +108,7 @@ delete everything they created (printing the zero-leftover proof). Point
 
 ## Limitations
 
-- Small corpus (10 docs, ~31 chunks, 30 questions). Results are indicative.
+- Current corpus is 16 docs / 220 chunks / 60 positive + 6 negative cases; the live metrics documented here are historical measurements on the smaller 10-doc corpus.
 - Clean, well-separated prose; real enterprise corpora are noisier.
 - Single-run latency on one local machine; not a throughput or SLA claim.
 - No human-rated answer quality (helpfulness/fluency) — only fact, citation, and

@@ -125,12 +125,15 @@ def stub_query_dependencies(
 
     llm = Mock()
     llm.generate.return_value = "stubbed answer"
+    llm.last_usage = None
 
     class StubReranker:
         def rerank(
             self,
             query,
             chunks,
+            *,
+            apply_relevance_filter=True,
         ):
             return chunks
 

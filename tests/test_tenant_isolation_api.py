@@ -686,12 +686,15 @@ def test_query_never_reaches_llm_with_other_organization_content(
 
     llm = Mock()
     llm.generate.return_value = "stubbed answer"
+    llm.last_usage = None
 
     class StubReranker:
         def rerank(
             self,
             query,
             chunks,
+            *,
+            apply_relevance_filter=True,
         ):
             return chunks
 

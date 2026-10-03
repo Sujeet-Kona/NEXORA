@@ -65,6 +65,8 @@ RBAC, tenant isolation enforced at four layers, and an append-only audit log."
 
 ## Numbers to quote (measured 2026-09-28, local, single run)
 
+> **Current-state pointer (2026-10-03).** The figures in this section remain historical: they were measured on the 10-doc / ~31-chunk / 30+3-case corpus. The current corpus is **16 docs / 220 chunks / 60 positive + 6 negative cases**, and the verified test suite is now **564 passed / 3 skipped**. The live benchmark harness has since been updated to seed PDFs and use the same ground-truth matching logic as the offline benchmark, but fresh live metrics have not yet been measured on the expanded corpus.
+
 - **Tests:** 542 passed, 3 skipped (migration tests skip without
   `TEST_DATABASE_URL`). `compileall` clean; `git diff --check` clean.
 - **Migrations:** linear chain, single head, verified upgrade against real

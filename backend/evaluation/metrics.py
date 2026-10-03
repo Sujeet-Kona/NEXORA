@@ -1,4 +1,5 @@
 import math
+import re
 import statistics
 
 
@@ -135,3 +136,42 @@ def latency_summary(values: list[float]) -> dict[str, float]:
         "min": ordered[0],
         "max": ordered[-1],
     }
+
+
+_CITATION_INDEX = re.compile(r"\[(\d{1,2})\]")
+
+
+def citation_indices(answer: str) -> list[int]:
+    """Return unique inline citation indices in first-seen order."""
+    seen: set[int] = set()
+    indices: list[int] = []
+
+    for match in _CITATION_INDEX.finditer(answer):
+        index = int(match.group(1))
+        if index not in seen:
+            seen.add(index)
+            indices.append(index)
+
+    return indices
+
+
+def citations_are_valid_and_grounded(
+    answer: str,
+    sources,
+    relevant_chunk_ids: set[int],
+) -> bool:
+    """Require an inline citation that maps to a retrieved relevant chunk."""
+    indices = citation_indices(answer)
+
+    if not indices:
+        return False
+
+    if any(index < 1 or index > len(sources) for index in indices):
+        return False
+
+    cited_chunk_ids = {
+        sources[index - 1].chunk_id
+        for index in indices
+    }
+
+    return bool(cited_chunk_ids & relevant_chunk_ids)

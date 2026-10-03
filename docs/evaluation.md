@@ -78,12 +78,23 @@ points.
 - The corpus is 30 questions over 10 short documents — a **small** set. One case
   is ±0.033 on aggregate metrics.
 
-## Historical retrieval-quality results (measured 2026-09-28)
+## Evaluation layers
 
-See [retrieval.md](retrieval.md) for the full table. Headline: `hybrid_full`
-(RRF + cross-encoder) reaches **Recall@1 = 0.6667** and **MRR = 1.0000**,
-beating BM25-only and dense-only (both Recall@1 0.6333, MRR 0.9611) and RRF-only
-(Recall@1 0.6500, MRR 0.9778).
+NEXORA evaluates the system at four distinct layers:
+
+1. **Retrieval quality:** BM25, dense, RRF, reranking and relevance filtering are
+   compared with Recall@1/5/10, Precision@10 and MRR.
+2. **Answer quality:** expected-fact matching, grounded inline citation accuracy,
+   refusal behavior, and latency are measured through the real RAG pipeline.
+3. **Security regression:** prompt-injection boundaries, citation sanitization,
+   tenant isolation, authentication/RBAC and unsafe-input handling are covered
+   by automated tests. These tests are regression gates; they are not presented
+   as proof that prompt injection is solved universally.
+4. **Reliability/observability:** retrieval latency, generation latency, TTFT,
+   total latency and LLM token usage are exposed and tested.
+
+This separation is intentional: a component is not claimed to improve quality
+unless the benchmark actually demonstrates an improvement.
 
 ## Reproducing
 
@@ -111,5 +122,7 @@ delete everything they created (printing the zero-leftover proof). Point
 - Current corpus is 16 docs / 220 chunks / 60 positive + 6 negative cases; the live metrics documented here are historical measurements on the smaller 10-doc corpus.
 - Clean, well-separated prose; real enterprise corpora are noisier.
 - Single-run latency on one local machine; not a throughput or SLA claim.
-- No human-rated answer quality (helpfulness/fluency) — only fact, citation, and
-  refusal checks.
+- No human-rated answer quality (helpfulness/fluency) — automated checks cover
+  factual anchors, grounded citations and refusal behavior.
+- No adversarial benchmark result is claimed yet; security tests are regression
+  coverage rather than a quantitative red-team score.

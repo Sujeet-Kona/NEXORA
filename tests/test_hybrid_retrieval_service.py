@@ -372,6 +372,27 @@ def test_sigmoid_maps_logits_to_unit_interval():
     assert _sigmoid(-3.0) < 0.5
 
 
+def test_reranker_can_return_rank_only_without_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+
+    chunks = [
+        make_chunk(1, "weak match"),
+        make_chunk(2, "stronger match"),
+    ]
+
+    reranker = make_reranker([-3.0, 3.0])
+
+    results = reranker.rerank(
+        query="annual leave",
+        chunks=chunks,
+        apply_relevance_filter=False,
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [2, 1]
+    assert results[0].score == pytest.approx(_sigmoid(3.0))
+    assert results[1].score == pytest.approx(_sigmoid(-3.0))
+
+
 def test_reranker_drops_chunks_below_relevance_threshold(monkeypatch):
     monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
 

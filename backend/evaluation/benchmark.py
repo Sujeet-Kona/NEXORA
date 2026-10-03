@@ -479,6 +479,7 @@ def run_live() -> None:
             "bm25": [],
             "dense": [],
             "hybrid_rrf": [],
+            "hybrid_rerank": [],
             "hybrid_full": [],
         }
 
@@ -546,7 +547,7 @@ def run_live() -> None:
             )
 
             if reranker_available:
-                hybrid = hybrid_retrieve_chunks(
+                hybrid_rerank = hybrid_retrieve_chunks(
                     db=db,
                     organization_id=organization_id,
                     query=case.question,
@@ -554,13 +555,28 @@ def run_live() -> None:
                     qdrant_repository=qdrant_repository,
                     rerank_limit=K,
                     final_limit=K,
+                    apply_relevance_filter=False,
                 )
 
-                rankings_by_config["hybrid_full"].append(
+                rankings_by_config["hybrid_rerank"].append(
                     [
                         chunk.chunk_id
-                        for chunk in hybrid
+                        for chunk in hybrid_rerank
                     ]
+                )
+
+                hybrid_full = [
+                    chunk.chunk_id
+                    for chunk in hybrid_rerank
+                    if (
+                        chunk.score is not None
+                        and chunk.score
+                        >= settings.retrieval_min_relevance
+                    )
+                ][:K]
+
+                rankings_by_config["hybrid_full"].append(
+                    hybrid_full
                 )
 
             print("=" * 78)
@@ -571,6 +587,10 @@ def run_live() -> None:
             print("Hybrid RRF top-10:", fused_ids)
 
             if reranker_available:
+                print(
+                    "Hybrid reranked top-10:",
+                    rankings_by_config["hybrid_rerank"][-1],
+                )
                 print(
                     "Hybrid full top-10:",
                     rankings_by_config["hybrid_full"][-1],

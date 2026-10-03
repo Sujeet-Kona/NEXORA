@@ -45,6 +45,8 @@ class Reranker:
         self,
         query: str,
         chunks: list[RetrievedChunk],
+        *,
+        apply_relevance_filter: bool = True,
     ) -> list[RetrievedChunk]:
         if not chunks:
             return []
@@ -69,7 +71,7 @@ class Reranker:
         for chunk, logit in ranked:
             relevance = _sigmoid(float(logit))
 
-            if relevance < min_relevance:
+            if apply_relevance_filter and relevance < min_relevance:
                 continue
 
             grounded.append(
@@ -141,6 +143,7 @@ def hybrid_retrieve_chunks(
     final_limit: int | None = None,
     limit: int | None = None,
     document_ids: list[int] | None = None,
+    apply_relevance_filter: bool = True,
 ) -> list[RetrievedChunk]:
     if not query.strip():
         raise ValueError("Query cannot be empty")
@@ -219,6 +222,7 @@ def hybrid_retrieve_chunks(
     reranked = get_reranker().rerank(
         query=query,
         chunks=candidates,
+        apply_relevance_filter=apply_relevance_filter,
     )
 
     return reranked[:final_limit]

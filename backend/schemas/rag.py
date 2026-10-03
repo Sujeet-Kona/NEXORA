@@ -25,9 +25,9 @@ class RAGTimingResponse(BaseModel):
 
 
 class RAGUsageResponse(BaseModel):
-    input_tokens: int | None
-    output_tokens: int | None
-    total_tokens: int | None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class RAGQueryResponse(BaseModel):

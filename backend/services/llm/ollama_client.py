@@ -5,6 +5,7 @@ import httpx
 
 from backend.core.config import settings
 from backend.core.exceptions import LLMGenerationError
+from backend.services.llm.base import LLMUsage
 
 
 class OllamaLLMClient:
@@ -29,6 +30,7 @@ class OllamaLLMClient:
         self.think = (
             settings.ollama_think if think is None else think
         )
+        self.last_usage: LLMUsage | None = None
 
     def _chat_payload(
         self,
@@ -51,12 +53,27 @@ class OllamaLLMClient:
             "keep_alive": "5m",
         }
 
+    @staticmethod
+    def _usage(data: dict) -> LLMUsage:
+        input_tokens = data.get("prompt_eval_count")
+        output_tokens = data.get("eval_count")
+        return LLMUsage(
+            input_tokens=input_tokens if isinstance(input_tokens, int) else None,
+            output_tokens=output_tokens if isinstance(output_tokens, int) else None,
+            total_tokens=(
+                input_tokens + output_tokens
+                if isinstance(input_tokens, int) and isinstance(output_tokens, int)
+                else None
+            ),
+        )
+
     def generate(
         self,
         *,
         system_prompt: str,
         user_prompt: str,
     ) -> str:
+        self.last_usage = None
         if not self.model:
             raise LLMGenerationError(
                 "OLLAMA_MODEL is not configured"
@@ -100,6 +117,8 @@ class OllamaLLMClient:
                 "Ollama returned invalid JSON"
             ) from exc
 
+        self.last_usage = self._usage(data)
+
         message = data.get("message")
         if not isinstance(message, dict):
             raise LLMGenerationError(
@@ -120,6 +139,7 @@ class OllamaLLMClient:
         system_prompt: str,
         user_prompt: str,
     ) -> Iterator[str]:
+        self.last_usage = None
         if not self.model:
             raise LLMGenerationError(
                 "OLLAMA_MODEL is not configured"
@@ -161,6 +181,7 @@ class OllamaLLMClient:
                         ) from exc
 
                     if chunk.get("done"):
+                        self.last_usage = self._usage(chunk)
                         break
 
                     message = chunk.get("message")

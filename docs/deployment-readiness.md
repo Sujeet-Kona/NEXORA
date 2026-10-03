@@ -1,5 +1,7 @@
 # Deployment Readiness
 
+> **Current-state pointer (2026-10-03).** This document preserves the historical 2026-09-28 deployment audit below. Since that audit, the corpus grew to **16 docs / 220 chunks / 60 positive + 6 negative cases**, the live retrieval benchmark was hardened for PDF seeding and shared ground-truth matching, and the current verified test suite is **564 passed / 3 skipped**. Fresh live retrieval/answer benchmarks and a Docker production boot have not been re-run in this environment.
+
 Assessment date: **2026-09-28**. Scope: the FINAL deployment-readiness audit of
 NEXORA as it exists today. Every "Passed" item below was verified in this pass;
 every "Not verified" item is reported honestly rather than assumed.

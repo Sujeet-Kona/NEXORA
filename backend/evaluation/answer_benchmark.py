@@ -38,6 +38,7 @@ from backend.evaluation.dataset import (
 )
 from backend.evaluation.metrics import (
     fact_matches,
+    citations_are_valid_and_grounded,
     indicates_refusal,
     latency_summary,
 )
@@ -189,8 +190,10 @@ def run_configuration(
             case.expected,
         )
 
-        citation_ok = bool(
-            set(source_ids) & relevant
+        citation_ok = citations_are_valid_and_grounded(
+            response.answer,
+            response.sources,
+            relevant,
         )
 
         fact_hits += int(fact_ok)

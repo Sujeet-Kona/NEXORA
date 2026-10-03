@@ -239,6 +239,8 @@ def test_hybrid_retrieve_chunks_applies_document_filter(
             self,
             query,
             chunks,
+            *,
+            apply_relevance_filter=True,
         ):
             return chunks
 
@@ -310,6 +312,8 @@ def test_hybrid_retrieve_chunks_accepts_custom_retrievers(
             self,
             query,
             chunks,
+            *,
+            apply_relevance_filter=True,
         ):
             return chunks
 

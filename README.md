@@ -213,7 +213,7 @@ zero-leftover cleanup proof:
   dense/BM25/hybrid through the real pipeline).
 - `answer_benchmark.py` — end-to-end fact/citation/refusal accuracy + latency.
 
-**Retrieval (30 cases, 10 docs, 2026-09-28):**
+**Historical retrieval benchmark (30 positive + 3 negative cases, 10 docs, 2026-09-28):**
 
 | config | Recall@1 | Recall@10 | Prec@10 | MRR |
 |--------|----------|-----------|---------|-----|
@@ -397,12 +397,12 @@ NEXORA/
 ├── tests/                      # unit + API tests; tests/integration (Qdrant)
 ├── scripts/                    # manual check scripts (ollama/openai/real-rag)
 ├── docs/                       # this documentation set
-├── benchmark-data/             # 10 .docx files used by the benchmarks
+├── benchmark-data/             # 10 .docx + 6 research-paper PDFs used by the benchmarks
 ├── Dockerfile, docker-entrypoint.sh, .dockerignore
 ├── docker-compose.yml (dev), docker-compose.prod.yml
 ├── .github/workflows/ci.yml
 ├── requirements.txt, pytest.ini, .env.example
-└── README.md, RETRIEVAL_BENCHMARK.md, RETRIEVAL_BASELINE.md, ANSWER_QUALITY.md
+└── README.md
 ```
 
 **How it connects:** `main.py` mounts the `api/v1` routers behind
@@ -419,7 +419,7 @@ same services to benchmark the real pipeline.
 - **Local-disk upload storage only** — multi-replica needs shared/object storage.
 - **Background ingestion** uses FastAPI `BackgroundTasks`, not a durable queue;
   in-flight work is lost on process death (document → `failed`, retriable).
-- **Small evaluation corpus** (10 docs, 30 questions) — indicative only.
+- **Evaluation history.** The latest measured live benchmark is the 2026-09-28 10-doc run; the current corpus is larger (16 docs / 60 positive + 6 negative cases) and must be re-measured before new live metrics are quoted.
 - **Not measured:** TTFT distribution, per-stage latency, throughput, token
   counts, dollar cost.
 - **No dependency CVE scanning** in CI (deps are pinned).
@@ -444,7 +444,7 @@ Only as real requirements justify them (NEXORA stays a modular monolith):
 ## Running the tests
 
 ```bash
-pytest -q                                   # 542 passed, 3 skipped (in-memory SQLite; no Postgres/Qdrant/Ollama needed)
+pytest -q                                   # 564 passed, 3 skipped (current verified suite; in-memory SQLite; no Postgres/Qdrant/Ollama needed)
 python -m compileall backend                # compiles clean
 ```
 

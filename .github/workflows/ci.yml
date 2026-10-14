@@ -8,7 +8,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
     services:
       postgres:
         image: postgres:17
@@ -16,14 +15,12 @@ jobs:
           POSTGRES_USER: nexora
           POSTGRES_PASSWORD: nexora
           POSTGRES_DB: nexora_test
-        ports:
-          - 5432:5432
+        ports: [5432:5432]
         options: >-
           --health-cmd "pg_isready -U nexora -d nexora_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
       DATABASE_URL: postgresql+psycopg://nexora:nexora@localhost:5432/nexora_test
       TEST_DATABASE_URL: postgresql+psycopg://nexora:nexora@localhost:5432/nexora_test
@@ -31,26 +28,83 @@ jobs:
       JWT_ALGORITHM: HS256
       STORAGE_BACKEND: local
       STORAGE_PATH: storage
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-
       - name: Apply database migrations
         run: alembic upgrade head
-
+      - name: Validate canonical evaluation dataset
+        run: python -c "from backend.evaluation.dataset import validate_dataset; validate_dataset()"
+      - name: Validate expanded evaluation dataset
+        run: python -m backend.evaluation.expanded_benchmark
       - name: Byte-compile backend
-        run: python -m compileall -q backend
-
+        run: python -m compileall -q backend scripts
       - name: Run tests
         run: pytest -q
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit runtime dependencies
+        run: pip-audit -r requirements.txt
+
+  container:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_USER: nexora
+      POSTGRES_PASSWORD: ci-only-password
+      POSTGRES_DB: nexora
+      JWT_SECRET_KEY: ci-only-jwt-secret-key-that-is-long-enough-for-config-validation
+      ENVIRONMENT: production
+      RUN_MIGRATIONS: "true"
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ci-smoke-model
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production Compose configuration
+        run: docker compose -f docker-compose.prod.yml config -q
+      - name: Build production image
+        run: docker compose -f docker-compose.prod.yml build api
+      - name: Boot production stack
+        run: docker compose -f docker-compose.prod.yml up -d
+      - name: Wait for API health
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://localhost:8000/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker compose -f docker-compose.prod.yml ps
+          docker compose -f docker-compose.prod.yml logs --no-color api postgres qdrant
+          exit 1
+      - name: Verify Qdrant health from API container
+        run: |
+          docker compose -f docker-compose.prod.yml exec -T api \
+            python -c "import urllib.request; r=urllib.request.urlopen('http://qdrant:6333/healthz', timeout=5); assert r.status == 200"
+      - name: Run authenticated production smoke test
+        run: python scripts/prod_smoke_test.py --url http://localhost:8000
+      - name: Show production service status
+        if: always()
+        run: docker compose -f docker-compose.prod.yml ps
+      - name: Show production logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs --no-color api postgres qdrant
+      - name: Tear down production stack
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v

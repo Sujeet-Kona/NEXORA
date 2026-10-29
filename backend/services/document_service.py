@@ -30,6 +30,7 @@ from backend.repositories.document_repository import (
     delete_document,
     finalize_document_upload,
     get_document_by_id,
+    get_document_by_id_for_update,
     get_documents_for_organization,
     replace_document_file,
     update_document_status,
@@ -62,6 +63,9 @@ ALLOWED_STATUS_TRANSITIONS = {
     DocumentStatus.PROCESSING: {
         DocumentStatus.READY,
         DocumentStatus.FAILED,
+        # Explicit recovery path for a crashed BackgroundTask. The startup
+        # recovery service uses the same transition after a stale lease.
+        DocumentStatus.PENDING,
     },
     DocumentStatus.READY: set(),
     DocumentStatus.FAILED: {
@@ -109,21 +113,13 @@ def _validate_upload(
     safe_name = filename.strip()
 
     if not safe_name:
-        raise InvalidDocumentUploadError(
-            "Filename cannot be empty"
-        )
+        raise InvalidDocumentUploadError("Filename cannot be empty")
 
-    # Keeps the stored name inside the String(255) column and, with
-    # the storage prefix, inside common filesystem filename limits.
     if len(safe_name.encode("utf-8")) > MAX_FILENAME_BYTES:
-        raise InvalidDocumentUploadError(
-            "Filename is too long"
-        )
+        raise InvalidDocumentUploadError("Filename is too long")
 
     if len(content) == 0:
-        raise InvalidDocumentUploadError(
-            "Uploaded file is empty"
-        )
+        raise InvalidDocumentUploadError("Uploaded file is empty")
 
     if len(content) > settings.max_upload_size_bytes:
         raise InvalidDocumentUploadError(
@@ -131,24 +127,21 @@ def _validate_upload(
         )
 
     if content_type not in ALLOWED_CONTENT_TYPES:
-        raise InvalidDocumentUploadError(
-            "Unsupported document type"
-        )
+        raise InvalidDocumentUploadError("Unsupported document type")
 
-    if content_type == "application/pdf":
-        if not content.startswith(b"%PDF-"):
-            raise InvalidDocumentUploadError(
-                "Uploaded content is not a valid PDF"
-            )
+    if content_type == "application/pdf" and not content.startswith(b"%PDF-"):
+        raise InvalidDocumentUploadError(
+            "Uploaded content is not a valid PDF"
+        )
 
     if (
         content_type
         == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        and not content.startswith(b"PK")
     ):
-        if not content.startswith(b"PK"):
-            raise InvalidDocumentUploadError(
-                "Uploaded content is not a valid DOCX file"
-            )
+        raise InvalidDocumentUploadError(
+            "Uploaded content is not a valid DOCX file"
+        )
 
     return safe_name
 
@@ -167,8 +160,7 @@ def _validate_status_transition(
 
     if new_status not in allowed:
         raise InvalidDocumentStatusTransitionError(
-            f"Cannot change document status from "
-            f"'{current_status}' to '{new_status}'"
+            f"Cannot change document status from '{current_status}' to '{new_status}'"
         )
 
 
@@ -178,15 +170,10 @@ def create_document_service(
     name: str,
     current_user: User,
 ) -> Document:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     _get_organization_membership(
         db=db,
@@ -213,15 +200,10 @@ def upload_document_service(
     content_type: str | None,
     current_user: User,
 ) -> Document:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     _get_organization_membership(
         db=db,
@@ -229,15 +211,8 @@ def upload_document_service(
         user_id=current_user.id,
     )
 
-    safe_name = _validate_upload(
-        filename=filename,
-        content=content,
-        content_type=content_type,
-    )
-
-    storage = LocalStorage(
-        settings.storage_path,
-    )
+    safe_name = _validate_upload(filename, content, content_type)
+    storage = LocalStorage(settings.storage_path)
 
     document = create_document_pending(
         db=db,
@@ -282,13 +257,9 @@ def upload_document_service(
 
     except Exception as exc:
         db.rollback()
-
         if storage_key:
             storage.delete(storage_key)
-
-        raise DocumentUploadFailedError(
-            "Document upload failed"
-        ) from exc
+        raise DocumentUploadFailedError("Document upload failed") from exc
 
 
 def upload_document_version_service(
@@ -301,45 +272,38 @@ def upload_document_version_service(
     current_user: User,
     qdrant_repository: QdrantRepository,
 ) -> Document:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     membership = _get_organization_membership(
         db=db,
         organization_id=organization_id,
         user_id=current_user.id,
     )
-
     _require_admin_or_owner(membership)
 
-    document = get_document_by_id(
+    # Hold the database row lock across the external vector purge. This is
+    # intentional: releasing the lock before Qdrant cleanup would allow a
+    # processing worker to claim the document while its vectors are being
+    # replaced, producing a transiently inconsistent index.
+    document = get_document_by_id_for_update(
         db=db,
         document_id=document_id,
         organization_id=organization_id,
     )
 
     if not document:
-        raise DocumentNotFoundError(
-            "Document not found"
+        raise DocumentNotFoundError("Document not found")
+
+    if document.status == DocumentStatus.PROCESSING:
+        raise DocumentUploadFailedError(
+            "Document cannot be replaced while it is processing"
         )
 
-    safe_name = _validate_upload(
-        filename=filename,
-        content=content,
-        content_type=content_type,
-    )
-
-    storage = LocalStorage(
-        settings.storage_path,
-    )
-
+    safe_name = _validate_upload(filename, content, content_type)
+    storage = LocalStorage(settings.storage_path)
     previous_storage_key = document.storage_key
     new_storage_key = None
 
@@ -378,25 +342,17 @@ def upload_document_version_service(
 
     except DocumentDeletionFailedError:
         db.rollback()
-
         if new_storage_key:
             storage.delete(new_storage_key)
-
         raise
 
     except Exception as exc:
         db.rollback()
-
         if new_storage_key:
             storage.delete(new_storage_key)
+        raise DocumentUploadFailedError("Document upload failed") from exc
 
-        raise DocumentUploadFailedError(
-            "Document upload failed"
-        ) from exc
-
-    invalidate_bm25_index(
-        organization_id,
-    )
+    invalidate_bm25_index(organization_id)
 
     if previous_storage_key:
         try:
@@ -430,15 +386,10 @@ def get_document_service(
     document_id: int,
     current_user: User,
 ) -> Document:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     _get_organization_membership(
         db=db,
@@ -453,9 +404,7 @@ def get_document_service(
     )
 
     if not document:
-        raise DocumentNotFoundError(
-            "Document not found"
-        )
+        raise DocumentNotFoundError("Document not found")
 
     return document
 
@@ -467,15 +416,10 @@ def list_documents_service(
     limit: int,
     offset: int,
 ) -> list[Document]:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     _get_organization_membership(
         db=db,
@@ -498,22 +442,16 @@ def update_document_status_service(
     status: DocumentStatus,
     current_user: User,
 ) -> Document:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     membership = _get_organization_membership(
         db=db,
         organization_id=organization_id,
         user_id=current_user.id,
     )
-
     _require_admin_or_owner(membership)
 
     document = get_document_by_id(
@@ -523,9 +461,7 @@ def update_document_status_service(
     )
 
     if not document:
-        raise DocumentNotFoundError(
-            "Document not found"
-        )
+        raise DocumentNotFoundError("Document not found")
 
     _validate_status_transition(
         current_status=document.status,
@@ -538,9 +474,7 @@ def update_document_status_service(
         status=status,
     )
 
-    invalidate_bm25_index(
-        organization_id,
-    )
+    invalidate_bm25_index(organization_id)
 
     record_audit_event(
         db,
@@ -562,33 +496,33 @@ def delete_document_service(
     current_user: User,
     qdrant_repository: QdrantRepository,
 ) -> None:
-    organization = get_organization_by_id(
-        db,
-        organization_id,
-    )
+    organization = get_organization_by_id(db, organization_id)
 
     if not organization:
-        raise OrganizationNotFoundError(
-            "Organization not found"
-        )
+        raise OrganizationNotFoundError("Organization not found")
 
     membership = _get_organization_membership(
         db=db,
         organization_id=organization_id,
         user_id=current_user.id,
     )
-
     _require_admin_or_owner(membership)
 
-    document = get_document_by_id(
+    # Keep the row locked until Qdrant has been purged and the SQL delete is
+    # committed. A processing worker therefore cannot claim the document in
+    # the middle of a cross-store deletion.
+    document = get_document_by_id_for_update(
         db=db,
         document_id=document_id,
         organization_id=organization_id,
     )
 
     if not document:
-        raise DocumentNotFoundError(
-            "Document not found"
+        raise DocumentNotFoundError("Document not found")
+
+    if document.status == DocumentStatus.PROCESSING:
+        raise DocumentDeletionFailedError(
+            "Document cannot be deleted while it is processing"
         )
 
     try:
@@ -601,20 +535,11 @@ def delete_document_service(
             "Document vectors could not be purged"
         ) from exc
 
-    storage = LocalStorage(
-        settings.storage_path,
-    )
-
+    storage = LocalStorage(settings.storage_path)
     storage_key = document.storage_key
 
-    delete_document(
-        db=db,
-        document=document,
-    )
-
-    invalidate_bm25_index(
-        organization_id,
-    )
+    delete_document(db=db, document=document)
+    invalidate_bm25_index(organization_id)
 
     if storage_key:
         storage.delete(storage_key)
@@ -627,4 +552,3 @@ def delete_document_service(
         resource_type="document",
         resource_id=document_id,
     )
-

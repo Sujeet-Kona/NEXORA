@@ -49,6 +49,9 @@ jobs:
       - name: Apply database migrations
         run: alembic upgrade head
 
+      - name: Dependency security audit
+        run: pip-audit -r requirements.txt
+
       - name: Byte-compile backend
         run: python -m compileall -q backend
 

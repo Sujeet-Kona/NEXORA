@@ -4,6 +4,9 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session
 
 from backend.core.logging import LOGGER_NAME
+from backend.services.document_processing_recovery import (
+    recover_stale_document_processing,
+)
 from backend.services.providers import (
     get_embedding_service,
     get_qdrant_repository,
@@ -21,6 +24,17 @@ def process_document_background(
     db = session_factory()
 
     try:
+        recovered = recover_stale_document_processing(
+            db=db,
+            document_id=document_id,
+        )
+
+        if recovered:
+            logger.warning(
+                "Recovered stale document processing job",
+                extra={"document_id": document_id},
+            )
+
         process_document(
             db=db,
             document_id=document_id,

@@ -48,10 +48,15 @@ if cors_allowed_origins:
 
 @app.on_event("startup")
 def recover_stale_processing_jobs() -> None:
-    session_factory = app.dependency_overrides.get(
+    # ``get_session_factory`` is a dependency provider whose return value is
+    # the actual session factory. Test overrides therefore have the same
+    # contract: override -> session factory -> session. Calling the override
+    # only once would leave ``db`` as a sessionmaker and break startup cleanup.
+    session_factory_provider = app.dependency_overrides.get(
         get_session_factory,
         get_session_factory,
     )
+    session_factory = session_factory_provider()
     db = session_factory()
 
     try:

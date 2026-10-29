@@ -12,6 +12,10 @@ from backend.core.middleware import (
     REQUEST_ID_HEADER,
     RequestObservabilityMiddleware,
 )
+from backend.db.database import SessionLocal
+from backend.services.document_processing_recovery import (
+    recover_stale_processing_documents,
+)
 
 
 configure_logging()
@@ -40,6 +44,20 @@ if cors_allowed_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+@app.on_event("startup")
+def recover_stale_processing_jobs() -> None:
+    db = SessionLocal()
+    try:
+        recovered = recover_stale_processing_documents(db)
+        if recovered:
+            logger.warning(
+                "Recovered stale document processing jobs at startup",
+                extra={"recovered_count": recovered},
+            )
+    finally:
+        db.close()
 
 
 @app.exception_handler(Exception)

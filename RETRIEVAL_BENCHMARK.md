@@ -1,94 +1,80 @@
 # Retrieval Quality Benchmark
 
-Measured results for dense, sparse (BM25), and hybrid retrieval. All
-numbers below are real measurements produced by
-`backend/evaluation/benchmark.py` — no values are estimated or
-extrapolated.
+This file records the current live retrieval benchmark for NEXORA. The values
+below are measured by `backend/evaluation/benchmark.py`; they are not estimated
+or extrapolated.
 
-## Dataset
+## Current dataset
 
-- Corpus: the 10 policy/report `.docx` files in `benchmark-data/`
-  (10 documents, 31 chunks after production extraction and chunking:
-  `RecursiveCharacterTextSplitter`, chunk size 3000, overlap 400).
-- Questions: 30 labeled cases (3 per document) defined in
-  `backend/evaluation/dataset.py`.
-- Ground truth: every chunk of the labeled document whose text contains
-  the case's anchor sentence (1–2 relevant chunks per case).
+- **16 documents**
+- **220 chunks** after production extraction and chunking
+- **60 positive evaluation questions**
+- **6 negative questions** used by the broader answer evaluation
+- Ground truth is defined by the labeled evaluation cases and anchor text.
 
 ## Metrics
 
-- `Recall@k` — fraction of the relevant chunks present in the top k.
-- `Prec@k` — `|relevant ∩ top k| / k` (standard IR definition).
-- `MRR` — mean over cases of `1 / rank` of the first relevant chunk.
+- `Recall@k` — fraction of relevant ground-truth chunks present in the top k.
+- `Precision@k` — fraction of the top k results that are relevant.
+- `MRR` — mean reciprocal rank of the first relevant result.
 
-Candidate depth is k = 10 for every configuration. Note these differ
-from the pre-Phase-10 root script, whose "Recall@k" was hit-rate@k
-(any relevant chunk in top k).
+## Current live benchmark
 
-## Offline benchmark — BM25 fix impact
+Run:
 
-Compares pre-Phase-10 BM25 (whitespace tokenizer, zero-score chunks
-kept) with the current BM25 (regex word tokenizer, term-overlap
-filtering). No database, embeddings, or vector store involved.
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/python -u -m backend.evaluation.benchmark --live
+```
 
-Run: `.venv/bin/python -m backend.evaluation.benchmark`
+The benchmark uses the production ingestion/indexing path with PostgreSQL,
+Qdrant, BGE-M3 embeddings, BM25, RRF, and the cross-encoder reranker. It creates
+a temporary organization and removes the seeded data after evaluation.
 
-| config       | Recall@1 | Recall@5 | Recall@10 | Prec@10 | MRR    |
-|--------------|----------|----------|-----------|---------|--------|
-| bm25_legacy  | 0.6000   | 0.9833   | 1.0000    | 0.1667  | 0.9444 |
-| bm25         | 0.6333   | 1.0000   | 1.0000    | 0.1667  | 0.9611 |
+| configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
+|---|---:|---:|---:|---:|---:|
+| BM25 | **0.6667** | 0.8667 | 0.9500 | 0.0950 | **0.7483** |
+| Dense | 0.6333 | 0.8667 | **1.0000** | 0.1000 | 0.7334 |
+| Hybrid RRF | 0.6333 | **0.9333** | **1.0000** | 0.1000 | 0.7481 |
+| Hybrid + reranker | 0.6333 | **0.9333** | **1.0000** | 0.1000 | 0.7440 |
+| Hybrid Full | 0.6333 | 0.8333 | 0.8500 | 0.0850 | 0.7056 |
 
-Observations:
+## Observations
 
-- The regex tokenizer fixes query terms that previously glued to
-  adjacent punctuation in chunk text; Recall@1 improves 0.60 → 0.6333
-  and MRR 0.9444 → 0.9611.
-- The zero-score fix does not move Prec@10 on this corpus (all BM25
-  scores are positive at 31 chunks); its benefit is preventing
-  irrelevant chunks from filling RRF slots in small corpora, which is
-  covered by unit tests instead.
+- **Recall@1 is not 93.33%.** The best current Recall@1 is 66.67% with BM25.
+- The **93.33% result is Recall@5** for Hybrid RRF and Hybrid + reranker.
+- Dense, Hybrid RRF, and Hybrid + reranker all reach **100% Recall@10**.
+- The cross-encoder reranker does **not** improve the current aggregate retrieval
+  metrics. Its MRR is 0.7440 versus 0.7481 for RRF.
+- Therefore the benchmark should not be described as evidence that reranking
+  improves retrieval. It is evidence that the reranker was evaluated and that
+  its effect was neutral/slightly negative on this dataset.
 
-## Live benchmark — BM25 vs dense vs hybrid
+## Cleanup proof
 
-Seeds a fresh organization in Postgres and Qdrant through the
-production pipeline (upload → extraction → chunking → bge-m3 embeddings
-→ Qdrant indexing → BM25 index), runs all 30 cases, then removes all
-seeded data (cleanup proof: 0 documents, 0 chunks, 0 organizations,
-0 users, 0 Qdrant points).
+The completed live run reported:
 
-Run: `.venv/bin/python -m backend.evaluation.benchmark --live`
+- leftover documents: **0**
+- leftover chunks: **0**
+- leftover organizations: **0**
+- leftover users: **0**
+- leftover Qdrant points: **0**
 
-Environment: local Postgres 17 + Qdrant 1.19.1 (Docker), real
-`BAAI/bge-m3` embeddings (1024-dim, cosine), `BM25Okapi`, RRF fusion
-(k = 60), `cross-encoder/ms-marco-MiniLM-L-6-v2` reranker. Measured
-2026-09-23.
+## Historical benchmark
 
-| config       | Recall@1 | Recall@5 | Recall@10 | Prec@10 | MRR    |
-|--------------|----------|----------|-----------|---------|--------|
-| bm25         | 0.6333   | 1.0000   | 1.0000    | 0.1667  | 0.9611 |
-| dense        | 0.6333   | 1.0000   | 1.0000    | 0.1667  | 0.9611 |
-| hybrid_rrf   | 0.6500   | 1.0000   | 1.0000    | 0.1667  | 0.9778 |
-| hybrid_full  | 0.6667   | 1.0000   | 1.0000    | 0.1667  | 1.0000 |
+The repository previously used a 30-question / 10-document corpus. Its results
+are historical only:
 
-Observations:
+| configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
+|---|---:|---:|---:|---:|---:|
+| BM25 | 0.6333 | 1.0000 | 1.0000 | 0.1667 | 0.9611 |
+| Dense | 0.6333 | 1.0000 | 1.0000 | 0.1667 | 0.9611 |
+| Hybrid RRF | 0.6500 | 1.0000 | 1.0000 | 0.1667 | 0.9778 |
+| Hybrid + reranker | 0.6667 | 0.9833 | 0.9833 | 0.1633 | 1.0000 |
 
-- BM25 and dense score identically on this corpus (30 clean,
-  well-separated policy documents); the two retrievers make different
-  mistakes per case but the aggregate metrics coincide.
-- RRF fusion of the two improves Recall@1 (0.6333 → 0.6500) and MRR
-  (0.9611 → 0.9778): chunks ranked high by both retrievers are
-  promoted.
-- The cross-encoder reranker improves further (Recall@1 0.6667, MRR
-  1.0000 — a relevant chunk at rank 1 for every case).
-- Recall@1 cannot reach 1.0 for cases with 2 relevant chunks (both
-  cannot occupy rank 1); Recall@10 is 1.0 for every configuration.
-- Prec@10 is identical across configurations because every config
-  retrieves all relevant chunks within the top 10; with an average of
-  1.67 relevant chunks per case the ceiling is 0.1667.
+These historical values must not be presented as the current benchmark.
 
 ## Limitations
 
-- 30 questions over 10 short documents is a small evaluation set;
-  differences of one case are ±0.033 on the aggregate metrics.
-- The corpus is clean prose; BM25's tokenizer fix has larger impact on
-  text with heavy punctuation, lists, or mixed formatting.
+The current benchmark is still controlled and relatively small compared with a
+real enterprise corpus. It should be treated as an engineering baseline, not a
+universal retrieval-quality or production-SLA claim.

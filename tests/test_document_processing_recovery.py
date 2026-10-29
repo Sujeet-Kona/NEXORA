@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
-from backend.db.models import DocumentStatus, User
+from sqlalchemy import update
+
+from backend.db.models import Document, DocumentStatus, User
 from backend.repositories.document_repository import create_document
 from backend.services.document_processing_recovery import (
     STALE_PROCESSING_AFTER,
@@ -32,11 +34,20 @@ def create_processing_document(db, email):
         uploaded_by=user.id,
         name="policy.pdf",
     )
-    document.status = DocumentStatus.PROCESSING
-    document.updated_at = (
+
+    stale_at = (
         datetime.now(timezone.utc).replace(tzinfo=None)
         - STALE_PROCESSING_AFTER
         - timedelta(minutes=1)
+    )
+
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            status=DocumentStatus.PROCESSING,
+            updated_at=stale_at,
+        )
     )
     db.commit()
     db.refresh(document)
@@ -55,7 +66,7 @@ def test_stale_processing_document_is_recovered(db):
     ) is True
 
     db.expire_all()
-    recovered = db.get(type(document), document.id)
+    recovered = db.get(Document, document.id)
 
     assert recovered is not None
     assert recovered.status == DocumentStatus.PENDING
@@ -69,7 +80,14 @@ def test_fresh_processing_document_is_not_recovered(db):
         db,
         "recovery-fresh@example.com",
     )
-    document.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            status=DocumentStatus.PROCESSING,
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+    )
     db.commit()
 
     assert recover_stale_document_processing(
@@ -78,7 +96,7 @@ def test_fresh_processing_document_is_not_recovered(db):
     ) is False
 
     db.expire_all()
-    fresh = db.get(type(document), document.id)
+    fresh = db.get(Document, document.id)
     assert fresh is not None
     assert fresh.status == DocumentStatus.PROCESSING
 
@@ -96,5 +114,5 @@ def test_startup_recovery_handles_multiple_stale_documents(db):
     assert recover_stale_processing_documents(db) == 2
 
     db.expire_all()
-    assert db.get(type(first), first.id).status == DocumentStatus.PENDING
-    assert db.get(type(second), second.id).status == DocumentStatus.PENDING
+    assert db.get(Document, first.id).status == DocumentStatus.PENDING
+    assert db.get(Document, second.id).status == DocumentStatus.PENDING

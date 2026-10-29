@@ -3,9 +3,39 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from backend.core.middleware import REQUEST_ID_HEADER
+from backend.db.database import get_db
+from backend.db.models import Base
+from backend.dependencies.database import get_session_factory
 from backend.main import app
+
+
+TEST_DATABASE_URL = "sqlite:///:memory:"
+
+engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+
+TestingSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+    return True
 
 
 @pytest.fixture()
@@ -14,6 +44,21 @@ def error_client():
 
     def boom():
         raise RuntimeError("boom")
+
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_db():
+        db = TestingSessionLocal()
+
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_session_factory] = (
+        lambda: TestingSessionLocal
+    )
 
     app.router.add_api_route(
         "/__observability_error__",
@@ -31,15 +76,8 @@ def error_client():
             if getattr(route, "path", None)
             != "/__observability_error__"
         ]
-
-
-def _is_uuid(value: str) -> bool:
-    try:
-        uuid.UUID(value)
-    except (ValueError, AttributeError, TypeError):
-        return False
-
-    return True
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(bind=engine)
 
 
 def test_request_without_id_gets_generated_id(client):

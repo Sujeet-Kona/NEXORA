@@ -12,6 +12,10 @@ from backend.core.middleware import (
     REQUEST_ID_HEADER,
     RequestObservabilityMiddleware,
 )
+from backend.dependencies.database import get_session_factory
+from backend.services.document_processing_recovery import (
+    recover_stale_processing_documents,
+)
 
 
 configure_logging()
@@ -40,6 +44,30 @@ if cors_allowed_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+@app.on_event("startup")
+def recover_stale_processing_jobs() -> None:
+    # ``get_session_factory`` is a dependency provider whose return value is
+    # the actual session factory. Test overrides therefore have the same
+    # contract: override -> session factory -> session. Calling the override
+    # only once would leave ``db`` as a sessionmaker and break startup cleanup.
+    session_factory_provider = app.dependency_overrides.get(
+        get_session_factory,
+        get_session_factory,
+    )
+    session_factory = session_factory_provider()
+    db = session_factory()
+
+    try:
+        recovered = recover_stale_processing_documents(db)
+        if recovered:
+            logger.warning(
+                "Recovered stale document processing jobs at startup",
+                extra={"recovered_count": recovered},
+            )
+    finally:
+        db.close()
 
 
 @app.exception_handler(Exception)

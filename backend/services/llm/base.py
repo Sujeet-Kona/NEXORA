@@ -1,3 +1,4 @@
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Iterator, Protocol
 
@@ -27,3 +28,9 @@ class LLMClient(Protocol):
         user_prompt: str,
     ) -> Iterator[str]:
         ...
+
+
+llm_usage_context: ContextVar[LLMUsage | None] = ContextVar(
+    "nexora_llm_usage",
+    default=None,
+)

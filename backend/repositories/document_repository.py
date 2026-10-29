@@ -1,5 +1,9 @@
 from sqlalchemy.orm import Session
 
+from backend.core.exceptions import (
+    DocumentUploadFailedError,
+    InvalidDocumentStatusTransitionError,
+)
 from backend.db.models import Document, DocumentStatus
 
 
@@ -76,6 +80,23 @@ def get_document_by_id(
             Document.id == document_id,
             Document.organization_id == organization_id,
         )
+        .first()
+    )
+
+
+def get_document_by_id_for_update(
+    db: Session,
+    document_id: int,
+    organization_id: int,
+) -> Document | None:
+    """Load an organization-scoped document while claiming its DB row."""
+    return (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.organization_id == organization_id,
+        )
+        .with_for_update()
         .first()
     )
 
@@ -174,35 +195,77 @@ def replace_document_file(
     file_size: int,
     content_type: str,
 ) -> Document:
-    document.name = name
-    document.storage_key = storage_key
-    document.file_size = file_size
-    document.content_type = content_type
-    document.version = document.version + 1
-    document.status = DocumentStatus.PENDING
-    document.failure_reason = None
+    # Re-read under a PostgreSQL row lock. The caller may have loaded a stale
+    # ORM object while background processing concurrently changed the status.
+    # Locking here makes the PROCESSING check authoritative at the mutation
+    # point and serializes replacement with the processing claim.
+    locked_document = get_document_by_id_for_update(
+        db=db,
+        document_id=document.id,
+        organization_id=document.organization_id,
+    )
+
+    if not locked_document:
+        raise DocumentUploadFailedError(
+            "Document no longer exists"
+        )
+
+    if locked_document.status == DocumentStatus.PROCESSING:
+        raise DocumentUploadFailedError(
+            "Document cannot be replaced while it is processing"
+        )
+
+    locked_document.name = name
+    locked_document.storage_key = storage_key
+    locked_document.file_size = file_size
+    locked_document.content_type = content_type
+    locked_document.version = locked_document.version + 1
+    locked_document.status = DocumentStatus.PENDING
+    locked_document.failure_reason = None
 
     db.commit()
-    db.refresh(document)
+    db.refresh(locked_document)
 
-    return document
+    return locked_document
 
 
 def delete_document(
     db: Session,
     document: Document,
 ) -> None:
-    db.delete(document)
+    # Deletion must claim the same row used by the processing worker. Without
+    # this lock, a delete could race with indexing and leave orphaned vectors.
+    locked_document = (
+        db.query(Document)
+        .filter(Document.id == document.id)
+        .with_for_update()
+        .first()
+    )
+
+    if not locked_document:
+        return
+
+    if locked_document.status == DocumentStatus.PROCESSING:
+        raise InvalidDocumentStatusTransitionError(
+            "Document cannot be deleted while it is processing"
+        )
+
+    db.delete(locked_document)
     db.commit()
+
 
 def get_document_by_id_unscoped(
     db: Session,
     document_id: int,
 ) -> Document | None:
+    # Processing uses this lookup as the claim point for BackgroundTasks.
+    # PostgreSQL's row lock makes the PENDING/FAILED -> PROCESSING transition
+    # safe when duplicate workers race for the same document.
     return (
         db.query(Document)
         .filter(
             Document.id == document_id,
         )
+        .with_for_update()
         .first()
     )

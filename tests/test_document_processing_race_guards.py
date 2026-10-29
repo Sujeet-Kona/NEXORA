@@ -73,9 +73,11 @@ def test_document_version_replacement_uses_fresh_locked_status(db):
         content_type="application/pdf",
     )
 
-    # Simulate a caller holding an ORM object that still says PENDING while
-    # another transaction has already moved the database row to PROCESSING.
+    # Keep a detached PENDING object to represent a caller that loaded the
+    # document before a concurrent worker claimed it for processing.
     stale_document = document
+    db.expunge(stale_document)
+
     processing_document = get_document_by_id(
         db=db,
         document_id=document.id,
@@ -84,10 +86,6 @@ def test_document_version_replacement_uses_fresh_locked_status(db):
     assert processing_document is not None
     processing_document.status = DocumentStatus.PROCESSING
     db.commit()
-
-    # Expire the stale object so the repository must prove it re-reads the row
-    # under FOR UPDATE rather than trusting the caller's old status value.
-    db.expire(stale_document)
 
     with pytest.raises(DocumentUploadFailedError, match="processing"):
         replace_document_file(

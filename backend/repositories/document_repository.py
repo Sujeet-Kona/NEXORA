@@ -81,6 +81,28 @@ def get_document_by_id(
     )
 
 
+def get_document_by_id_for_update(
+    db: Session,
+    document_id: int,
+    organization_id: int,
+) -> Document | None:
+    """Load an organization-scoped document while claiming its DB row.
+
+    Version replacement must serialize with background processing. PostgreSQL
+    row locking prevents a replacement from observing a stale status while a
+    processor is concurrently transitioning the same document.
+    """
+    return (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.organization_id == organization_id,
+        )
+        .with_for_update()
+        .first()
+    )
+
+
 def get_documents_for_organization(
     db: Session,
     organization_id: int,

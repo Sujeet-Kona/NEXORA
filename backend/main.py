@@ -12,7 +12,7 @@ from backend.core.middleware import (
     REQUEST_ID_HEADER,
     RequestObservabilityMiddleware,
 )
-from backend.db.database import SessionLocal
+from backend.dependencies.database import get_session_factory
 from backend.services.document_processing_recovery import (
     recover_stale_processing_documents,
 )
@@ -48,7 +48,12 @@ if cors_allowed_origins:
 
 @app.on_event("startup")
 def recover_stale_processing_jobs() -> None:
-    db = SessionLocal()
+    session_factory = app.dependency_overrides.get(
+        get_session_factory,
+        get_session_factory,
+    )
+    db = session_factory()
+
     try:
         recovered = recover_stale_processing_documents(db)
         if recovered:

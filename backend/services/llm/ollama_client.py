@@ -5,7 +5,7 @@ import httpx
 
 from backend.core.config import settings
 from backend.core.exceptions import LLMGenerationError
-from backend.services.llm.base import LLMGeneration, LLMStreamResult, LLMUsage
+from backend.services.llm.base import LLMUsage, llm_usage_context
 
 
 class OllamaLLMClient:
@@ -22,6 +22,10 @@ class OllamaLLMClient:
         self.timeout = settings.ollama_timeout if timeout is None else timeout
         self.num_predict = settings.ollama_num_predict if num_predict is None else num_predict
         self.think = settings.ollama_think if think is None else think
+
+    @property
+    def last_usage(self) -> LLMUsage | None:
+        return llm_usage_context.get()
 
     def _chat_payload(self, system_prompt: str, user_prompt: str, *, stream: bool) -> dict:
         return {
@@ -43,14 +47,11 @@ class OllamaLLMClient:
         return LLMUsage(
             input_tokens=input_tokens if isinstance(input_tokens, int) else None,
             output_tokens=output_tokens if isinstance(output_tokens, int) else None,
-            total_tokens=(
-                input_tokens + output_tokens
-                if isinstance(input_tokens, int) and isinstance(output_tokens, int)
-                else None
-            ),
+            total_tokens=(input_tokens + output_tokens if isinstance(input_tokens, int) and isinstance(output_tokens, int) else None),
         )
 
-    def generate(self, *, system_prompt: str, user_prompt: str) -> LLMGeneration:
+    def generate(self, *, system_prompt: str, user_prompt: str) -> str:
+        llm_usage_context.set(None)
         if not self.model:
             raise LLMGenerationError("OLLAMA_MODEL is not configured")
         try:
@@ -73,57 +74,49 @@ class OllamaLLMClient:
             data = response.json()
         except ValueError as exc:
             raise LLMGenerationError("Ollama returned invalid JSON") from exc
+        llm_usage_context.set(self._usage(data))
         message = data.get("message")
         if not isinstance(message, dict):
             raise LLMGenerationError("Ollama response did not contain a message")
         content = message.get("content")
         if not isinstance(content, str):
             raise LLMGenerationError("Ollama response did not contain text content")
-        return LLMGeneration(text=content.strip(), usage=self._usage(data))
+        return content.strip()
 
-    def stream(self, *, system_prompt: str, user_prompt: str) -> LLMStreamResult:
+    def stream(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        llm_usage_context.set(None)
         if not self.model:
             raise LLMGenerationError("OLLAMA_MODEL is not configured")
-
-        result: LLMStreamResult
-
-        def iterate() -> Iterator[str]:
-            try:
-                with httpx.stream(
-                    "POST",
-                    f"{self.base_url}/api/chat",
-                    json=self._chat_payload(system_prompt, user_prompt, stream=True),
-                    timeout=self.timeout,
-                ) as response:
-                    if response.status_code == 404:
-                        raise LLMGenerationError(f"Ollama model '{self.model}' was not found")
+        try:
+            with httpx.stream(
+                "POST",
+                f"{self.base_url}/api/chat",
+                json=self._chat_payload(system_prompt, user_prompt, stream=True),
+                timeout=self.timeout,
+            ) as response:
+                if response.status_code == 404:
+                    raise LLMGenerationError(f"Ollama model '{self.model}' was not found")
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    raise LLMGenerationError(f"Ollama request failed with HTTP {response.status_code}") from exc
+                for line in response.iter_lines():
+                    if not line:
+                        continue
                     try:
-                        response.raise_for_status()
-                    except httpx.HTTPStatusError as exc:
-                        raise LLMGenerationError(
-                            f"Ollama request failed with HTTP {response.status_code}"
-                        ) from exc
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        try:
-                            chunk = json.loads(line)
-                        except ValueError as exc:
-                            raise LLMGenerationError("Ollama returned invalid JSON") from exc
-                        if chunk.get("done"):
-                            result.usage = self._usage(chunk)
-                            break
-                        message = chunk.get("message")
-                        if not isinstance(message, dict):
-                            continue
-                        content = message.get("content")
-                        if isinstance(content, str) and content:
-                            yield content
-            except httpx.TimeoutException as exc:
-                raise LLMGenerationError("Ollama request timed out") from exc
-            except httpx.RequestError as exc:
-                raise LLMGenerationError("Unable to connect to Ollama") from exc
-
-        result = LLMStreamResult(iter(()))
-        result._iterator = iterate()
-        return result
+                        chunk = json.loads(line)
+                    except ValueError as exc:
+                        raise LLMGenerationError("Ollama returned invalid JSON") from exc
+                    if chunk.get("done"):
+                        llm_usage_context.set(self._usage(chunk))
+                        break
+                    message = chunk.get("message")
+                    if not isinstance(message, dict):
+                        continue
+                    content = message.get("content")
+                    if isinstance(content, str) and content:
+                        yield content
+        except httpx.TimeoutException as exc:
+            raise LLMGenerationError("Ollama request timed out") from exc
+        except httpx.RequestError as exc:
+            raise LLMGenerationError("Unable to connect to Ollama") from exc

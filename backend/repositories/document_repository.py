@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+from backend.core.exceptions import DocumentUploadFailedError
 from backend.db.models import Document, DocumentStatus
 
 
@@ -174,6 +175,11 @@ def replace_document_file(
     file_size: int,
     content_type: str,
 ) -> Document:
+    if document.status == DocumentStatus.PROCESSING:
+        raise DocumentUploadFailedError(
+            "Document cannot be replaced while it is processing"
+        )
+
     document.name = name
     document.storage_key = storage_key
     document.file_size = file_size

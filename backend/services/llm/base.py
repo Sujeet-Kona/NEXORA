@@ -1,3 +1,4 @@
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Iterator, Protocol
 
@@ -9,28 +10,15 @@ class LLMUsage:
     total_tokens: int | None = None
 
 
-@dataclass(frozen=True)
-class LLMGeneration:
-    text: str
-    usage: LLMUsage | None
-
-
-class LLMStreamResult:
-    def __init__(self, iterator: Iterator[str]):
-        self._iterator = iterator
-        self.usage: LLMUsage | None = None
-
-    def __iter__(self) -> Iterator[str]:
-        return self._iterator
-
-
 class LLMClient(Protocol):
+    last_usage: LLMUsage | None
+
     def generate(
         self,
         *,
         system_prompt: str,
         user_prompt: str,
-    ) -> LLMGeneration:
+    ) -> str:
         ...
 
     def stream(
@@ -38,5 +26,11 @@ class LLMClient(Protocol):
         *,
         system_prompt: str,
         user_prompt: str,
-    ) -> LLMStreamResult:
+    ) -> Iterator[str]:
         ...
+
+
+llm_usage_context: ContextVar[LLMUsage | None] = ContextVar(
+    "nexora_llm_usage",
+    default=None,
+)

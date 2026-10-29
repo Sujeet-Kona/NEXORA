@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import update
 
 from backend.db.models import Document, DocumentStatus, User
+from backend.dependencies.database import get_session_factory
+from backend.main import app, recover_stale_processing_jobs
 from backend.repositories.document_repository import create_document
 from backend.services.document_processing_recovery import (
     STALE_PROCESSING_AFTER,
@@ -116,3 +118,28 @@ def test_startup_recovery_handles_multiple_stale_documents(db):
     db.expire_all()
     assert db.get(Document, first.id).status == DocumentStatus.PENDING
     assert db.get(Document, second.id).status == DocumentStatus.PENDING
+
+
+def test_startup_recovery_resolves_overridden_session_factory(
+    db,
+    session_factory,
+    monkeypatch,
+):
+    document = create_processing_document(
+        db,
+        "recovery-startup@example.com",
+    )
+
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_session_factory,
+        lambda: session_factory,
+    )
+
+    recover_stale_processing_jobs()
+
+    db.expire_all()
+    recovered = db.get(Document, document.id)
+
+    assert recovered is not None
+    assert recovered.status == DocumentStatus.PENDING

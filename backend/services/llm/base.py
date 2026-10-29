@@ -9,15 +9,26 @@ class LLMUsage:
     total_tokens: int | None = None
 
 
-class LLMClient(Protocol):
-    last_usage: LLMUsage | None
+@dataclass(frozen=True)
+class LLMGeneration:
+    text: str
+    usage: LLMUsage | None
 
+
+class LLMStream(Protocol):
+    usage: LLMUsage | None
+
+    def __iter__(self) -> Iterator[str]:
+        ...
+
+
+class LLMClient(Protocol):
     def generate(
         self,
         *,
         system_prompt: str,
         user_prompt: str,
-    ) -> str:
+    ) -> LLMGeneration:
         ...
 
     def stream(
@@ -25,5 +36,5 @@ class LLMClient(Protocol):
         *,
         system_prompt: str,
         user_prompt: str,
-    ) -> Iterator[str]:
+    ) -> LLMStream:
         ...

@@ -1,6 +1,9 @@
 from sqlalchemy.orm import Session
 
-from backend.core.exceptions import DocumentUploadFailedError
+from backend.core.exceptions import (
+    DocumentUploadFailedError,
+    InvalidDocumentStatusTransitionError,
+)
 from backend.db.models import Document, DocumentStatus
 
 
@@ -230,7 +233,24 @@ def delete_document(
     db: Session,
     document: Document,
 ) -> None:
-    db.delete(document)
+    # Deletion must claim the same row used by the processing worker. Without
+    # this lock, a delete could race with indexing and leave orphaned vectors.
+    locked_document = (
+        db.query(Document)
+        .filter(Document.id == document.id)
+        .with_for_update()
+        .first()
+    )
+
+    if not locked_document:
+        return
+
+    if locked_document.status == DocumentStatus.PROCESSING:
+        raise InvalidDocumentStatusTransitionError(
+            "Document cannot be deleted while it is processing"
+        )
+
+    db.delete(locked_document)
     db.commit()
 
 

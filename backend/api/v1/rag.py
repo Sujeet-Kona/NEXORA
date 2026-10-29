@@ -30,7 +30,24 @@ def _build_timing(timing) -> RAGTimingResponse:
 def _build_usage(usage) -> RAGUsageResponse | None:
     if usage is None:
         return None
-    return RAGUsageResponse(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, total_tokens=usage.total_tokens)
+
+    input_tokens = getattr(usage, "input_tokens", None)
+    output_tokens = getattr(usage, "output_tokens", None)
+    total_tokens = getattr(usage, "total_tokens", None)
+
+    values = (input_tokens, output_tokens, total_tokens)
+    if any(
+        value is not None
+        and (isinstance(value, bool) or not isinstance(value, int))
+        for value in values
+    ):
+        return None
+
+    return RAGUsageResponse(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+    )
 
 
 @router.post("/{organization_id}/query", response_model=RAGQueryResponse)
@@ -46,7 +63,7 @@ def _sse_payload(event: dict) -> dict:
     if event_type == "error":
         return {"detail": event["detail"]}
     usage = event.get("usage")
-    return {"answer": event["answer"], "sources":[source.model_dump() for source in _build_sources(event["sources"])], "timing":event["timing"], "usage": _build_usage(usage).model_dump() if usage is not None else None}
+    return {"answer": event["answer"], "sources":[source.model_dump() for source in _build_sources(event["sources"])], "timing":event["timing"], "usage": _build_usage(usage).model_dump() if usage is not None and _build_usage(usage) is not None else None}
 
 
 def _sse_stream(events: Iterator[dict]) -> Iterator[str]:

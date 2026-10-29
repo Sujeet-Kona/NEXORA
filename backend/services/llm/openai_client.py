@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from backend.core.config import settings
 from backend.core.exceptions import LLMGenerationError
-from backend.services.llm.base import LLMGeneration, LLMStreamResult, LLMUsage
+from backend.services.llm.base import LLMUsage, llm_usage_context
 
 
 class OpenAICompatibleLLMClient:
@@ -27,6 +27,10 @@ class OpenAICompatibleLLMClient:
         self.max_tokens = settings.openai_max_tokens if max_tokens is None else max_tokens
         self._client: OpenAI | None = None
 
+    @property
+    def last_usage(self) -> LLMUsage | None:
+        return llm_usage_context.get()
+
     def _require_configuration(self) -> None:
         if not self.api_key:
             raise LLMGenerationError("OPENAI_API_KEY is not configured")
@@ -39,10 +43,7 @@ class OpenAICompatibleLLMClient:
         return self._client
 
     def _messages(self, system_prompt: str, user_prompt: str) -> list[dict]:
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
 
     def _create(self, *, system_prompt: str, user_prompt: str, stream: bool):
         return self._get_client().chat.completions.create(
@@ -63,7 +64,8 @@ class OpenAICompatibleLLMClient:
             total_tokens=total_tokens if isinstance(total_tokens, int) else None,
         )
 
-    def generate(self, *, system_prompt: str, user_prompt: str) -> LLMGeneration:
+    def generate(self, *, system_prompt: str, user_prompt: str) -> str:
+        llm_usage_context.set(None)
         self._require_configuration()
         try:
             response = self._create(system_prompt=system_prompt, user_prompt=user_prompt, stream=False)
@@ -78,43 +80,39 @@ class OpenAICompatibleLLMClient:
         except openai.APIError as exc:
             raise LLMGenerationError("OpenAI-compatible request failed") from exc
         usage = getattr(response, "usage", None)
+        if usage is not None:
+            llm_usage_context.set(self._usage(usage))
         choices = getattr(response, "choices", None)
         if not choices:
             raise LLMGenerationError("OpenAI-compatible response did not contain a completion")
         content = getattr(choices[0].message, "content", None)
         if not isinstance(content, str):
             raise LLMGenerationError("OpenAI-compatible response did not contain text content")
-        return LLMGeneration(text=content.strip(), usage=self._usage(usage) if usage is not None else None)
+        return content.strip()
 
-    def stream(self, *, system_prompt: str, user_prompt: str) -> LLMStreamResult:
+    def stream(self, *, system_prompt: str, user_prompt: str) -> Iterator[str]:
+        llm_usage_context.set(None)
         self._require_configuration()
-        result: LLMStreamResult
-
-        def iterate() -> Iterator[str]:
-            try:
-                chunks = self._create(system_prompt=system_prompt, user_prompt=user_prompt, stream=True)
-                for chunk in chunks:
-                    usage = getattr(chunk, "usage", None)
-                    if usage is not None:
-                        result.usage = self._usage(usage)
-                    choices = getattr(chunk, "choices", None)
-                    if not choices:
-                        continue
-                    delta = getattr(choices[0], "delta", None)
-                    content = getattr(delta, "content", None)
-                    if isinstance(content, str) and content:
-                        yield content
-            except openai.APITimeoutError as exc:
-                raise LLMGenerationError("OpenAI-compatible request timed out") from exc
-            except openai.APIConnectionError as exc:
-                raise LLMGenerationError("Unable to connect to the OpenAI-compatible provider") from exc
-            except openai.NotFoundError as exc:
-                raise LLMGenerationError(f"OpenAI-compatible model '{self.model}' was not found") from exc
-            except openai.APIStatusError as exc:
-                raise LLMGenerationError(f"OpenAI-compatible request failed with HTTP {exc.status_code}") from exc
-            except openai.APIError as exc:
-                raise LLMGenerationError("OpenAI-compatible request failed") from exc
-
-        result = LLMStreamResult(iter(()))
-        result._iterator = iterate()
-        return result
+        try:
+            chunks = self._create(system_prompt=system_prompt, user_prompt=user_prompt, stream=True)
+            for chunk in chunks:
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    llm_usage_context.set(self._usage(usage))
+                choices = getattr(chunk, "choices", None)
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None)
+                if isinstance(content, str) and content:
+                    yield content
+        except openai.APITimeoutError as exc:
+            raise LLMGenerationError("OpenAI-compatible request timed out") from exc
+        except openai.APIConnectionError as exc:
+            raise LLMGenerationError("Unable to connect to the OpenAI-compatible provider") from exc
+        except openai.NotFoundError as exc:
+            raise LLMGenerationError(f"OpenAI-compatible model '{self.model}' was not found") from exc
+        except openai.APIStatusError as exc:
+            raise LLMGenerationError(f"OpenAI-compatible request failed with HTTP {exc.status_code}") from exc
+        except openai.APIError as exc:
+            raise LLMGenerationError("OpenAI-compatible request failed") from exc

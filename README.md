@@ -2,135 +2,173 @@
 
 **Production-oriented multi-tenant Enterprise RAG platform** built as a FastAPI modular monolith.
 
-NEXORA lets organizations upload PDF/DOCX documents and ask questions against their own data. The system retrieves evidence first, generates grounded answers with source citations, and refuses when the available evidence is insufficient.
+NEXORA lets organizations upload PDF/DOCX documents and ask questions against their own data. The system retrieves evidence first, filters weak evidence, generates grounded answers with source citations, streams responses over SSE, and refuses when sufficient evidence is unavailable.
 
-> **Evaluation note:** the current live retrieval benchmark uses 16 documents, 220 chunks, and 60 evaluation questions. The results below are benchmark measurements, not production SLAs or universal accuracy claims.
+> **Honest scope:** NEXORA is a production-oriented engineering project, not a claim of a fully managed production SaaS system. The live retrieval benchmark uses 16 documents, 220 chunks, and 60 labeled questions. Benchmark results are measurements on this corpus, not production SLAs or universal accuracy claims.
 
 ---
 
-## 1. What NEXORA actually does
+## 1. System overview
 
-NEXORA is not a generic `query → vector DB → LLM` chatbot. The application separates **identity, tenant isolation, document lifecycle, retrieval, evidence selection, generation, and evaluation** into explicit stages.
-
-At a high level:
+NEXORA is deliberately more than `query → vector database → LLM`. The application separates authentication, tenant isolation, document lifecycle, retrieval, evidence selection, generation, and evaluation.
 
 ```mermaid
 flowchart LR
-    U[User / Client] --> API[FastAPI API]
-    API --> AUTH[Authentication + RBAC]
-    AUTH --> TENANT[Tenant identification + isolation]
-    TENANT --> ROUTE{Operation}
+    U[Client] --> API[FastAPI API]
+    API --> SEC[Authentication / RBAC]
+    SEC --> TENANT[Tenant context]
+    TENANT --> OP{Operation}
 
-    ROUTE --> ING[Document ingestion]
-    ROUTE --> Q[Question answering]
+    OP --> ING[Document ingestion]
+    OP --> QA[Question answering]
 
     ING --> PG[(PostgreSQL)]
-    ING --> FILES[Document storage]
-    ING --> EMB[Embedding + indexing]
+    ING --> STORE[(Local document storage)]
+    ING --> EMB[BGE-M3 embeddings]
     EMB --> QD[(Qdrant)]
 
-    Q --> RET[Hybrid retrieval]
+    QA --> RET[Hybrid retrieval]
     RET --> EVID[Evidence filtering]
-    EVID --> LLM[Local LLM]
-    LLM --> RESP[Grounded answer + citations]
-    RESP --> API
+    EVID --> GEN[Local LLM]
+    GEN --> OUT[Grounded answer + citations]
+    OUT --> API
 ```
 
-The core RAG orchestration is implemented directly in Python rather than relying on LangChain/LangGraph as the application orchestration layer.
+### Core design principles
+
+- **PostgreSQL is the source of truth** for application and document state.
+- **Qdrant is a retrieval index**, not the authoritative document store.
+- **Tenant scope is enforced in the backend**, not trusted from the client.
+- **Retrieval happens before generation.**
+- **Insufficient evidence stops generation.**
+- **Document lifecycle state is explicit and recoverable.**
+- **Evaluation is reproducible and cleans up its temporary state.**
+- The core RAG orchestration is implemented directly in Python rather than using LangChain/LangGraph as the application orchestration layer.
 
 ---
 
-## 2. Architecture at a glance
+## 2. Architecture
 
-### System boundaries
+### 2.1 Application layers
 
 ```mermaid
 flowchart TB
     subgraph CLIENT[Client]
-        WEB[Web / API client]
+        C[Web / API client]
     end
 
-    subgraph APP[NEXORA FastAPI application]
+    subgraph APP[NEXORA FastAPI modular monolith]
         API[API layer]
-        SECURITY[Auth / RBAC / tenant checks]
+        AUTH[Authentication + RBAC + tenant checks]
         SERVICES[Service layer]
         REPOS[Repository layer]
         EVAL[Evaluation harness]
     end
 
-    subgraph DATA[State and indexes]
+    subgraph STATE[Persistent state / indexes]
         PG[(PostgreSQL<br/>source of truth)]
         QD[(Qdrant<br/>vector index)]
-        FS[(Local document storage)]
+        FS[(Local file storage)]
     end
 
-    subgraph MODELS[Local ML / LLM runtime]
-        BGE[BGE-M3 embeddings]
-        RERANK[Cross-encoder reranker]
-        OLLAMA[Ollama LLM]
+    subgraph MODELS[Local model runtime]
+        EMB[BGE-M3 embedding model]
+        RR[Cross-encoder reranker]
+        LLM[Ollama LLM]
     end
 
-    WEB --> API --> SECURITY --> SERVICES
-    SERVICES --> REPOS
-    REPOS --> PG
+    C --> API --> AUTH --> SERVICES
+    SERVICES --> REPOS --> PG
     SERVICES --> FS
-    SERVICES --> BGE --> QD
-    SERVICES --> RERANK
-    SERVICES --> OLLAMA
+    SERVICES --> EMB --> QD
+    SERVICES --> RR
+    SERVICES --> LLM
     EVAL --> SERVICES
     EVAL --> PG
     EVAL --> QD
 ```
 
-### Responsibility of each layer
+### 2.2 What each layer owns
 
 | Layer | Responsibility |
 |---|---|
-| API | Request validation, HTTP/SSE responses, authentication entry points |
-| Security | JWT validation, RBAC, tenant identification, authorization |
-| Services | Document processing, retrieval orchestration, answer generation, lifecycle rules |
+| API | HTTP endpoints, request/response validation, SSE streaming entry points |
+| Authentication / RBAC | JWT validation, roles, refresh-token lifecycle, authorization |
+| Tenant boundary | Organization identification and organization-scoped operations |
+| Services | Business logic, document processing, retrieval orchestration, generation, lifecycle rules |
 | Repositories | Database access and organization/document/chunk scoping |
-| PostgreSQL | Source of truth for users, organizations, documents, versions, chunks, audit state |
-| Qdrant | Vector retrieval index; not the authoritative document store |
-| Local storage | Uploaded source files |
-| Models | Embeddings, reranking, and local LLM generation |
-| Evaluation | Reproducible retrieval/answer evaluation and benchmark cleanup |
+| PostgreSQL | Users, organizations, documents, versions, chunks, lifecycle state, audit records |
+| Qdrant | Dense-vector index and retrieval candidates |
+| Local storage | Uploaded source documents |
+| Embedding model | Converts chunks and queries into vectors |
+| Reranker | Scores query/chunk pairs and applies relevance thresholding |
+| Local LLM | Generates answers only after evidence passes retrieval checks |
+| Evaluation | Runs controlled benchmarks and verifies cleanup |
+
+### 2.3 Repository structure
+
+The backend is organized around API, services, repositories, schemas, database access, dependencies, and evaluation rather than putting all logic into route handlers.
+
+```text
+backend/
+├── api/                 # HTTP/API endpoints
+├── core/                # configuration, security, shared infrastructure
+├── db/                  # database/session/migration integration
+├── dependencies/        # FastAPI dependency wiring
+├── repositories/        # persistence and scoped data access
+├── schemas/             # request/response models
+├── services/            # business logic and RAG pipeline
+│   ├── document_extraction.py
+│   ├── document_chunking.py
+│   ├── embedding_service.py
+│   ├── bm25_service.py
+│   ├── hybrid_retrieval_service.py
+│   ├── document_processing_service.py
+│   ├── document_processing_recovery.py
+│   ├── generation_service.py
+│   └── ...
+├── evaluation/          # benchmark datasets and evaluation runners
+└── main.py              # application startup and recovery hooks
+```
 
 ---
 
-## 3. Document ingestion flow
+## 3. Document ingestion
 
-The ingestion path is deliberately separated from the query path.
+The ingestion path turns an uploaded source file into a versioned, searchable document.
 
 ```mermaid
 flowchart TD
-    A[PDF / DOCX upload] --> B[Request validation]
-    B --> C[Authentication + RBAC]
-    C --> D[Identify organization]
-    D --> E[Persist document metadata]
-    E --> F[Document processing]
-    F --> G[Extract text + page provenance]
-    G --> H[Chunk text]
-    H --> I[Generate BGE-M3 embeddings]
-    I --> J[Upsert vectors to Qdrant]
-    J --> K[Persist / verify chunk state]
-    K --> L{Processing successful?}
-    L -->|Yes| M[Document READY]
-    L -->|No| N[Document FAILED / retryable]
-    N --> O[Recovery / retry path]
+    A[PDF / DOCX upload] --> B[Validate request]
+    B --> C[Authenticate + authorize]
+    C --> D[Resolve organization]
+    D --> E[Create document/version state]
+    E --> F[Process document]
+    F --> G[Extract text]
+    G --> H[Preserve page provenance]
+    H --> I[Chunk text]
+    I --> J[Generate BGE-M3 embeddings]
+    J --> K[Index vectors in Qdrant]
+    K --> L[Persist/verify chunk state]
+    L --> M{Success?}
+    M -->|Yes| READY[Document READY]
+    M -->|No| FAILED[Document FAILED]
+    FAILED --> RETRY[Retry / recovery path]
 ```
 
-### Ingestion responsibilities
+### Step-by-step
 
-1. Validate file type, size, and content signature.
-2. Authenticate the request and enforce organization permissions.
-3. Create the document/version state in PostgreSQL.
-4. Extract PDF/DOCX text while preserving page provenance where supported.
-5. Split extracted text into retrieval chunks.
-6. Generate BGE-M3 embeddings.
-7. Index vectors in Qdrant with organization/document metadata.
-8. Mark the document `READY` only after successful processing.
-9. Recover stale `PROCESSING` documents and explicitly handle failed-document retry semantics.
+1. **Validate** file type, size, and content signature.
+2. **Authenticate and authorize** the caller.
+3. **Resolve the organization** that owns the document.
+4. **Create document/version metadata** in PostgreSQL.
+5. **Extract text** from PDF/DOCX.
+6. **Preserve page provenance** for PDF chunks where available.
+7. **Chunk the extracted text** for retrieval.
+8. **Generate BGE-M3 embeddings** for chunks.
+9. **Write vectors to Qdrant** with document/organization metadata.
+10. **Transition the document to `READY`** only after successful processing.
+11. If processing fails, retain an explicit failure state and support retry/recovery.
 
 ### Document lifecycle
 
@@ -140,118 +178,183 @@ stateDiagram-v2
     PENDING --> PROCESSING
     PROCESSING --> READY
     PROCESSING --> FAILED
-    FAILED --> PENDING
+    FAILED --> PENDING : explicit retry
     PROCESSING --> PENDING : stale recovery
     READY --> PROCESSING : replacement/version processing
 ```
 
-The lifecycle is important because document processing crosses PostgreSQL and Qdrant boundaries. NEXORA uses database locking and lifecycle guards to prevent conflicting replacement/deletion operations while processing is active.
+The lifecycle matters because processing touches both PostgreSQL and Qdrant. The system protects lifecycle transitions with database locking and rejects conflicting replacement/deletion operations while processing is active.
+
+### Recovery behavior
+
+A document can become stuck in `PROCESSING` if a worker/process disappears. NEXORA has stale-processing recovery that locks the affected row, records the recovery reason, and returns the document to a retryable state. Failed documents have explicit `FAILED → PENDING` retry semantics.
 
 ---
 
-## 4. Query / RAG flow
+## 4. Query and RAG pipeline
 
-This is the core request path from a user question to a grounded response.
+The query path is where lexical retrieval, semantic retrieval, rank fusion, reranking, evidence filtering, generation, and citation handling meet.
 
 ```mermaid
 flowchart TD
-    A[User question] --> B[Validate request]
-    B --> C[Authenticate JWT]
-    C --> D[RBAC + tenant authorization]
-    D --> E[Retrieve tenant-scoped candidates]
+    Q[User question] --> V[Validate question]
+    V --> A[JWT + RBAC + tenant authorization]
+    A --> S[Scope retrieval to organization]
 
-    E --> BM25[BM25 lexical retrieval]
-    E --> DENSE[Dense retrieval from Qdrant]
+    S --> LEX[BM25 lexical retrieval]
+    S --> DEN[Dense Qdrant retrieval]
 
-    BM25 --> RRF[Reciprocal Rank Fusion]
-    DENSE --> RRF
+    LEX --> FUSE[RRF rank fusion]
+    DEN --> FUSE
 
-    RRF --> CAND[Candidate set]
-    CAND --> RERANK[Cross-encoder reranking]
-    RERANK --> FILTER[Relevance threshold]
+    FUSE --> CAND[Top rerank candidate pool]
+    CAND --> RERANK[Cross-encoder scoring]
+    RERANK --> FILTER[Minimum relevance threshold]
 
-    FILTER --> CHECK{Relevant evidence?}
+    FILTER --> CHECK{Any grounded evidence?}
     CHECK -->|No| REFUSE[Deterministic refusal<br/>No LLM call]
-    CHECK -->|Yes| CONTEXT[Build grounded context + source IDs]
-    CONTEXT --> LLM[Local LLM generation]
-    LLM --> VALIDATE[Validate / sanitize citations]
-    VALIDATE --> STREAM[SSE response]
+    CHECK -->|Yes| CTX[Build context + source IDs]
+    CTX --> GEN[Ollama LLM]
+    GEN --> CIT[Validate / sanitize citations]
+    CIT --> STREAM[SSE response]
 ```
 
-### Why the retrieval pipeline is staged
+### Retrieval stages
 
-**BM25** handles exact lexical signals such as policy names, identifiers, terminology, and wording.
+#### 1. BM25
 
-**Dense retrieval** handles semantic similarity where the query and source use different wording.
+BM25 provides lexical retrieval. It is useful when the query contains exact terminology, names, identifiers, policy language, or wording that semantic similarity may not preserve precisely.
 
-**RRF** combines rankings without requiring BM25 and vector similarity scores to be directly comparable.
+#### 2. Dense retrieval
 
-**Cross-encoder reranking** evaluates a smaller candidate set with a more expensive query/document relevance model.
+The query is embedded with BGE-M3 and searched against Qdrant. Dense retrieval captures semantic similarity even when query wording differs from the source text.
 
-**Relevance filtering** prevents weak candidates from becoming context for the LLM.
+#### 3. Reciprocal Rank Fusion
 
-**Grounded generation** receives only the selected evidence and source identifiers.
+NEXORA combines the BM25 and dense rankings using RRF. The implementation gives the retrievers equal weight and sums rank-based contributions using the RRF constant.
 
-**Citation validation** ensures generated citation markers correspond to actual retrieved sources.
+The important property is that RRF combines **rank positions**, rather than pretending BM25 and vector similarity scores are directly comparable.
 
-The system does **not** assume that every stage must improve the benchmark. Each stage is measurable and its effect is documented.
+#### 4. Cross-encoder reranking
+
+A smaller candidate pool is passed to `cross-encoder/ms-marco-MiniLM-L-6-v2`. Each query/chunk pair is scored, candidates are sorted by the model score, and the score is converted to a relevance value.
+
+The reranker also applies the configured minimum relevance threshold. Candidates below the threshold are removed before generation.
+
+#### 5. Evidence gate
+
+If the relevance filter produces no usable evidence, NEXORA returns a deterministic refusal and does **not** call the LLM.
+
+This creates a hard boundary:
+
+```text
+retrieval failure
+      ↓
+no evidence
+      ↓
+no generation
+      ↓
+deterministic refusal
+```
+
+#### 6. Grounded generation
+
+When evidence exists, the selected chunks and source identifiers are passed to the local LLM. The model is instructed to answer from the supplied evidence and decline when the evidence is insufficient.
+
+#### 7. Citation handling
+
+Retrieved sources are represented explicitly. Generated citation markers are checked/sanitized so returned citations correspond to actual retrieved sources rather than arbitrary model-created references.
 
 ---
 
-## 5. Grounding and refusal behavior
+## 5. Why the architecture is designed this way
 
-NEXORA has an explicit evidence boundary between retrieval and generation.
+### Why PostgreSQL + Qdrant?
 
-```mermaid
-flowchart LR
-    RET[Retrieved candidates] --> FILTER[Relevance filter]
-    FILTER -->|No sufficient evidence| REFUSE[Deterministic refusal]
-    FILTER -->|Sufficient evidence| CTX[Grounded context]
-    CTX --> LLM[LLM]
-    LLM --> CIT[Citations mapped to retrieved sources]
+They serve different responsibilities.
+
+```text
+PostgreSQL
+  └── authoritative application/document state
+
+Qdrant
+  └── searchable vector index
 ```
 
-Two mechanisms are used:
+PostgreSQL determines whether a document is valid and `READY`. Qdrant accelerates semantic retrieval but is not trusted as the authoritative source of document lifecycle state.
 
-1. **Deterministic refusal:** if no chunk survives the relevance threshold, the system returns a refusal without making an LLM call.
-2. **Grounded generation:** when evidence exists, the LLM is instructed to answer from the retrieved context and decline when that context is insufficient.
+### Why BM25 + dense retrieval?
 
-Retrieved chunks are numbered and returned as structured sources. Invalid citation markers are removed after generation so citations map to actual retrieved sources.
+A single retriever has blind spots:
+
+- BM25 is strong for exact lexical matches.
+- Dense retrieval is strong for semantic matches.
+- Their failure modes are different.
+
+The system therefore evaluates both rather than assuming embeddings solve every retrieval problem.
+
+### Why RRF?
+
+BM25 and vector similarity produce scores on different scales. RRF avoids direct score calibration and combines their ranking positions.
+
+### Why reranking?
+
+First-stage retrieval is optimized for candidate recall. A cross-encoder is more expensive, so it is applied to a smaller candidate pool where deeper query/chunk relevance scoring is affordable.
+
+### Why deterministic refusal?
+
+Calling an LLM when retrieval found no adequate evidence creates an unnecessary hallucination path. The refusal is therefore decided before generation.
+
+### Why explicit document states?
+
+Document processing is not a single atomic operation because extraction, chunking, embedding, database updates, and Qdrant indexing interact. Explicit lifecycle states make failure and recovery observable and testable.
 
 ---
 
-## 6. Multi-tenancy and security model
+## 6. Multi-tenancy and security
 
-Tenant isolation is treated as a **correctness and security requirement**, not merely a frontend convention.
+Tenant isolation is enforced at the backend boundary.
 
 ```mermaid
 flowchart TD
-    REQ[Authenticated request] --> JWT[JWT validation]
-    JWT --> RBAC[Role / permission check]
-    RBAC --> ORG[Resolve organization]
-    ORG --> PG_SCOPE[PostgreSQL organization scope]
-    ORG --> Q_SCOPE[Qdrant organization scope]
-    PG_SCOPE --> VERIFY[Re-check returned records]
-    Q_SCOPE --> VERIFY
-    VERIFY --> DATA[Only authorized tenant data]
+    R[Request] --> JWT[Validate JWT]
+    JWT --> ROLE[Check role/permission]
+    ROLE --> ORG[Resolve organization]
+    ORG --> PG[Organization-scoped PostgreSQL queries]
+    ORG --> QD[Organization-scoped Qdrant queries]
+    QD --> HIT[Retrieved vector hits]
+    HIT --> RECHECK[PostgreSQL document/chunk re-check]
+    PG --> RECHECK
+    RECHECK --> DATA[Authorized tenant data only]
 ```
 
-Security controls include:
+### Authentication
 
-- organization-scoped API and service operations
-- organization filtering in PostgreSQL and Qdrant
-- PostgreSQL re-check of returned vector hits before their text is exposed
-- owner/admin/member authorization model
-- Argon2 password hashing
-- JWT expiry enforcement
-- rotating and revocable refresh tokens
+- JWT access tokens
+- refresh-token rotation
+- refresh-token revocation
 - JTI denylisting
+- JWT expiry enforcement
+- Argon2 password hashing
 - login throttling
-- upload size, content-type, and magic-byte validation
+
+### Authorization
+
+The API distinguishes organization membership and roles. Operations are scoped to the caller's organization and role permissions.
+
+### Data isolation
+
+Tenant scope is applied to PostgreSQL and Qdrant operations. Returned vector hits are re-checked against PostgreSQL state before their text is exposed.
+
+### Input and storage controls
+
+- upload size validation
+- content-type validation
+- magic-byte validation
 - guarded local file storage
-- parameterized/ORM database access
+- ORM/parameterized database access
 - static error responses that avoid internal leakage
-- request IDs without logging request bodies or secrets
+- request IDs without request-body/secret logging
 - append-only audit logging with an allowlisted detail set
 - production configuration validation
 
@@ -259,80 +362,104 @@ Security controls include:
 
 ## 7. Reliability and concurrency
 
-A major part of NEXORA is protecting document state when multiple operations interact with the same document.
+The difficult part of document processing is not the happy path; it is preventing conflicting operations from corrupting lifecycle state.
 
 ```mermaid
 flowchart TD
-    P[Document PROCESSING] --> R1[Worker owns processing claim]
-    R1 --> QD[External Qdrant mutation]
+    P[PROCESSING] --> WORKER[Processing worker]
+    WORKER --> Q[Qdrant mutation]
 
-    P --> REPLACE[Replacement request]
-    P --> DELETE[Deletion request]
+    P --> REP[Replacement request]
+    P --> DEL[Deletion request]
 
-    REPLACE --> LOCK1[PostgreSQL row lock / lifecycle guard]
-    DELETE --> LOCK2[PostgreSQL row lock / lifecycle guard]
+    REP --> LOCK1[Lock document row]
+    DEL --> LOCK2[Lock document row]
+    LOCK1 --> GUARD1[Reject/serialize conflicting operation]
+    LOCK2 --> GUARD2[Reject/serialize conflicting operation]
 
-    LOCK1 -->|Blocked / rejected while processing| SAFE1[Preserve processing invariant]
-    LOCK2 -->|Blocked / rejected while processing| SAFE2[Preserve processing invariant]
-
-    P --> DEAD[Process dies / worker disappears]
-    DEAD --> STALE[Stale PROCESSING detection]
-    STALE --> RESET[Return to retryable state]
+    P --> CRASH[Process/worker disappears]
+    CRASH --> STALE[Detect stale PROCESSING]
+    STALE --> RESET[Reset to PENDING]
+    RESET --> WORKER
 ```
 
-Implemented safeguards include:
+Implemented controls include:
 
-- PostgreSQL row locking around processing claims
-- protection against replacement/deletion while processing
+- row locking around processing claims
+- protection against replacement while processing
+- protection against deletion while processing
 - stale `PROCESSING` recovery
-- explicit `FAILED → PENDING` retry semantics
+- explicit `FAILED → PENDING` retry behavior
 - processing lease refresh before external indexing
 - locking before Qdrant mutation for replacement/deletion
 - regression tests for lifecycle races
 
-Qdrant is treated as an index rather than the source of truth. Normal retrieval only exposes chunks belonging to `READY` documents.
+A process death can still leave operationally stale external index state in some failure windows; normal retrieval does not expose chunks for documents that are not `READY`. This is treated as an operational consistency concern rather than being hidden as a perfect two-phase transaction.
 
 ---
 
-## 8. Evaluation architecture
+## 8. Evaluation system
 
-The evaluation harness is designed to test the actual retrieval path rather than only scoring an isolated function.
+NEXORA includes a live retrieval benchmark rather than relying only on unit tests.
+
+### Evaluation architecture
 
 ```mermaid
 flowchart TD
-    D[Evaluation dataset] --> SEED[Create isolated benchmark organization]
-    SEED --> INGEST[Run production ingestion / indexing path]
-    INGEST --> CORPUS[16 documents / 220 chunks]
+    DATA[Evaluation cases + ground truth] --> ORG[Create isolated benchmark organization]
+    ORG --> SEED[Seed benchmark documents]
+    SEED --> PIPE[Production ingestion / extraction / chunking / embedding / indexing]
+    PIPE --> CORPUS[16 documents / 220 chunks]
     CORPUS --> QUESTIONS[60 labeled questions]
 
-    QUESTIONS --> B1[BM25]
-    QUESTIONS --> B2[Dense]
-    QUESTIONS --> B3[Hybrid RRF]
-    QUESTIONS --> B4[Hybrid + reranker]
-    QUESTIONS --> B5[Hybrid Full]
+    QUESTIONS --> BM[BM25]
+    QUESTIONS --> DE[Dense]
+    QUESTIONS --> HR[Hybrid RRF]
+    QUESTIONS --> RR[Hybrid + reranker]
+    QUESTIONS --> HF[Hybrid Full]
 
-    B1 --> METRICS[Recall@1/5/10 + Precision@10 + MRR]
-    B2 --> METRICS
-    B3 --> METRICS
-    B4 --> METRICS
-    B5 --> METRICS
+    BM --> MET[Recall@1/5/10 + Precision@10 + MRR]
+    DE --> MET
+    HR --> MET
+    RR --> MET
+    HF --> MET
 
-    METRICS --> REPORT[Recorded benchmark results]
-    REPORT --> CLEAN[Cleanup benchmark state]
-    CLEAN --> VERIFY[Verify PostgreSQL + Qdrant are clean]
+    MET --> OUTPUT[Benchmark report]
+    OUTPUT --> CLEAN[Delete temporary benchmark data]
+    CLEAN --> VERIFY[Verify PostgreSQL + Qdrant cleanup]
 ```
 
-The benchmark creates temporary data, runs through the real production ingestion/indexing path, measures retrieval configurations, and removes the temporary organization and associated data afterward.
+### Dataset structure
+
+The evaluation cases are split across the evaluation dataset modules. The top-level policy dataset contains 30 positive cases and 3 negative cases; the research-paper dataset contributes the additional positive and negative cases. The runtime loader therefore evaluates **60 positive questions and 6 negative/refusal cases** for the broader answer-evaluation dataset.
+
+The live retrieval benchmark itself reports **60 evaluation questions**.
+
+### Metrics
+
+- **Recall@1:** whether the relevant chunk was ranked first.
+- **Recall@5:** whether the relevant chunk appeared in the top five.
+- **Recall@10:** whether the relevant chunk appeared in the top ten.
+- **Precision@10:** fraction of top-ten retrieved results that are relevant under the benchmark labels.
+- **MRR:** reciprocal rank of the first relevant result, averaged across questions.
+
+These are retrieval metrics. They are **not answer accuracy**.
+
+### Cleanup requirement
+
+The live benchmark creates temporary organization, user, documents, chunks, and Qdrant points. Cleanup is part of the benchmark contract, not an optional manual step.
 
 ---
 
-## 9. Current live retrieval evaluation
+## 9. Current live retrieval results
 
-The current live benchmark uses:
+### Benchmark size
 
 - **16 documents**
 - **220 chunks**
 - **60 evaluation questions**
+
+### Measured results
 
 | Configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
 |---|---:|---:|---:|---:|---:|
@@ -342,74 +469,93 @@ The current live benchmark uses:
 | Hybrid + reranker | 63.33% | **93.33%** | **100.00%** | 10.00% | 0.7440 |
 | Hybrid Full | 63.33% | 83.33% | 85.00% | 8.50% | 0.7056 |
 
-### Interpretation
+### Correct interpretation
 
-- **66.67% is the best Recall@1**, not 93.33%.
-- **93.33% is Recall@5** for Hybrid RRF and Hybrid + reranker.
-- **100% Recall@10** means the labeled relevant evidence was present within the top ten retrieved results for those configurations.
-- The cross-encoder **did not improve the current benchmark**: its MRR is 0.7440 versus 0.7481 for RRF.
-- These values are benchmark measurements, **not answer accuracy, production SLAs, or universal performance claims**.
+- The best **Recall@1 is 66.67%**.
+- **93.33% is Recall@5**, not accuracy.
+- Hybrid RRF reaches **100% Recall@10** on this benchmark.
+- The reranker did **not** improve the current benchmark: RRF MRR is 0.7481 versus 0.7440 after reranking.
+- These results describe this controlled benchmark only.
 
-### Cleanup verification
+### Cleanup result
 
-The completed live benchmark left:
+The completed live run verified:
 
-- **0 documents**
-- **0 chunks**
-- **0 organizations**
-- **0 users**
-- **0 Qdrant points**
+```text
+leftover documents      = 0
+leftover chunks         = 0
+leftover organizations  = 0
+leftover users          = 0
+leftover Qdrant points  = 0
+```
 
-This verifies that the temporary benchmark state was removed from both PostgreSQL and Qdrant.
+This is evidence that the benchmark removes the temporary state it creates.
 
-Detailed evaluation methodology and historical results are documented in [`docs/evaluation.md`](docs/evaluation.md).
+Detailed methodology, reproduction instructions, limitations, and historical results are in [`docs/evaluation.md`](docs/evaluation.md).
 
 ---
 
 ## 10. Technology stack
 
-| Concern | Technology |
+| Area | Technology |
 |---|---|
+| Language | Python |
 | API | FastAPI, Starlette, Uvicorn |
 | Validation/config | Pydantic v2, pydantic-settings |
 | Database | PostgreSQL 17, SQLAlchemy 2.0, Alembic |
-| Vector store | Qdrant |
+| Vector index | Qdrant |
 | Embeddings | `BAAI/bge-m3`, sentence-transformers |
 | Lexical retrieval | `rank-bm25` / BM25Okapi |
 | Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | Chunking | `langchain-text-splitters` |
-| LLM | Ollama (`qwen3:8b` default) |
+| Local LLM | Ollama (`qwen3:8b` default) |
 | Authentication | PyJWT, Argon2 via pwdlib |
 | Documents | PyMuPDF, python-docx |
 | Testing | pytest |
-| Deployment | Docker / Docker Compose |
+| Containerization | Docker / Docker Compose |
 | CI | GitHub Actions |
+
+### Framework boundary
+
+`langchain-text-splitters` is used for text splitting. The core RAG orchestration, retrieval fusion, reranking flow, lifecycle handling, authorization, and evaluation harness are implemented in the repository's own Python services.
 
 There is no LangChain core, LangGraph, Redis, or Celery dependency in the core application flow.
 
 ---
 
-## 11. Supported documents and explicit boundaries
+## 11. Supported inputs and explicit limitations
 
-### Supported
+### Supported document types
 
 - PDF
 - DOCX, including DOCX tables
 
-### Not currently claimed
+### Not implemented / not claimed
 
 - OCR for scanned/image-only PDFs
 - image understanding
-- PDF table extraction
-- arbitrary formats such as XLSX/PPTX/CSV/HTML
+- general PDF table extraction
+- arbitrary document formats such as XLSX/PPTX/CSV/HTML
+- production-scale throughput claims
+- universal answer-quality claims
 
-Chunking preserves page provenance for PDFs.
+The evaluation corpus is controlled and relatively small. The benchmark should therefore be used to compare the implemented retrieval configurations, not to claim general enterprise retrieval performance.
 
 ---
 
-## 12. Evaluation commands
+## 12. Testing and CI
 
-### Offline BM25 benchmark
+The repository uses automated regression tests and GitHub Actions CI.
+
+CI covers the application test suite, compilation, database migrations, and dependency auditing. The live retrieval benchmark is intentionally not a CI step because it requires local ML models and runtime services.
+
+The engineering test surface includes authentication, authorization, tenant isolation, document lifecycle, processing recovery, concurrency guards, retrieval behavior, citations/refusal behavior, and evaluation cleanup.
+
+---
+
+## 13. Evaluation commands
+
+### Offline benchmark
 
 ```bash
 .venv/bin/python -m backend.evaluation.benchmark
@@ -427,71 +573,79 @@ HF_HUB_OFFLINE=1 .venv/bin/python -u -m backend.evaluation.benchmark --live
 .venv/bin/python -m backend.evaluation.answer_benchmark
 ```
 
-The live retrieval benchmark requires local PostgreSQL, Qdrant, embedding, and reranker runtime. It creates temporary benchmark data and removes it after the run.
+The live benchmark requires PostgreSQL, Qdrant, the embedding model, and the reranker runtime. It creates isolated benchmark data and removes it after execution.
 
 ---
 
-## 13. Local development
+## 14. Local development
+
+### Prerequisites
+
+- Python
+- Docker + Docker Compose
+- Ollama
+
+### Setup
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-dev.txt
+cp .env.example .env
 docker compose up -d
 ollama pull qwen3:8b
-cp .env.example .env
 alembic upgrade head
 python -m uvicorn backend.main:app --reload
 ```
 
-API: `http://127.0.0.1:8000`
+Local endpoints:
 
-Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
-
-Health: `http://127.0.0.1:8000/health`
-
----
-
-## 14. Production scope
-
-The repository contains a non-root multi-stage Docker image and production Compose configuration with PostgreSQL and Qdrant.
-
-A real larger deployment would additionally require operational decisions around persistent/shared object storage, distributed rate limiting, durable ingestion, TLS, backups, observability, load testing, and capacity planning.
-
-These are intentionally not represented as implemented features unless they are actually present in the repository.
+- API: `http://127.0.0.1:8000`
+- Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
+- Health: `http://127.0.0.1:8000/health`
 
 ---
 
-## 15. Honest limitations
+## 15. Deployment scope
 
-NEXORA is a **production-oriented engineering project**, not a claim of a fully managed production SaaS system.
+The repository includes Docker/Compose configuration for the application, PostgreSQL, and Qdrant, including a non-root multi-stage application image.
 
-Known limitations include:
+A larger real-world deployment would still require additional operational work such as:
 
-- controlled and relatively small evaluation corpus
-- local disk storage implementation
-- process-local login throttling
-- FastAPI BackgroundTasks rather than a durable distributed queue
-- no OCR/image-only document understanding
-- no throughput/concurrency benchmark
-- no universal answer-quality or human-helpfulness score
-- local LLM latency depends heavily on hardware
+- shared/persistent object storage
+- distributed rate limiting
+- durable background job infrastructure
+- TLS and secret management
+- backups and disaster recovery
+- centralized logs/metrics/traces
+- load and concurrency testing
+- capacity planning
+- production model-serving strategy
 
-The project deliberately favors explicit, testable engineering over adding infrastructure that is not justified by the current requirements.
+These are intentionally listed as future operational requirements rather than being presented as implemented production capabilities.
 
 ---
 
-## 16. Repository guide
+## 16. Documentation map
 
 | Document | Purpose |
 |---|---|
-| [`docs/evaluation.md`](docs/evaluation.md) | Evaluation methodology, current results, cleanup verification, and historical benchmark separation |
-| [`docs/retrieval.md`](docs/retrieval.md) | Retrieval design and benchmark interpretation |
-| [`docs/interview-notes.md`](docs/interview-notes.md) | Technical decisions and interview preparation |
-| [`RETRIEVAL_BENCHMARK.md`](RETRIEVAL_BENCHMARK.md) | Retrieval benchmark record |
-| [`docs/security.md`](docs/security.md) | Security model and controls |
-| [`docs/deployment.md`](docs/deployment.md) | Deployment configuration and operational scope |
-| [`docs/configuration.md`](docs/configuration.md) | Configuration and environment variables |
+| [`docs/architecture.md`](docs/architecture.md) | System architecture and component boundaries |
+| [`docs/api.md`](docs/api.md) | API behavior and endpoints |
+| [`docs/authentication.md`](docs/authentication.md) | Authentication and token lifecycle |
+| [`docs/multi-tenancy.md`](docs/multi-tenancy.md) | Tenant isolation and authorization |
+| [`docs/document-ingestion.md`](docs/document-ingestion.md) | Extraction, chunking, indexing |
+| [`docs/document-processing-recovery.md`](docs/document-processing-recovery.md) | Lifecycle recovery and retry behavior |
+| [`docs/rag-pipeline.md`](docs/rag-pipeline.md) | End-to-end RAG behavior |
+| [`docs/retrieval.md`](docs/retrieval.md) | Retrieval algorithms and configuration |
+| [`docs/evaluation.md`](docs/evaluation.md) | Current benchmark and interpretation |
+| [`docs/evaluation-reproducibility.md`](docs/evaluation-reproducibility.md) | Reproduction details |
+| [`docs/performance.md`](docs/performance.md) | Performance considerations and measurements |
+| [`docs/security.md`](docs/security.md) | Security controls |
+| [`docs/deployment.md`](docs/deployment.md) | Deployment configuration |
+| [`docs/deployment-readiness.md`](docs/deployment-readiness.md) | Deployment boundaries/readiness |
+| [`docs/configuration.md`](docs/configuration.md) | Configuration reference |
+| [`docs/interview-notes.md`](docs/interview-notes.md) | Technical interview preparation |
 
 ---
 
@@ -499,8 +653,8 @@ The project deliberately favors explicit, testable engineering over adding infra
 
 **NEXORA — final engineering/evaluation baseline complete.**
 
-The core application, security hardening, lifecycle recovery, automated testing, CI, evaluation harnesses, live benchmark, cleanup verification, and documentation are in place.
+The core application, retrieval pipeline, security controls, lifecycle recovery, automated tests, CI, evaluation harnesses, live benchmark, cleanup verification, and engineering documentation are complete.
 
-The retrieval benchmark is frozen as a **measured engineering baseline**, rather than being tuned solely for a better headline number.
+The retrieval benchmark is frozen as a measured baseline rather than tuned solely for a better headline number.
 
-The next work on NEXORA should be limited to genuine bugs, security issues, reproducibility problems, or evidence-backed improvements—not feature accumulation for resume padding.
+No additional feature work is required for the project to be resume-ready.

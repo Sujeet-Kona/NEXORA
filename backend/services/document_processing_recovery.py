@@ -11,6 +11,10 @@ from backend.repositories.document_repository import (
 STALE_PROCESSING_AFTER = timedelta(minutes=30)
 
 
+def _utc_now_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def recover_stale_processing_documents(db: Session) -> int:
     """Return crashed PROCESSING jobs to PENDING so they can be retried.
 
@@ -20,7 +24,7 @@ def recover_stale_processing_documents(db: Session) -> int:
     before expensive indexing work. Each row is locked before it is reset so
     recovery cannot race another worker's claim.
     """
-    cutoff = datetime.now(timezone.utc) - STALE_PROCESSING_AFTER
+    cutoff = _utc_now_naive() - STALE_PROCESSING_AFTER
 
     documents = (
         db.query(Document)
@@ -60,7 +64,7 @@ def recover_stale_document_processing(
     if not document or document.status != DocumentStatus.PROCESSING:
         return False
 
-    cutoff = datetime.now(timezone.utc) - STALE_PROCESSING_AFTER
+    cutoff = _utc_now_naive() - STALE_PROCESSING_AFTER
 
     if document.updated_at >= cutoff:
         return False

@@ -1,472 +1,329 @@
 # NEXORA
 
-Secure, multi-tenant **Enterprise RAG** platform: upload your documents, ask
-questions in plain English, and get **grounded, cited answers** — never
-hallucinations. Built as a FastAPI modular monolith.
+**Production-oriented multi-tenant Enterprise RAG platform** built as a FastAPI
+modular monolith.
 
-> This README describes what NEXORA **actually does today**, verified by tests
-> and benchmarks. Deeper detail lives in [`docs/`](docs/). Numbers quoted here
-> were measured on **2026-09-28** on a local machine and are **indicative**, not
-> a production SLA.
+NEXORA lets organizations upload PDF/DOCX documents and ask questions against
+their own data. The system retrieves evidence first, generates grounded answers
+with source citations, and refuses when the available evidence is insufficient.
+
+> **Evaluation note:** the current live retrieval benchmark uses 16 documents,
+> 220 chunks, and 60 evaluation questions. The results below are benchmark
+> measurements, not production SLAs or universal accuracy claims.
 
 ---
 
-## 1. What is NEXORA?
+## 1. What it does
 
-NEXORA is a backend platform that lets multiple organizations (tenants) store
-their own documents and question them with an AI assistant. It uses **RAG**
-(Retrieval-Augmented Generation): instead of letting a language model answer from
-memory, NEXORA first **retrieves** the relevant passages from *your* documents and
-then asks the model to answer **using only those passages**, with citations back
-to the source. If the documents don't contain the answer, NEXORA says so rather
-than making something up.
+NEXORA combines:
 
-All application endpoints are versioned under `/api/v1`; `/health` is the only
-unversioned endpoint.
+- multi-tenant organizations and RBAC
+- JWT authentication with rotating/revocable refresh tokens
+- Argon2 password hashing and login throttling
+- PDF/DOCX ingestion with validation and page provenance
+- dense vector retrieval with Qdrant
+- BM25 lexical retrieval
+- Reciprocal Rank Fusion (RRF)
+- cross-encoder reranking and relevance filtering
+- grounded generation with citations
+- deterministic no-context refusal without an LLM call
+- Server-Sent Events (SSE) streaming
+- document versioning and lifecycle recovery
+- append-only audit logging
+- automated tests and CI
+- live/offline evaluation harnesses with cleanup verification
+- Dockerized deployment configuration
 
-## 2. Problem it solves
+The core RAG flow is implemented directly in Python rather than relying on
+LangChain/LangGraph as the application orchestration layer.
 
-General-purpose LLMs don't know your private policies, and they confidently invent
-answers when they don't know something. Enterprises need a Q&A assistant that:
+## 2. Architecture
 
-- answers **only** from approved internal documents,
-- **cites** the exact source (document, chunk, page) for every answer,
-- **refuses** when the documents don't support an answer,
-- keeps each tenant's data **strictly isolated**,
-- is **secure** (hashed passwords, JWT auth, RBAC, audit log), and
-- can run **entirely on your own infrastructure** (local LLM, no data leaves).
-
-NEXORA addresses all of these.
-
-## 3. Main features
-
-- Multi-tenant organizations with owner/admin/member roles.
-- JWT authentication (access + rotating refresh tokens), Argon2 passwords,
-  brute-force login throttling.
-- Document upload (PDF, DOCX) with size/type/magic-byte validation.
-- Page-aware extraction, overlapping chunking with page provenance.
-- Hybrid retrieval: dense vectors (Qdrant) + BM25, fused with RRF, reranked by a
-  cross-encoder.
-- Grounded answers with inline citations and two independent refusal mechanisms.
-- SSE streaming with time-to-first-token reporting.
-- Append-only audit log with a secret-safe detail allowlist.
-- Document versioning (re-index on replace) and tenant-scoped deletion.
-- Offline + live evaluation benchmarks with cleanup proofs.
-- Multi-stage non-root Docker image, production compose, and CI.
-
-## 4. Architecture
-
-A **modular monolith** with clean layers:
-
-```
-Client → FastAPI → Auth/Authz (dependencies) → Services → Repositories → PostgreSQL
-                                                              ↘ Qdrant (vectors)
-                                                              ↘ Ollama (LLM)
+```text
+Client
+  ↓
+FastAPI API
+  ↓
+Authentication / RBAC / tenant identification
+  ↓
+Services
+  ↓
+Repositories
+  ├── PostgreSQL  ← source of truth
+  ├── Qdrant      ← vector index
+  └── Ollama      ← local LLM
 ```
 
-- **API routers** (`backend/api/v1/`) — HTTP in/out, Pydantic validation only.
-- **Dependencies** (`backend/dependencies/`) — current user, DB session,
-  permission checks, pagination.
-- **Services** (`backend/services/`) — all business logic.
-- **Repositories** (`backend/repositories/`) — thin data access (SQLAlchemy,
-  Qdrant client).
-- **Stores** — PostgreSQL (source of truth), Qdrant (vector index), Ollama (LLM).
+### Ingestion
 
-Expensive clients (embeddings, Qdrant, LLM) are built lazily and cached
-per-process (`@lru_cache`), so the API starts fast and scales safely across
-replicas. Full explanation: [docs/architecture.md](docs/architecture.md).
+```text
+Upload
+  ↓
+Validation
+  ↓
+Document storage
+  ↓
+Extraction
+  ↓
+Chunking + page provenance
+  ↓
+BGE-M3 embeddings
+  ↓
+Qdrant indexing
+  ↓
+Document READY
+```
 
-## 5. Technology stack
+### Query
 
-| Concern | Choice |
-|---------|--------|
-| Web framework | FastAPI (Starlette), uvicorn |
-| Validation/settings | Pydantic v2 + pydantic-settings |
-| ORM / migrations | SQLAlchemy 2.0, Alembic (PostgreSQL-only, single head) |
-| Database | PostgreSQL 17 (psycopg 3) |
-| Vector store | Qdrant (qdrant-client), 1024-dim cosine |
-| Embeddings | `BAAI/bge-m3` via sentence-transformers (normalized) |
-| Lexical search | `rank-bm25` (BM25Okapi) |
+```text
+Question
+  ↓
+Validation + authorization
+  ↓
+BM25 ─────────┐
+              ├─→ RRF → cross-encoder → relevance filter
+Dense/Qdrant ─┘                         ↓
+                                  top-k context
+                                         ↓
+                                      grounded LLM
+                                         ↓
+                                  answer + citations
+```
+
+If no chunk survives the relevance threshold, NEXORA returns a deterministic
+refusal without calling the LLM.
+
+## 3. Technology stack
+
+| Concern | Technology |
+|---|---|
+| API | FastAPI, Starlette, Uvicorn |
+| Validation/config | Pydantic v2, pydantic-settings |
+| Database | PostgreSQL 17, SQLAlchemy 2.0, Alembic |
+| Vector store | Qdrant |
+| Embeddings | `BAAI/bge-m3`, sentence-transformers |
+| Lexical retrieval | `rank-bm25` / BM25Okapi |
 | Reranker | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
-| Chunking | `langchain-text-splitters` (RecursiveCharacterTextSplitter) |
-| LLM | Ollama `qwen3:8b` (default); OpenAI-compatible optional |
-| Auth | PyJWT (HS256), `pwdlib[argon2]` |
-| PDF / DOCX | `pymupdf` / `python-docx` |
-| Tests | pytest |
+| Chunking | `langchain-text-splitters` |
+| LLM | Ollama (`qwen3:8b` default) |
+| Authentication | PyJWT, Argon2 via pwdlib |
+| Documents | PyMuPDF, python-docx |
+| Testing | pytest |
+| Deployment | Docker / Docker Compose |
+| CI | GitHub Actions |
 
-All dependencies are pinned in `requirements.txt`. **No** LangChain core,
-LangGraph, Redis, or Celery.
+There is no LangChain core, LangGraph, Redis, or Celery dependency in the core
+application flow.
 
-## 6. RAG pipeline
+## 4. Security and isolation
 
-```
-question → hybrid retrieval → 0..N chunks
-   ├─ 0 chunks → canned refusal (NO LLM call)
-   └─ ≥1 chunk → number [1..N] → grounded prompt → LLM → strip invalid citations → answer + sources
-```
+NEXORA treats tenant isolation as a correctness and security requirement, not
+just an application convention.
 
-Detail: [docs/rag-pipeline.md](docs/rag-pipeline.md).
+- organization-scoped API and service operations
+- organization filtering in Postgres and Qdrant
+- Postgres re-check of returned vector hits before their text is exposed
+- owner/admin/member authorization model
+- Argon2 password hashing
+- JWT expiry enforcement
+- rotating and revocable refresh tokens
+- JTI denylisting
+- login throttling
+- upload size, content-type, and magic-byte validation
+- guarded local file storage
+- parameterized/ORM database access
+- static error responses that avoid internal leakage
+- request IDs without logging request bodies or secrets
+- append-only audit logging with an allowlisted detail set
+- production configuration validation
 
-## 7. Authentication
+## 5. Document processing
 
-JWT bearer tokens. Passwords hashed with **Argon2**. Login is **constant-time**
-(always one Argon2 verify, using a dummy hash for unknown emails) and returns a
-uniform 401, so it can't be used to enumerate accounts. Access tokens require an
-`exp` claim (default 30 min). Refresh tokens are random 32-byte strings stored as
-**SHA-256 hashes**, **rotated** on use, and revocable; logout revokes. A
-per-email **login throttle** returns 429 + `Retry-After` after 5 failures.
-Detail: [docs/authentication.md](docs/authentication.md).
+Supported document types:
 
-## 8. Multi-tenancy
+- PDF
+- DOCX, including DOCX tables
 
-Two independent role levels: **platform** (`admin`/`member`) and
-**organization** (`owner`/`admin`/`member`). Seven tables (users, refresh_tokens,
-organizations, organization_memberships, documents, document_chunks, audit_logs).
-Tenant isolation is enforced at **four layers** (API, service, Postgres, Qdrant)
-plus a **post-query re-check**: every Qdrant hit is re-fetched from Postgres
-filtered by organization, so a stray vector can never leak another tenant's text.
-Detail: [docs/multi-tenancy.md](docs/multi-tenancy.md).
+Not currently claimed:
 
-## 9. Document ingestion
+- OCR for scanned/image-only PDFs
+- image understanding
+- PDF table extraction
+- arbitrary document formats such as XLSX/PPTX/CSV/HTML
 
-Upload → validate → store → background-process → searchable.
+Chunking preserves page provenance for PDFs. Document processing includes
+lifecycle states and recovery handling for stale `PROCESSING` documents and
+failed-document retry flows.
 
-- **Supported formats: PDF and DOCX only.** PDF is extracted per page (pymupdf);
-  DOCX includes paragraphs **and tables** (python-docx).
-- **Not supported:** OCR, scanned/image-only documents, images, PDF tables, and
-  any other format (txt, md, xlsx, pptx, csv, html).
-- Validation: non-empty filename/content, ≤ `MAX_UPLOAD_SIZE_BYTES` (10 MiB),
-  content-type allowlist, and **magic-byte** check (`%PDF-` / `PK`).
-- Chunking: size 3000, overlap 400, with page provenance.
-- Processing runs in a FastAPI **BackgroundTask**: extract → chunk → embed
-  (BGE-M3) → upsert to Qdrant → mark `ready` (or `failed` with a generic reason).
+## 6. Retrieval
 
-Detail: [docs/document-ingestion.md](docs/document-ingestion.md).
+NEXORA uses two first-stage retrievers:
 
-## 10. Retrieval
+1. **Dense retrieval** — semantic similarity using BGE-M3 embeddings in Qdrant.
+2. **BM25** — lexical matching for exact terms, names, identifiers, and policy
+   language.
 
-Hybrid retrieval combines two searches:
+The ranked results are combined using **Reciprocal Rank Fusion (RRF)**. A small
+candidate set is then evaluated by a cross-encoder reranker and filtered by a
+relevance threshold before context is sent to the LLM.
 
-- **Dense** — embed the question (BGE-M3), find nearest chunk vectors in Qdrant
-  (semantic match).
-- **Lexical (BM25)** — keyword/term match (catches exact terms, IDs, names).
+The system does not assume that reranking must improve the benchmark. Its effect
+is measured and reported honestly.
 
-Candidates are fused (RRF), reranked (cross-encoder), filtered by a relevance
-threshold, and truncated to `RETRIEVAL_TOP_K` (default 2). An optional
-`document_ids` filter is applied at every stage.
-Detail: [docs/retrieval.md](docs/retrieval.md).
+## 7. Current evaluation
 
-## 11. RRF (Reciprocal Rank Fusion)
+The current live benchmark was run through the real production ingestion and
+retrieval path using:
 
-RRF merges the dense and BM25 ranked lists by **rank**, not raw score: each chunk
-gets `1 / (k + rank)` summed across the lists it appears in, with `k = 60`. A
-chunk ranked high by **both** retrievers rises to the top. Because it uses ranks,
-RRF doesn't care that vector cosine scores and BM25 scores are on different
-scales. Measured effect: Recall@1 0.6333 → 0.6500, MRR 0.9611 → 0.9778.
+- **16 documents**
+- **220 chunks**
+- **60 evaluation questions**
 
-## 12. Reranking
+| Configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
+|---|---:|---:|---:|---:|---:|
+| BM25 | **66.67%** | 86.67% | 95.00% | 9.50% | **0.7483** |
+| Dense | 63.33% | 86.67% | **100.00%** | 10.00% | 0.7334 |
+| Hybrid RRF | 63.33% | **93.33%** | **100.00%** | 10.00% | 0.7481 |
+| Hybrid + reranker | 63.33% | **93.33%** | **100.00%** | 10.00% | 0.7440 |
+| Hybrid Full | 63.33% | 83.33% | 85.00% | 8.50% | 0.7056 |
 
-The fused candidates are rescored by a **cross-encoder**
-(`cross-encoder/ms-marco-MiniLM-L-6-v2`), which reads the question and each chunk
-**together** and outputs a relevance score (through a sigmoid). This is more
-accurate than either first-stage retriever but slower, so it's applied only to the
-small fused set. Chunks below `RETRIEVAL_MIN_RELEVANCE` (default 0.5) are
-dropped. Measured effect: Recall@1 → 0.6667, **MRR → 1.0000** (a relevant chunk
-at rank 1 for every case).
+### What these numbers mean
 
-## 13. Grounding
+- **66.67% is the best Recall@1**, not 93.33%.
+- **93.33% is Recall@5** for Hybrid RRF and Hybrid + reranker.
+- **100% Recall@10** means the relevant ground-truth evidence was present in
+  the top ten for those configurations.
+- The cross-encoder **did not improve the current benchmark**: its MRR is
+  0.7440 versus 0.7481 for RRF.
 
-Two independent refusal mechanisms keep answers grounded:
+This is a controlled engineering benchmark. It is not a claim that NEXORA is
+93.33% accurate, nor that the system will achieve these numbers on arbitrary
+enterprise data.
 
-1. **Deterministic (no LLM):** if zero chunks clear the relevance threshold,
-   return the canned "The available documents do not contain enough information
-   to answer this question." — the model is never called.
-2. **Model judgement:** the grounded system prompt instructs the model to answer
-   only from context and to say so if the context is insufficient.
+### Cleanup proof
 
-Measured refusal rate on out-of-corpus questions: **3/3**.
+The completed live benchmark left:
 
-## 14. Citations
+- 0 documents
+- 0 chunks
+- 0 organizations
+- 0 users
+- 0 Qdrant points
 
-Retrieved chunks are numbered `[1]..[N]` and the model is instructed to cite
-inline. After generation, `_strip_invalid_citations` removes any `[n]` marker
-whose number falls outside `1..N`, so citations always map to a real source. Each
-returned source carries a 1-based `citation_index`, `document_name`,
-`chunk_index`, `page_start`/`page_end`, and `score`. Measured citation accuracy:
-**30/30**.
+The benchmark therefore cleans up the temporary evaluation data it creates.
 
-## 15. Streaming
+Detailed results: [`docs/evaluation.md`](docs/evaluation.md).
 
-`POST /api/v1/organizations/{id}/query/stream` returns Server-Sent Events
-(`text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`).
-Retrieval runs eagerly (so retrieval errors surface as normal HTTP errors), then
-the endpoint emits `token` deltas, followed by a terminal `done` event carrying
-the full `answer`, `sources`, and `timing` (`ttft_ms`, `total_ms`) — or an `error`
-event. The canned-refusal path emits `done` immediately (no LLM call).
+## 8. Grounding and citations
 
-## 16. Evaluation
+NEXORA uses two grounding mechanisms:
 
-Two harnesses in `backend/evaluation/`, both producing real measurements with a
-zero-leftover cleanup proof:
+1. **Deterministic refusal:** no relevant chunk means no LLM call.
+2. **Grounded generation:** the model is instructed to answer from retrieved
+   context and decline when the context is insufficient.
 
-- `benchmark.py` — retrieval quality (offline BM25 comparison + `--live`
-  dense/BM25/hybrid through the real pipeline).
-- `answer_benchmark.py` — end-to-end fact/citation/refusal accuracy + latency.
+Retrieved chunks are numbered and returned as structured sources. Invalid
+citation markers are removed after generation so citations map to actual
+retrieved sources.
 
-**Retrieval (30 cases, 10 docs, 2026-09-28):**
+## 9. Reliability and lifecycle handling
 
-| config | Recall@1 | Recall@10 | Prec@10 | MRR |
-|--------|----------|-----------|---------|-----|
-| bm25 | 0.6333 | 1.0000 | 0.1667 | 0.9611 |
-| dense | 0.6333 | 1.0000 | 0.1667 | 0.9611 |
-| hybrid_rrf | 0.6500 | 1.0000 | 0.1667 | 0.9778 |
-| **hybrid_full** | **0.6667** | 0.9833 | 0.1633 | **1.0000** |
+Document processing includes safeguards for concurrent lifecycle operations:
 
-**Answer quality:** fact **30/30**, citation **30/30**, refusal **3/3** (both
-top_k=2 and top_k=10). Detail: [docs/evaluation.md](docs/evaluation.md).
+- row locking around processing claims
+- protection against replacement/deletion while processing
+- stale `PROCESSING` recovery
+- explicit FAILED → PENDING retry semantics
+- processing lease refresh before external indexing
+- locking before Qdrant mutation for replacement/deletion
+- regression tests for lifecycle races
 
-## 17. Performance
+Qdrant is treated as an index rather than the source of truth. Normal retrieval
+only exposes chunks belonging to READY documents.
 
-Single-run local measurements (Apple Silicon, Ollama `qwen3:8b`,
-`OLLAMA_THINK=false`):
+## 10. Evaluation commands
 
-| config | total mean | total median | total p95 | total max | gen mean |
-|--------|-----------|--------------|-----------|-----------|----------|
-| top_k=2 (default) | 10.47s | 9.37s | 18.79s | 30.99s | 9.04s |
-| top_k=10 | 6.56s | 4.22s | 16.99s | 26.00s | 5.88s |
-
-Latency is dominated by local LLM inference. **Not measured:** TTFT
-distribution, per-stage latency, throughput/concurrency, token counts, dollar
-cost. These are indicative, **not** production SLAs, and top_k=10 is **not**
-"faster" (single-run noise). Detail: [docs/performance.md](docs/performance.md).
-
-## 18. Security
-
-Argon2 hashing; constant-time login; exp-required JWT; SHA-256 refresh hashes
-with rotation/revocation; login throttle → 429; two-level RBAC; four-layer tenant
-isolation + Postgres re-check; upload size/type/magic-byte validation;
-path-traversal-guarded storage; ORM/parameterized queries (no SQLi); typed errors
-→ static messages (no internal leakage); request-id logging that never records
-bodies/headers/secrets; append-only audit log with an allowlisted detail set;
-production fail-fast config validation; `.env` untracked and no tracked secrets.
-Detail: [docs/security.md](docs/security.md).
-
-## 19. Docker
-
-- `Dockerfile` — multi-stage, slim, **non-root** image; uvicorn on 8000;
-  healthcheck on `/health`.
-- `docker-entrypoint.sh` — waits for Postgres, runs `alembic upgrade head`
-  (unless `RUN_MIGRATIONS=false`), then execs the CMD. Logs only the exception
-  class on DB failure (never the URL).
-- `docker-compose.prod.yml` — API + `postgres:17` + `qdrant:v1.19.1`, named
-  volumes, only the API port published, and **required** `POSTGRES_PASSWORD` /
-  `JWT_SECRET_KEY` (`:?` guards).
-- `docker-compose.yml` — dev-only Postgres + Qdrant.
-
-**Verification status (2026-09-28):** `docker compose -f docker-compose.prod.yml
-config -q` **passes** offline. The image **build** and a live compose **boot**
-were **not verified** because the Docker daemon would not start on the audit
-machine. Exact commands to finish verification:
-[docs/deployment.md](docs/deployment.md).
-
-## 20. CI/CD
-
-`.github/workflows/ci.yml` runs on push to `main` and on PRs: a **Postgres-only**
-service container (tests use fakes for Qdrant/Ollama), then `alembic upgrade
-head`, `python -m compileall -q backend`, and `pytest -q`. `ENVIRONMENT` is not
-set in CI, so production fail-fast validation isn't triggered.
-
-## 21. Local setup
+Offline BM25 benchmark:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-python -m pip install -r requirements-dev.txt   # runtime + pytest (prod image uses requirements.txt)
-docker compose up -d                      # Postgres + Qdrant
-ollama pull qwen3:8b                       # LLM
-cp .env.example .env                       # set DATABASE_URL + JWT_SECRET_KEY
+.venv/bin/python -m backend.evaluation.benchmark
+```
+
+Current live retrieval benchmark:
+
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/python -u -m backend.evaluation.benchmark --live
+```
+
+End-to-end answer benchmark:
+
+```bash
+.venv/bin/python -m backend.evaluation.answer_benchmark
+```
+
+The live retrieval benchmark requires the local PostgreSQL, Qdrant, embedding,
+and reranker runtime. It creates temporary benchmark data and removes it after
+the run.
+
+## 11. Local development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+docker compose up -d
+ollama pull qwen3:8b
+cp .env.example .env
 alembic upgrade head
 python -m uvicorn backend.main:app --reload
 ```
 
-API: http://127.0.0.1:8000 · Docs: http://127.0.0.1:8000/docs · Health:
-http://127.0.0.1:8000/health. Full guide: [docs/setup.md](docs/setup.md).
+API: `http://127.0.0.1:8000`
 
-## 22. Production setup
+Swagger/OpenAPI: `http://127.0.0.1:8000/docs`
 
-```bash
-POSTGRES_PASSWORD='...' JWT_SECRET_KEY='...' \
-  docker compose -f docker-compose.prod.yml up -d --build
-```
+Health: `http://127.0.0.1:8000/health`
 
-Set `ENVIRONMENT=production` (enables fail-fast validation), explicit
-`CORS_ORIGINS` (no wildcard), a strong `JWT_SECRET_KEY` (≥32 random chars), and
-fully configure the active LLM provider. Provision persistent volumes and
-Postgres backups; put TLS in front of the API. See
-[docs/deployment.md](docs/deployment.md) and the conditions in
-[docs/deployment-readiness.md](docs/deployment-readiness.md).
+## 12. Production scope
 
-## 23. Environment variables
+The repository contains a non-root multi-stage Docker image and production
+Compose configuration with PostgreSQL and Qdrant.
 
-Full contract in `.env.example` and [docs/configuration.md](docs/configuration.md).
-Key variables:
+A real larger deployment would additionally need operational decisions around
+persistent/shared object storage, distributed rate limiting, durable ingestion,
+TLS, backups, observability, load testing, and capacity planning.
 
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `ENVIRONMENT` | `development` | `production` enables fail-fast validation |
-| `DATABASE_URL` | required | `postgresql+psycopg://...` |
-| `JWT_SECRET_KEY` | required | ≥32 chars in production |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | |
-| `LOGIN_MAX_FAILED_ATTEMPTS` / `LOGIN_LOCKOUT_SECONDS` | `5` / `300` | |
-| `CORS_ORIGINS` | empty | empty disables CORS; wildcard rejected in prod |
-| `STORAGE_PATH` / `MAX_UPLOAD_SIZE_BYTES` | `storage` / `10485760` | |
-| `QDRANT_URL` / `QDRANT_COLLECTION` | `http://localhost:6333` / `nexora_document_chunks` | |
-| `EMBEDDING_MODEL` / `EMBEDDING_DIMENSION` | `BAAI/bge-m3` / `1024` | |
-| `RETRIEVAL_TOP_K` / `_DENSE_TOP_K` / `_LEXICAL_TOP_K` / `_RERANK_TOP_K` | `2` / `10` / `10` / `8` | all ≥1 |
-| `RETRIEVAL_MIN_RELEVANCE` | `0.5` | grounding threshold |
-| `LLM_PROVIDER` | `ollama` | `ollama` or `openai` |
-| `OLLAMA_MODEL` / `OLLAMA_THINK` | `qwen3:8b` / `false` | model required in prod |
-| `OPENAI_API_KEY` / `OPENAI_MODEL` | empty | required in prod if provider=openai |
+Those are intentionally not represented as implemented features unless they are
+actually present in the repository.
 
-## 24. API examples
+## 13. Honest limitations
 
-Register and login:
+NEXORA is a **production-oriented engineering project**, not a claim of a fully
+managed production SaaS system.
 
-```bash
-curl -X POST http://localhost:8000/api/v1/auth/register \
-  -H 'content-type: application/json' \
-  -d '{"email":"alice@example.com","full_name":"Alice","password":"supersecret1"}'
+Known limitations include:
 
-curl -X POST http://localhost:8000/api/v1/auth/login \
-  -H 'content-type: application/json' \
-  -d '{"email":"alice@example.com","password":"supersecret1"}'
-# → {"access_token":"...","refresh_token":"...","token_type":"bearer"}
-```
+- controlled and relatively small evaluation corpus
+- local disk storage implementation
+- process-local login throttling
+- FastAPI BackgroundTasks rather than a durable distributed queue
+- no OCR/image-only document understanding
+- no throughput/concurrency benchmark
+- no universal answer-quality or human-helpfulness score
+- local LLM latency depends heavily on hardware
 
-Create an organization, upload a document, and query it:
+The project deliberately favors explicit, testable engineering over adding
+infrastructure that is not justified by the current requirements.
 
-```bash
-TOKEN="<access_token>"
+## 14. Project status
 
-curl -X POST http://localhost:8000/api/v1/organizations \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"name":"Acme"}'
+**NEXORA — final engineering/evaluation baseline complete.**
 
-curl -X POST http://localhost:8000/api/v1/organizations/1/documents/upload \
-  -H "authorization: Bearer $TOKEN" -F "file=@leave_policy.docx"
+The core application, security hardening, lifecycle recovery, automated testing,
+CI, evaluation harnesses, live benchmark, cleanup verification, and documentation
+are in place. The retrieval benchmark is frozen as a measured baseline rather
+than being tuned solely for a better headline number.
 
-curl -X POST http://localhost:8000/api/v1/organizations/1/query \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"question":"How many days of annual leave do employees receive?"}'
-# → {"answer":"Employees receive 20 days of annual leave per year [1].",
-#    "sources":[{"citation_index":1,"document_name":"leave_policy.docx", ...}]}
-```
-
-Full reference: [docs/api.md](docs/api.md) (or `/docs` when running).
-
-## 25. Project structure
-
-```
-NEXORA/
-├── backend/
-│   ├── main.py                 # FastAPI app, middleware, exception handlers, /health
-│   ├── api/
-│   │   ├── router.py           # aggregates v1 routers
-│   │   └── v1/                 # auth, users, organizations, documents, rag, audit
-│   ├── core/                   # config, security, middleware, logging,
-│   │                           #   request_context, exceptions, exception_handlers
-│   ├── db/                     # database.py (engine/session), models.py (7 tables)
-│   ├── dependencies/           # auth, authorization, organization_authorization,
-│   │                           #   database, pagination, rag
-│   ├── schemas/                # Pydantic request/response models
-│   ├── repositories/           # data access: user, organization, document,
-│   │                           #   document_chunk, refresh_token, audit, qdrant
-│   ├── services/               # ALL business logic:
-│   │   ├── auth_service, refresh_token_service, login_throttle
-│   │   ├── organization_service, organization_membership_service
-│   │   ├── document_service, document_extraction, document_chunking,
-│   │   │   document_processing_service, document_processing_worker,
-│   │   │   document_indexing_service, storage
-│   │   ├── embedding_service, bm25_service, retrieval_service, retrievers,
-│   │   │   hybrid_retrieval_service
-│   │   ├── generation_service, rag_service
-│   │   ├── audit_service, user_service
-│   │   └── llm/                # base (protocol), provider, ollama_client, openai_client
-│   └── evaluation/             # dataset, metrics, benchmark, answer_benchmark
-├── alembic/                    # migrations (versions/), env.py; alembic.ini
-├── tests/                      # unit + API tests; tests/integration (Qdrant)
-├── scripts/                    # manual check scripts (ollama/openai/real-rag)
-├── docs/                       # this documentation set
-├── benchmark-data/             # 10 .docx files used by the benchmarks
-├── Dockerfile, docker-entrypoint.sh, .dockerignore
-├── docker-compose.yml (dev), docker-compose.prod.yml
-├── .github/workflows/ci.yml
-├── requirements.txt, pytest.ini, .env.example
-└── README.md, RETRIEVAL_BENCHMARK.md, RETRIEVAL_BASELINE.md, ANSWER_QUALITY.md
-```
-
-**How it connects:** `main.py` mounts the `api/v1` routers behind
-`dependencies/` (auth, authorization, DB session, pagination). Routers call
-`services/`, which contain the logic and talk to `repositories/` (Postgres via
-SQLAlchemy, vectors via the Qdrant repository). `core/` provides cross-cutting
-concerns (config, security, middleware, exceptions). `evaluation/` reuses the
-same services to benchmark the real pipeline.
-
-## 26. Limitations
-
-- **Formats:** PDF and DOCX only. No OCR, images, PDF tables, or other formats.
-- **Login throttle is per-process** — not a global limit across replicas.
-- **Local-disk upload storage only** — multi-replica needs shared/object storage.
-- **Background ingestion** uses FastAPI `BackgroundTasks`, not a durable queue;
-  in-flight work is lost on process death (document → `failed`, retriable).
-- **Small evaluation corpus** (10 docs, 30 questions) — indicative only.
-- **Not measured:** TTFT distribution, per-stage latency, throughput, token
-  counts, dollar cost.
-- **No dependency CVE scanning** in CI (deps are pinned).
-- **Docker production stack** not verified in this pass (daemon unavailable).
-
-## 27. Future improvements
-
-Only as real requirements justify them (NEXORA stays a modular monolith):
-
-- Shared login-throttle store and API-wide rate limiting for multi-replica.
-- Object storage backend for uploads.
-- Durable ingestion queue (resume/retry on worker failure).
-- Dependency vulnerability scanning (`pip-audit`/Dependabot) in CI.
-- Metrics/tracing (Prometheus/OpenTelemetry) and aggregated TTFT/throughput
-  measurement under load.
-- Larger, noisier evaluation corpus and human-rated answer quality.
-- Optional OCR / image / PDF-table extraction (clearly gated, since it does not
-  exist today).
-
----
-
-## Running the tests
-
-```bash
-pytest -q                                   # 542 passed, 3 skipped (in-memory SQLite; no Postgres/Qdrant/Ollama needed)
-python -m compileall backend                # compiles clean
-```
-
-The 3 skips are `tests/test_migrations.py`, which require a real PostgreSQL via
-`TEST_DATABASE_URL` (name must contain `test`):
-
-```bash
-TEST_DATABASE_URL=postgresql+psycopg://nexora:nexora@localhost:5432/nexora_test \
-  pytest -q tests/test_migrations.py
-```
-
-## Documentation
-
-[`docs/`](docs/): architecture · setup · configuration · authentication ·
-multi-tenancy · document-ingestion · retrieval · rag-pipeline · evaluation ·
-performance · deployment · security · api · troubleshooting · interview-notes ·
-deployment-readiness.
-
-## Deployment readiness
-
-**READY WITH CONDITIONS** — the application, security, tests, migrations,
-retrieval, and RAG pipeline are verified; the Docker production stack still needs
-a live boot check on a machine with a working daemon, and a few scale-out items
-are tracked as pre-production work. Full assessment:
-[docs/deployment-readiness.md](docs/deployment-readiness.md).
+See [`docs/`](docs/) for architecture, retrieval, security, evaluation,
+deployment, configuration, and interview notes.

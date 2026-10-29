@@ -65,14 +65,11 @@ def test_delete_rejects_processing_document_without_deleting_row(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 503
     assert response.json() == {
         "detail": "Document cannot be deleted while it is processing"
     }
-    qdrant.delete_document_chunks.assert_called_once_with(
-        document_id=document_id,
-        organization_id=organization_id,
-    )
+    qdrant.delete_document_chunks.assert_not_called()
 
     db.expire_all()
     document = db.query(Document).filter(Document.id == document_id).first()

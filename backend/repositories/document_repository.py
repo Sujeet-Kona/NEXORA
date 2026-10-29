@@ -195,14 +195,19 @@ def delete_document(
     db.delete(document)
     db.commit()
 
+
 def get_document_by_id_unscoped(
     db: Session,
     document_id: int,
 ) -> Document | None:
+    # Processing uses this lookup as the claim point for BackgroundTasks.
+    # PostgreSQL's row lock makes the PENDING/FAILED -> PROCESSING transition
+    # safe when duplicate workers race for the same document.
     return (
         db.query(Document)
         .filter(
             Document.id == document_id,
         )
+        .with_for_update()
         .first()
     )

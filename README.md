@@ -656,5 +656,3 @@ These are intentionally listed as future operational requirements rather than be
 The core application, retrieval pipeline, security controls, lifecycle recovery, automated tests, CI, evaluation harnesses, live benchmark, cleanup verification, and engineering documentation are complete.
 
 The retrieval benchmark is frozen as a measured baseline rather than tuned solely for a better headline number.
-
-No additional feature work is required for the project to be resume-ready.

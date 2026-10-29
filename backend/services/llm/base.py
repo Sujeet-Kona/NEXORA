@@ -15,11 +15,13 @@ class LLMGeneration:
     usage: LLMUsage | None
 
 
-class LLMStream(Protocol):
-    usage: LLMUsage | None
+class LLMStreamResult:
+    def __init__(self, iterator: Iterator[str]):
+        self._iterator = iterator
+        self.usage: LLMUsage | None = None
 
     def __iter__(self) -> Iterator[str]:
-        ...
+        return self._iterator
 
 
 class LLMClient(Protocol):
@@ -36,5 +38,5 @@ class LLMClient(Protocol):
         *,
         system_prompt: str,
         user_prompt: str,
-    ) -> LLMStream:
+    ) -> LLMStreamResult:
         ...

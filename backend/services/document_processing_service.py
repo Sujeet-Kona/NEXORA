@@ -24,13 +24,9 @@ from backend.repositories.document_repository import (
 from backend.services.bm25_service import invalidate_bm25_index
 from backend.services.document_chunking import split_document
 from backend.services.document_extraction import extract_document
-from backend.services.document_indexing_service import (
-    index_document_chunks,
-)
+from backend.services.document_indexing_service import index_document_chunks
 from backend.services.embedding_service import EmbeddingService
-from backend.repositories.qdrant_repository import (
-    QdrantRepository,
-)
+from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.storage import LocalStorage
 
 
@@ -63,13 +59,6 @@ def process_document(
             "Document not found"
         )
 
-    # --- Idempotency guard ------------------------------------------------
-    # BackgroundTasks can be scheduled more than once for the same
-    # document on rare edge cases (client re-submits, app restarts with
-    # stale pending state, or a retry in an outer layer). Transitioning
-    # from anything other than PENDING into PROCESSING is almost always a
-    # bug, so we return early with a structured warning instead of
-    # double-processing.
     current_status = DocumentStatus(document.status)
 
     if current_status == DocumentStatus.PROCESSING:
@@ -90,15 +79,20 @@ def process_document(
         )
         return
 
-    if current_status not in {
-        DocumentStatus.PENDING,
-        DocumentStatus.FAILED,
-    }:
-        # FAILED → PROCESSING is the explicit re-run path (caller must
-        # first set FAILED→PENDING, which is allowed by the transition
-        # matrix). We remain permissive here but log.
+    # FAILED documents must be explicitly reset to PENDING before a retry.
+    # This keeps retry intent visible and prevents an accidental worker
+    # invocation from silently bypassing the documented state machine.
+    if current_status == DocumentStatus.FAILED:
         logger.warning(
-            "Processing document %d from unexpected status=%s",
+            "Document %d is FAILED; reset it to PENDING before retrying",
+            document.id,
+            extra={"document_id": document.id},
+        )
+        return
+
+    if current_status != DocumentStatus.PENDING:
+        logger.warning(
+            "Document %d has unsupported processing status=%s",
             document.id,
             current_status.value,
             extra={
@@ -106,6 +100,7 @@ def process_document(
                 "from_status": current_status.value,
             },
         )
+        return
 
     document.failure_reason = None
 
@@ -121,13 +116,9 @@ def process_document(
                 "Document has no storage key"
             )
 
-        storage = LocalStorage(
-            settings.storage_path,
-        )
+        storage = LocalStorage(settings.storage_path)
 
-        content = storage.read(
-            document.storage_key,
-        )
+        content = storage.read(document.storage_key)
 
         extracted_document = extract_document(
             filename=document.name,
@@ -166,8 +157,15 @@ def process_document(
 
         db.commit()
 
-        invalidate_bm25_index(
-            document.organization_id,
+        invalidate_bm25_index(document.organization_id)
+
+        # Refresh updated_at immediately before the external embedding/indexing
+        # work. This acts as a conservative processing lease heartbeat so the
+        # startup recovery job does not mistake a live job for a crashed one.
+        update_document_status(
+            db=db,
+            document=document,
+            status=DocumentStatus.PROCESSING,
         )
 
         index_document_chunks(
@@ -184,11 +182,7 @@ def process_document(
             status=DocumentStatus.READY,
         )
 
-        # Chunks only become searchable once the document is READY,
-        # so the cached BM25 corpus must be rebuilt now.
-        invalidate_bm25_index(
-            document.organization_id,
-        )
+        invalidate_bm25_index(document.organization_id)
 
     except Exception as exc:
         db.rollback()
@@ -208,10 +202,10 @@ def process_document(
                 failure_reason=_failure_reason(exc),
             )
 
-            # Chunks are committed before indexing, so a failure
-            # mid-pipeline would otherwise leave a FAILED document
-            # searchable. Purge the committed rows, drop the cached
-            # BM25 corpus, and best-effort remove any vectors written.
+            # Chunks are committed before indexing, so a failure mid-pipeline
+            # would otherwise leave a FAILED document searchable. Purge the
+            # committed rows, drop the cached BM25 corpus, and best-effort
+            # remove any vectors written.
             delete_chunks_for_document(
                 db=db,
                 document_id=document_id,
@@ -228,14 +222,8 @@ def process_document(
                 )
             except Exception:
                 logger.warning(
-                    "Failed to purge vectors for document %d "
-                    "during error cleanup",
+                    "Failed to purge vectors for document %d during error cleanup",
                     document_id,
                 )
 
         raise
-
-
-
-
-

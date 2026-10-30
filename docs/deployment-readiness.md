@@ -1,166 +1,184 @@
 # Deployment Readiness
 
-Assessment date: **2026-09-28**. Scope: the FINAL deployment-readiness audit of
-NEXORA as it exists today. Every "Passed" item below was verified in this pass;
-every "Not verified" item is reported honestly rather than assumed.
+**Assessment date:** 2026-10-30  
+**Scope:** current NEXORA codebase after final hardening, gap closure, evaluation
+updates, and documentation cleanup.
 
-## Overall Status: READY WITH CONDITIONS
+## 1. Executive status
 
-The **application** is production-grade and verified: tests pass, migrations
-upgrade cleanly against real PostgreSQL, security controls are implemented and
-reviewed, multi-tenant isolation is enforced at four layers, and the RAG pipeline
-produces grounded, cited answers with measured quality.
+### Application baseline: READY FOR RESUME / PORTFOLIO USE
 
-NEXORA is **not** unconditionally "READY" because two things could not be
-completed **in this environment**:
+The application has a verified engineering baseline with automated tests,
+PostgreSQL migrations, tenant-scoped authorization, retrieval evaluation,
+security controls, document lifecycle recovery, and CI checks.
 
-1. The **Docker production stack** (image build + compose boot + health/smoke
-   test) could **not be verified** — the Docker daemon would not start on the
-   audit machine. The compose *configuration* validated offline, but a live
-   containerized boot was not observed.
-2. A few **scale-out caveats** (per-process login throttle, local-disk upload
-   storage, no dependency CVE scanning) are acceptable for a single-node
-   deployment but should be addressed before multi-replica production traffic.
+### Public production deployment: NOT CLAIMED
 
-Per the project rule ("do not choose READY unless the evidence supports it" and
-"do not deploy publicly unless the local production-like stack passes"), the
-correct status is **READY WITH CONDITIONS**: deployable to a single node once the
-Docker stack is verified on a machine with a working daemon, with the scale-out
-items tracked as pre-production work.
+NEXORA is intentionally documented as **production-oriented**, not as a fully
+operational production SaaS. A real deployment would still require operational
+infrastructure such as TLS/secrets management, backups and disaster recovery,
+shared storage for multiple replicas, durable background jobs, centralized
+observability, capacity testing, and production model serving.
 
-## Passed (verified this pass)
+That distinction is deliberate. The repository does not claim traffic,
+availability, throughput, or scale that has not been measured.
 
-- **Test suite:** 542 passed, 3 skipped. The 3 skips are
-  `tests/test_migrations.py` (skipped only because `TEST_DATABASE_URL` was unset
-  in that particular run); migration tests were separately verified against real
-  PostgreSQL. `python -m compileall -q backend` clean. `git diff --check` clean.
-- **Migrations:** linear Alembic chain, single head (`c3d9a1f0e5b7`, 16 revision
-  files), clean upgrade from an empty PostgreSQL 17 database; `alembic heads`
-  shows one head.
-- **Retrieval benchmark (live):** hybrid_full Recall@1 = 0.6667, MRR = 1.0000;
-  RRF-only 0.6500 / 0.9778; BM25 and dense 0.6333 / 0.9611. Cleanup proof: zero
-  leftovers.
-- **Answer-quality benchmark (live):** fact 30/30, citation 30/30, refusal 3/3 at
-  both top_k=2 and top_k=10. Cleanup proof: zero leftovers.
-- **Grounding/refusal:** both mechanisms observed — deterministic canned refusal
-  (zero chunks above threshold, no LLM call) and model-judgement refusal.
-- **Security review:** Argon2 hashing, constant-time login, exp-required JWT,
-  SHA-256 refresh hashes with rotation/revocation, login throttle → 429,
-  magic-byte upload validation, path-traversal-guarded storage, audit detail
-  allowlist, uniform error messages, `.env` untracked, no tracked secrets.
-- **Production config fail-fast:** verified that `validate_production_safety`
-  rejects weak JWT secrets, CORS wildcards, and under-configured LLM providers at
-  startup.
-- **Compose configuration:** `docker compose -f docker-compose.prod.yml config -q`
-  passes with throwaway env, and the required-variable guards
-  (`POSTGRES_PASSWORD`, `JWT_SECRET_KEY`) abort startup when unset.
+## 2. Current verification evidence
 
-## Warnings (acceptable for single-node, fix before scale-out)
+### Automated test and CI baseline
 
-- **Login throttle is per-process.** With multiple API replicas, each throttles
-  independently; a global limit needs a shared store. Single-node: fine.
-- **Uploads use local-disk storage** (`STORAGE_BACKEND=local`). Multi-replica
-  needs a shared/persistent volume or object storage.
-- **Background ingestion uses FastAPI `BackgroundTasks`**, not a durable queue.
-  A process death mid-processing leaves the document `failed` (retriable), but
-  in-flight work is not resumed automatically.
-- **No dependency CVE scanning in CI.** Dependencies are pinned; adding
-  `pip-audit`/Dependabot is recommended.
-- **Evaluation corpus is small** (10 docs, 30 questions). Metrics are indicative.
+The final hardening/gap-closure baseline reached:
 
-## Blockers (must clear before public deployment)
+- **572 tests passed**
+- **2 tests skipped**
+- 0 test failures
+- dependency security audit included in CI via `pip-audit`
+- backend byte-compilation checked in CI
+- Alembic migrations executed in CI against PostgreSQL 17
 
-- **Docker production stack not verified (environmental).** The image build and
-  a live compose boot + health/smoke test must be run on a machine with a working
-  Docker daemon. This is an environment limitation on the audit machine, not a
-  known code defect — but it is a blocker for "deploy publicly" until cleared.
-  Exact commands: see [deployment.md](deployment.md) → "Exact commands to finish
-  Docker verification".
+CI runs the test stack through GitHub Actions. The live retrieval benchmark is
+not part of CI because it requires heavyweight embedding/reranker models and
+Qdrant.
 
-No code-level deployment blockers were identified.
+### Live retrieval evaluation
 
-## Security
+The current live benchmark uses the production document-processing path and
+reports:
 
-Implemented and reviewed (details in [security.md](security.md)): Argon2 password
-hashing; constant-time login with a dummy hash; JWT HS256 with required `exp`;
-refresh tokens stored as SHA-256 with rotation and revocation; per-email login
-throttle (429 + `Retry-After`); two-level RBAC (platform `admin`/`member`,
-organization `owner`/`admin`/`member`); tenant isolation at API/service/Postgres/
-Qdrant layers plus a post-query re-check; upload size/content-type/magic-byte
-validation; path-traversal-guarded storage; ORM/parameterized queries; typed
-errors mapped to static messages; generic 500 handler that hides internals and
-returns `X-Request-ID`; request logging that never records bodies/headers/
-secrets; append-only audit log with an allowlisted detail set; production
-fail-fast config validation; no tracked secrets in git.
+- 16 benchmark documents
+- 220 processed chunks
+- 60 evaluation questions
+- BM25, dense retrieval, RRF, cross-encoder reranking, and full hybrid variants
+- cleanup verification after the run
 
-Residual: per-process throttle and no API-wide rate limiting (see Warnings).
+Current headline result:
 
-## Performance
+| Configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
+|---|---:|---:|---:|---:|---:|
+| BM25 | **0.6667** | 0.8667 | 0.9500 | 0.0950 | **0.7483** |
+| Dense | 0.6333 | 0.8667 | **1.0000** | 0.1000 | 0.7334 |
+| Hybrid RRF | 0.6333 | **0.9333** | **1.0000** | 0.1000 | 0.7481 |
+| Hybrid + reranker | 0.6333 | **0.9333** | **1.0000** | 0.1000 | 0.7440 |
+| Hybrid Full | 0.6333 | 0.8333 | 0.8500 | 0.0850 | 0.7056 |
 
-Single-run local measurements (Apple Silicon arm64, Ollama `qwen3:8b`,
-`OLLAMA_THINK=false`), 10-doc corpus, 30 questions:
+The reranker was evaluated honestly: on this corpus it did **not** improve the
+aggregate retrieval metrics over RRF.
 
-- **E2E RAG (top_k=2):** total mean 10.47s / median 9.37s / p95 18.79s /
-  max 30.99s; generation mean 9.04s / p95 15.19s.
-- **E2E RAG (top_k=10):** total mean 6.56s / median 4.22s / p95 16.99s;
-  generation mean 5.88s.
-- Latency is dominated by local 8B LLM inference. `generation min = 0.00s` on the
-  no-LLM canned-refusal path.
+### Cleanup verification
 
-**Not measured:** TTFT distribution, per-stage component latency,
-throughput/concurrency, token counts, dollar cost. These are indicative local
-numbers, **not** a production SLA. Details in [performance.md](performance.md).
+The completed live benchmark reported zero leftovers for:
 
-## Evaluation
+- benchmark documents
+- benchmark chunks
+- benchmark organizations
+- benchmark users
+- Qdrant points
 
-- **Retrieval:** hybrid (RRF + cross-encoder) measurably beats BM25-only and
-  dense-only on Recall@1 and MRR (see [retrieval.md](retrieval.md)). Honest
-  margin: small, on a clean 30-question corpus.
-- **Answer quality:** fact 1.0, citation 1.0, refusal 1.0. Both refusal paths
-  exercised.
-- **Limitations:** small corpus, clean prose, single run, no human-rated
-  helpfulness. Details in [evaluation.md](evaluation.md).
+This confirms that the temporary benchmark data was removed after evaluation.
 
-## Infrastructure
+## 3. Security readiness
 
-- **Packaging:** multi-stage non-root `Dockerfile` (uvicorn:8000, healthcheck),
-  `docker-entrypoint.sh` (waits for Postgres → `alembic upgrade head` → exec),
-  `docker-compose.prod.yml` (API + postgres:17 + qdrant:v1.19.1, named volumes,
-  only the API port published, required-secret guards), `.dockerignore`.
-- **CI:** GitHub Actions (`.github/workflows/ci.yml`) — Postgres-only service,
-  `alembic upgrade head`, `compileall`, `pytest -q` on push to `main` and PRs.
-- **Runtime deps:** PostgreSQL 17, Qdrant, Ollama (or an OpenAI-compatible
-  gateway). Embedding/reranker models are pulled by sentence-transformers on
-  first use.
-- **Verification gap:** containerized boot not observed this pass (daemon down).
+Implemented controls include:
 
-## Production Requirements (before real traffic)
+- Argon2 password hashing
+- constant-time login verification using a dummy hash
+- JWT expiry enforcement
+- supported HMAC algorithm validation
+- refresh-token hashing, rotation, and revocation
+- JTI denylisting
+- per-email login throttling
+- upload size/content-type/magic-byte validation
+- guarded local file storage
+- tenant-scoped PostgreSQL and Qdrant access
+- organization-level RBAC
+- audit logging with an allowlisted detail set
+- generic internal-error responses with request IDs
+- production fail-fast configuration validation
+- no tracked production secrets
+- dependency security auditing in CI
 
-1. Run the Docker build + isolated compose boot + `/health` + authenticated smoke
-   test on a machine with a working daemon ([deployment.md](deployment.md)).
-2. Set strong, non-default secrets: `JWT_SECRET_KEY` (≥32 random chars),
-   `POSTGRES_PASSWORD`. Provide via a secrets manager / `--env-file`, never
-   committed.
-3. Set `ENVIRONMENT=production` (enables fail-fast validation) and explicit
-   `CORS_ORIGINS` (no wildcard).
-4. Configure the active LLM provider fully (`OLLAMA_MODEL`, or
-   `OPENAI_API_KEY` + `OPENAI_MODEL`).
-5. Provision persistent volumes for Postgres, Qdrant, and uploads; enable
-   Postgres backups and test a restore.
-6. Put TLS termination and (ideally) shared rate limiting in front of the API.
-7. Add dependency CVE scanning to CI.
-8. Load-test at expected concurrency before launch (throughput not yet measured).
+### Operational caveats
 
-## Remaining Work
+These are known architecture boundaries rather than hidden defects:
 
-- **Blocker:** complete Docker production-stack verification (environmental).
-- **Scale-out (only if multi-replica):** shared login-throttle store, object
-  storage for uploads, durable ingestion queue.
-- **Observability (optional, as needed):** metrics/tracing beyond request-id
-  logging; aggregated TTFT/throughput measurement.
-- **Quality (optional):** larger evaluation corpus; human-rated answer quality.
-- **Security hygiene (recommended):** `pip-audit`/Dependabot in CI; periodic
-  secret rotation.
+- Login throttling is per process. A multi-replica deployment needs shared rate
+  limiting if a global login limit is required.
+- Uploaded files use local filesystem storage. Multi-replica deployments need
+  shared persistent storage or object storage.
+- Background ingestion uses FastAPI `BackgroundTasks`, not a durable queue.
+  Stale `PROCESSING` documents are recovered and can be retried, but a durable
+  queue would be preferable for large-scale production workloads.
+- No universal production throughput or availability claim is made.
 
-None of the above are code defects; they are the honest gap between "verified on
-a single local node" and "verified for public, multi-replica production."
+## 4. Reliability readiness
+
+The document lifecycle now includes explicit handling for:
+
+- `PENDING → PROCESSING → READY`
+- `PROCESSING → FAILED`
+- `FAILED → PENDING` retry
+- stale `PROCESSING → PENDING` recovery
+- serialized replacement/deletion operations using PostgreSQL row locks
+- processing lease refresh before external indexing
+- Qdrant mutation only after the corresponding document row is locked
+
+Normal retrieval exposes only chunks belonging to `READY` documents. This
+prevents a document that is stuck or recovering from becoming normally
+searchable through stale lifecycle state.
+
+The system still does not pretend that PostgreSQL and Qdrant form a distributed
+transaction. A process failure during an external-index operation can leave
+operationally stale vectors; lifecycle state prevents those vectors from being
+used normally, and cleanup/reprocessing handles the document path.
+
+## 5. Evaluation limitations
+
+The live retrieval benchmark is an engineering baseline, not a production SLA.
+
+- The corpus is controlled and small compared with a real enterprise corpus.
+- Retrieval metrics are not answer-quality metrics.
+- The 93.33% headline is **Recall@5**, not accuracy.
+- No human-rated helpfulness or fluency score is claimed.
+- Local model latency is hardware-dependent.
+- The benchmark does not establish production throughput or concurrency.
+- The cross-encoder is not claimed to improve retrieval unless a future measured
+  benchmark demonstrates that improvement.
+
+Historical answer-quality runs remain documented as historical evidence and are
+not substituted for the current retrieval benchmark.
+
+## 6. Deployment requirements for real traffic
+
+Before using NEXORA for real external traffic, the deployment should provide:
+
+1. `ENVIRONMENT=production` with a fresh strong `JWT_SECRET_KEY`.
+2. Secure PostgreSQL credentials and backups with a tested restore procedure.
+3. Persistent Qdrant storage and persistent document storage.
+4. TLS termination and explicit CORS configuration.
+5. Shared rate limiting if multiple API replicas are deployed.
+6. Durable background-job infrastructure if ingestion volume requires it.
+7. Centralized logs/metrics/tracing and alerting.
+8. Load testing at expected concurrency and documented capacity limits.
+9. Production-grade model serving or a managed LLM provider.
+10. Secret management outside the repository.
+
+These are deployment requirements, not reasons to add unnecessary infrastructure
+to the student project itself.
+
+## 7. Final assessment
+
+NEXORA should be presented as:
+
+> **A production-oriented, multi-tenant RAG backend with tested security,
+> lifecycle recovery, retrieval evaluation, and honest operational boundaries.**
+
+It should **not** be presented as:
+
+- a production SaaS serving real customers,
+- a horizontally scaled distributed system,
+- a measured high-throughput service,
+- or a system with universally proven answer accuracy.
+
+For the project portfolio and resume, the engineering baseline is complete.
+Further work should only be added when it serves a specific learning or
+production requirement.

@@ -86,6 +86,12 @@ def test_fact_matches_accepts_any_expected_form():
     )
 
 
+def test_fact_matches_requires_whole_token_sequences():
+    assert not fact_matches("Employees receive 120 days of leave.", ("20 days",))
+    assert not fact_matches("The information is available.", ("mfa",))
+    assert fact_matches("Employees receive 20 days of leave.", ("20 days",))
+
+
 def test_fact_matches_rejects_empty_expectations():
     with pytest.raises(ValueError):
         fact_matches("an answer", ())

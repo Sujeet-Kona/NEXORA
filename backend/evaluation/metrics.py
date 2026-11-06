@@ -1,4 +1,5 @@
 import math
+import re
 import statistics
 
 
@@ -98,10 +99,19 @@ def fact_matches(
 
     normalized_answer = normalize_answer_text(answer)
 
-    return any(
-        normalize_answer_text(fact) in normalized_answer
-        for fact in expected
-    )
+    for fact in expected:
+        normalized_fact = normalize_answer_text(fact)
+        # Treat expected facts as whole token sequences. Plain substring
+        # matching incorrectly accepts e.g. "120 days" as "20 days" and
+        # "information" as "mfa".
+        pattern = r"(?<!\\w)" + r"\\s+".join(
+            re.escape(token)
+            for token in normalized_fact.split()
+        ) + r"(?!\\w)"
+        if re.search(pattern, normalized_answer):
+            return True
+
+    return False
 
 
 def indicates_refusal(

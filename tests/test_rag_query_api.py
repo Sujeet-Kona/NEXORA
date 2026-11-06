@@ -871,7 +871,13 @@ def test_query_stream_blocks_non_members(
         "Stream Outsider Company",
     )
 
-    stub_query_dependencies(monkeypatch)
+    embedding = Mock()
+    qdrant = Mock()
+    llm = Mock()
+
+    app.dependency_overrides[get_embedding_service] = lambda: embedding
+    app.dependency_overrides[get_qdrant_repository] = lambda: qdrant
+    app.dependency_overrides[get_llm_client] = lambda: llm
 
     response = client.post(
         f"/api/v1/organizations/{owner['organization_id']}"
@@ -881,6 +887,9 @@ def test_query_stream_blocks_non_members(
     )
 
     assert response.status_code == 403
+    embedding.embed_query.assert_not_called()
+    qdrant.search.assert_not_called()
+    llm.stream.assert_not_called()
 
 
 def test_query_rejects_unbounded_inputs(client):

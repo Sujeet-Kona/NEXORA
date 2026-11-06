@@ -150,4 +150,4 @@ See [multi-tenancy.md](multi-tenancy.md).
   global limit — deliberately out of scope for the modular monolith.
 - No rate limiting beyond login throttling (e.g. per-IP API rate limits) is
   implemented.
-- Dependency CVE scanning is not wired into CI.
+- CI runs `pip-audit -r requirements.txt` against the pinned production requirements. This does not cover every transitive runtime/image or deployment risk, and it is not a complete security assessment.

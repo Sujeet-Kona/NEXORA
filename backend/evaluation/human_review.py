@@ -50,26 +50,38 @@ def validate_review(record: Any, line_number: int) -> dict[str, Any]:
 
     normalized = {
         field: _non_empty_string(record, field, line_number)
-        for field in ("case_id", "reviewer_id", "question", "answer", "reference_answer")
+        for field in (
+            "case_id",
+            "reviewer_id",
+            "question",
+            "answer",
+            "reference_answer",
+        )
     }
 
     context = record["context"]
     if not isinstance(context, list) or any(
         not isinstance(item, str) or not item.strip() for item in context
     ):
-        raise ValueError(f"line {line_number}: context must be a list of non-empty strings")
+        raise ValueError(
+            f"line {line_number}: context must be a list of non-empty strings"
+        )
     normalized["context"] = [item.strip() for item in context]
 
     ratings = record["ratings"]
     if not isinstance(ratings, dict) or set(ratings) != set(RATING_FIELDS):
         expected = ", ".join(RATING_FIELDS)
-        raise ValueError(f"line {line_number}: ratings must contain exactly: {expected}")
+        raise ValueError(
+            f"line {line_number}: ratings must contain exactly: {expected}"
+        )
 
     clean_ratings = {}
     for field in RATING_FIELDS:
         value = ratings[field]
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 5:
-            raise ValueError(f"line {line_number}: ratings.{field} must be an integer from 1 to 5")
+            raise ValueError(
+                f"line {line_number}: ratings.{field} must be an integer from 1 to 5"
+            )
         clean_ratings[field] = value
     normalized["ratings"] = clean_ratings
 
@@ -81,7 +93,7 @@ def validate_review(record: Any, line_number: int) -> dict[str, Any]:
 
 
 def load_reviews(path: Path) -> list[dict[str, Any]]:
-    """Load JSONL reviews, rejecting malformed lines and duplicate reviewer/case pairs."""
+    """Load JSONL reviews and reject malformed or duplicate reviewer/case pairs."""
     reviews = []
     seen_pairs = set()
     with path.open(encoding="utf-8") as source:
@@ -91,7 +103,9 @@ def load_reviews(path: Path) -> list[dict[str, Any]]:
             try:
                 record = json.loads(raw_line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"line {line_number}: invalid JSON: {exc.msg}") from exc
+                raise ValueError(
+                    f"line {line_number}: invalid JSON: {exc.msg}"
+                ) from exc
             review = validate_review(record, line_number)
             pair = (review["case_id"], review["reviewer_id"])
             if pair in seen_pairs:
@@ -155,14 +169,19 @@ def summarize_reviews(reviews: list[dict[str, Any]]) -> dict[str, Any]:
         "hallucination": {
             "count": hallucination_count,
             "rate": round(hallucination_count / len(reviews), 4),
-            "definition": "reviewer marked the answer as containing an unsupported claim",
+            "definition": (
+                "reviewer marked the answer as containing an unsupported claim"
+            ),
         },
         "reviewer_disagreement": disagreement,
         "limitations": [
             "These are descriptive human-review results for this reviewed sample only.",
             "No inter-rater reliability coefficient is calculated.",
-            "Ratings are not representative unless the sampling and reviewer protocol justify that claim.",
-            "Do not compare model versions unless the same cases and review rubric are used.",
+            (
+                "Ratings are not representative unless the sampling and reviewer "
+                "protocol justify that claim."
+            ),
+            "Do not compare model versions unless the same cases and rubric are used.",
         ],
     }
 

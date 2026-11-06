@@ -57,21 +57,25 @@ class QdrantRepository:
         if self._collection_ready:
             return
 
-        collections = self.client.get_collections()
+        @self._wrap("collection initialization")
+        def _load_or_create_collection():
+            collections = self.client.get_collections()
 
-        names = {
-            collection.name
-            for collection in collections.collections
-        }
+            names = {
+                collection.name
+                for collection in collections.collections
+            }
 
-        if settings.qdrant_collection not in names:
-            self.client.create_collection(
-                collection_name=settings.qdrant_collection,
-                vectors_config=models.VectorParams(
-                    size=settings.embedding_dimension,
-                    distance=models.Distance.COSINE,
-                ),
-            )
+            if settings.qdrant_collection not in names:
+                self.client.create_collection(
+                    collection_name=settings.qdrant_collection,
+                    vectors_config=models.VectorParams(
+                        size=settings.embedding_dimension,
+                        distance=models.Distance.COSINE,
+                    ),
+                )
+
+        _load_or_create_collection()
 
         if not self.is_local:
             for field_name in (

@@ -1,7 +1,7 @@
 # Deployment
 
 This document covers how NEXORA is packaged and deployed, and the **verification
-status** of each part as of 2026-09-28.
+status** of each part as of 2026-11-07.
 
 ## Packaging artifacts
 
@@ -12,7 +12,7 @@ status** of each part as of 2026-09-28.
 | `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with named volumes. |
 | `docker-compose.yml` | Dev-only: Postgres + Qdrant (no API). |
 | `.dockerignore` | Keeps `.git`, `.venv`, `.env`, tests, caches, and `*.md` out of the image. |
-| `.github/workflows/ci.yml` | CI: Postgres-only service, migrations, compileall, `pytest -q`. |
+| `.github/workflows/ci.yml` | CI: Postgres-only service, migrations, `pip-audit`, compileall, `pytest -q`. |
 
 ## The API image
 
@@ -204,7 +204,8 @@ databases are affected.
   `STORAGE_BACKEND=local`, `STORAGE_PATH=storage`. `ENVIRONMENT` is **not** set
   (so it defaults to development and prod fail-fast is not triggered).
 - Steps: checkout → setup-python 3.12 (pip cache) → install deps →
-  `alembic upgrade head` → `python -m compileall -q backend` → `pytest -q`.
+  `alembic upgrade head` → `pip-audit -r requirements.txt` →
+  `python -m compileall -q backend` → `pytest -q`.
 
 ## Recommended production architecture
 
@@ -225,4 +226,6 @@ Keep NEXORA a **modular monolith**. A reasonable production topology:
 Caveats to resolve before real production traffic (see
 [deployment-readiness.md](deployment-readiness.md)): the login throttle is
 per-process (not shared across replicas), uploads use local disk storage, and
-dependency CVE scanning is not in CI.
+CI's `pip-audit` check covers the pinned `requirements.txt` dependencies only;
+it does not scan the base image, operating-system packages, or the full deployed
+runtime environment.

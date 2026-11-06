@@ -95,10 +95,10 @@ def _contains_token_sequence(text: str, phrase: str) -> bool:
     if not normalized_phrase:
         return False
 
-    pattern = r"(?<!\\w)" + r"\\s+".join(
+    pattern = r"(?<!\w)" + r"\s+".join(
         re.escape(token)
         for token in normalized_phrase.split()
-    ) + r"(?!\\w)"
+    ) + r"(?!\w)"
     return re.search(pattern, text) is not None
 
 

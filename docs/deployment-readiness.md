@@ -29,13 +29,13 @@ availability, throughput, or scale that has not been measured.
 
 The final hardening/gap-closure baseline reached:
 
-- **573 tests passed**
+- **576 tests passed**
 - **2 tests skipped**
 - 0 test failures
 - dependency security audit included in CI via `pip-audit`
 - backend byte-compilation checked in CI
 - Alembic migrations executed in CI against PostgreSQL 17
-- latest verification: [GitHub Actions run 42262342183](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42261437122)
+- latest verification: [GitHub Actions run 42264798554](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42264798554)
 
 CI runs the test stack through GitHub Actions. The live retrieval benchmark is
 not part of CI because it requires heavyweight embedding/reranker models and
@@ -140,6 +140,7 @@ The live retrieval benchmark is an engineering baseline, not a production SLA.
 - Retrieval metrics are not answer-quality metrics.
 - The 93.33% headline is **Recall@5**, not accuracy.
 - No human-rated helpfulness or fluency score is claimed.
+- Answer fact-match and refusal metrics are lexical phrase heuristics, not semantic or human review.
 - Local model latency is hardware-dependent.
 - The benchmark does not establish production throughput or concurrency.
 - The cross-encoder is not claimed to improve retrieval unless a future measured

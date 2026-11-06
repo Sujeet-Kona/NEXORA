@@ -90,6 +90,18 @@ def normalize_answer_text(text: str) -> str:
     return " ".join(text.lower().split())
 
 
+def _contains_token_sequence(text: str, phrase: str) -> bool:
+    normalized_phrase = normalize_answer_text(phrase)
+    if not normalized_phrase:
+        return False
+
+    pattern = r"(?<!\\w)" + r"\\s+".join(
+        re.escape(token)
+        for token in normalized_phrase.split()
+    ) + r"(?!\\w)"
+    return re.search(pattern, text) is not None
+
+
 def fact_matches(
     answer: str,
     expected: tuple[str, ...] | list[str],
@@ -98,20 +110,10 @@ def fact_matches(
         raise ValueError("expected must be non-empty")
 
     normalized_answer = normalize_answer_text(answer)
-
-    for fact in expected:
-        normalized_fact = normalize_answer_text(fact)
-        # Treat expected facts as whole token sequences. Plain substring
-        # matching incorrectly accepts e.g. "120 days" as "20 days" and
-        # "information" as "mfa".
-        pattern = r"(?<!\w)" + r"\s+".join(
-            re.escape(token)
-            for token in normalized_fact.split()
-        ) + r"(?!\w)"
-        if re.search(pattern, normalized_answer):
-            return True
-
-    return False
+    return any(
+        _contains_token_sequence(normalized_answer, fact)
+        for fact in expected
+    )
 
 
 def indicates_refusal(
@@ -122,9 +124,8 @@ def indicates_refusal(
         raise ValueError("markers must be non-empty")
 
     normalized_answer = normalize_answer_text(answer)
-
     return any(
-        normalize_answer_text(marker) in normalized_answer
+        _contains_token_sequence(normalized_answer, marker)
         for marker in markers
     )
 

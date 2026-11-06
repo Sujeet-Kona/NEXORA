@@ -29,13 +29,13 @@ availability, throughput, or scale that has not been measured.
 
 The final hardening/gap-closure baseline reached:
 
-- **572 tests passed**
+- **573 tests passed**
 - **2 tests skipped**
 - 0 test failures
 - dependency security audit included in CI via `pip-audit`
 - backend byte-compilation checked in CI
 - Alembic migrations executed in CI against PostgreSQL 17
-- latest verification: [GitHub Actions run 42259580123](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42259580123)
+- latest verification: [GitHub Actions run 42261437122](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42261437122)
 
 CI runs the test stack through GitHub Actions. The live retrieval benchmark is
 not part of CI because it requires heavyweight embedding/reranker models and

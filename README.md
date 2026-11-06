@@ -1,5 +1,7 @@
 # NEXORA
 
+[![NEXORA CI](https://github.com/Sujeet-Kona/NEXORA/actions/workflows/ci.yml/badge.svg)](https://github.com/Sujeet-Kona/NEXORA/actions/workflows/ci.yml)
+
 **Production-oriented multi-tenant Enterprise RAG platform** built as a FastAPI modular monolith.
 
 NEXORA lets organizations upload PDF/DOCX documents and ask questions against their own data. The system retrieves evidence first, filters weak evidence, generates grounded answers with source citations, streams responses over SSE, and refuses when sufficient evidence is unavailable.
@@ -11,6 +13,8 @@ NEXORA lets organizations upload PDF/DOCX documents and ask questions against th
 ## 1. System overview
 
 NEXORA is deliberately more than `query → vector database → LLM`. The application separates authentication, tenant isolation, document lifecycle, retrieval, evidence selection, generation, and evaluation.
+
+For the component map, request paths, ingestion/query flows, and infrastructure boundaries, see the [architecture guide](docs/architecture.md).
 
 ```mermaid
 flowchart LR

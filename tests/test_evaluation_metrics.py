@@ -172,54 +172,24 @@ def test_latency_summary_handles_single_value():
 def test_latency_summary_rejects_empty_input():
     with pytest.raises(ValueError):
         latency_summary([])
-def reciprocal_rank(
-    relevant: set[int],
-    retrieved: list[int],
-) -> float:
-    for rank, chunk_id in enumerate(retrieved, start=1):
-        if chunk_id in relevant:
-            return 1.0 / rank
 
-    return 0.0
 
-def average_precision_at_k(
-    relevant: set[int],
-    retrieved: list[int],
-    k: int,
-) -> float:
-    """Single-query AP@K in canonical BEIR style.
+def test_indicates_refusal_requires_whole_token_sequences():
+    markers = ("not specified", "do not contain enough information")
 
-    Sums precision@i for each position i where a relevant document is
-    retrieved, then divides by the TOTAL relevant count (not the number
-    retrieved). Used later to compute MAP@K across the full 30-question
-    evaluation set.
-    """
-    if k < 1:
-        raise ValueError("k must be at least 1")
-    if not relevant:
-        raise ValueError("relevant must be non-empty")
-
-    hits = 0.0
-    precision_sum = 0.0
-
-    for i, chunk_id in enumerate(retrieved[:k], start=1):
-        if chunk_id in relevant:
-            hits += 1.0
-            precision_sum += hits / i
-
-    return precision_sum / len(relevant)
-
-def mean_reciprocal_rank(
-    queries: list[tuple[set[int], list[int]]],
-) -> float:
-    """MRR across a list of (relevant_set, retrieved_list) queries."""
-    if not queries:
-        raise ValueError("queries must be non-empty")
-
-    return (
-        sum(
-            reciprocal_rank(relevant, retrieved)
-            for relevant, retrieved in queries
-        )
-        / len(queries)
+    assert not indicates_refusal(
+        "The reimbursement amount is not specifiedly documented.",
+        markers,
     )
+    assert indicates_refusal(
+        "The reimbursement amount is not specified.",
+        markers,
+    )
+    assert not indicates_refusal(
+        "The information is available.",
+        ("mfa",),
+    )
+
+
+def test_fact_matches_ignores_empty_expected_phrase():
+    assert not fact_matches("A normal answer.", ("   ", "20 days"))

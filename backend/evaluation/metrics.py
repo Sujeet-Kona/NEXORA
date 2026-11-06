@@ -104,10 +104,10 @@ def fact_matches(
         # Treat expected facts as whole token sequences. Plain substring
         # matching incorrectly accepts e.g. "120 days" as "20 days" and
         # "information" as "mfa".
-        pattern = r"(?<!\\w)" + r"\\s+".join(
+        pattern = r"(?<!\w)" + r"\s+".join(
             re.escape(token)
             for token in normalized_fact.split()
-        ) + r"(?!\\w)"
+        ) + r"(?!\w)"
         if re.search(pattern, normalized_answer):
             return True
 

@@ -135,8 +135,11 @@ See [multi-tenancy.md](multi-tenancy.md).
   directly).
 - No known unused heavyweight frameworks (LangChain core / LangGraph were
   removed; Redis/Celery are not used).
-- A full `pip-audit`/CVE sweep was **not run** in this pass — treat dependency
-  vulnerability scanning as a recommended pre-production step (see
+- CI runs `pip-audit -r requirements.txt` on every workflow run, covering the
+  pinned production requirements. This is a dependency advisory check, not a
+  complete application security assessment or a substitute for reviewing
+  transitive/runtime images and deployment configuration. Re-run the audit
+  before releases and review any newly disclosed advisories (see
   [deployment-readiness.md](deployment-readiness.md)).
 
 ## Known limitations (honest)

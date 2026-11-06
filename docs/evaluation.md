@@ -29,10 +29,10 @@ than inventing an answer.
 - **Recall@k** — fraction of relevant ground-truth chunks present in the top k.
 - **Precision@k** — fraction of the top k results that are relevant.
 - **MRR** — mean reciprocal rank of the first relevant result.
-- **Fact accuracy** — whether the answer contains an expected fact.
+- **Fact-match rate** — whether the answer contains one of the labeled expected phrases, matched as a whole token sequence (case/whitespace normalized). This avoids substring false positives such as counting `120 days` as `20 days`; it is still a lexical heuristic, not semantic or human evaluation.
 - **Citation accuracy** — whether the answer contains a valid citation mapping
   to a returned source.
-- **Refusal rate** — whether an out-of-corpus question is declined.
+- **Refusal-marker rate** — whether the answer contains one of the configured refusal phrases. This is a phrase-based proxy, not a semantic judgment of whether the response truly abstained.
 
 ## Current live retrieval benchmark
 

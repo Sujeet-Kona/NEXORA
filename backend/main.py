@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,10 +25,41 @@ configure_logging()
 logger = logging.getLogger(LOGGER_NAME)
 
 
+def recover_stale_processing_jobs(
+    application: FastAPI | None = None,
+) -> None:
+    # Resolve the session-factory dependency through the app so test
+    # overrides retain the same provider -> factory -> session contract.
+    target_app = application or app
+    session_factory_provider = target_app.dependency_overrides.get(
+        get_session_factory,
+        get_session_factory,
+    )
+    session_factory = session_factory_provider()
+    db = session_factory()
+
+    try:
+        recovered = recover_stale_processing_documents(db)
+        if recovered:
+            logger.warning(
+                "Recovered stale document processing jobs at startup",
+                extra={"recovered_count": recovered},
+            )
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    recover_stale_processing_jobs(application)
+    yield
+
+
 app = FastAPI(
     title="Nexora API",
     description="Secure Enterprise AI Knowledge Platform",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(RequestObservabilityMiddleware)
@@ -44,30 +77,6 @@ if cors_allowed_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-
-@app.on_event("startup")
-def recover_stale_processing_jobs() -> None:
-    # ``get_session_factory`` is a dependency provider whose return value is
-    # the actual session factory. Test overrides therefore have the same
-    # contract: override -> session factory -> session. Calling the override
-    # only once would leave ``db`` as a sessionmaker and break startup cleanup.
-    session_factory_provider = app.dependency_overrides.get(
-        get_session_factory,
-        get_session_factory,
-    )
-    session_factory = session_factory_provider()
-    db = session_factory()
-
-    try:
-        recovered = recover_stale_processing_documents(db)
-        if recovered:
-            logger.warning(
-                "Recovered stale document processing jobs at startup",
-                extra={"recovered_count": recovered},
-            )
-    finally:
-        db.close()
 
 
 @app.exception_handler(Exception)

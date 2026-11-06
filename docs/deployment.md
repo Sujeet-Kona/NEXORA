@@ -135,7 +135,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 To skip migrations on start: pass `RUN_MIGRATIONS=false` to the `api` service.
 
-## Verification status (2026-09-28)
+## Historical verification status (2026-09-28)
 
 | Check | Command | Result |
 |-------|---------|--------|
@@ -143,12 +143,20 @@ To skip migrations on start: pass `RUN_MIGRATIONS=false` to the `api` service.
 | Image build | `docker build -t nexora:deployment-check .` | **Not verified — Docker daemon unavailable** |
 | Prod stack boot (Postgres→Qdrant→API→Alembic→health) | `docker compose ... up -d --build` then health check | **Not verified — Docker daemon unavailable** |
 
-The Docker daemon on this machine would not come up during this session
-(`docker info` fails; only the native Postgres/Qdrant/Ollama processes are
-running). Per the project rule, missing verification is reported as **"Not
+During that 2026-09-28 session, the Docker daemon would not come up
+(`docker info` failed; only native Postgres/Qdrant/Ollama processes were
+running). Per the project rule, missing verification was reported as **"Not
 verified"** rather than assumed. The compose **configuration** was validated
-offline and passes, and the required-variable guards (`POSTGRES_PASSWORD`,
+offline and passed, and the required-variable guards (`POSTGRES_PASSWORD`,
 `JWT_SECRET_KEY`) were confirmed to abort startup when unset.
+
+### Follow-up status (2026-11-07)
+
+Docker is now available for local development: the PostgreSQL 17 and Qdrant
+1.19.1 development containers have been started and their health checks passed.
+The production Docker image build and isolated `docker-compose.prod.yml` stack
+have **not yet been verified**; complete the smoke-test procedure below before
+claiming production-container verification.
 
 ### Exact commands to finish Docker verification
 

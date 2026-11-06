@@ -3,6 +3,7 @@
 from qdrant_client import QdrantClient, models
 
 from backend.core.config import settings
+from backend.core.exceptions import VectorStoreError
 from backend.repositories.qdrant_repository import (
     QdrantRepository,
 )
@@ -338,3 +339,29 @@ def test_search_document_filter_stays_tenant_scoped(repository):
         point.id
         for point in result.points
     } == {1}
+
+
+
+def test_collection_initialization_errors_are_normalized(qdrant, monkeypatch):
+    repository = QdrantRepository(
+        client=qdrant,
+        is_local=True,
+    )
+
+    def fail_to_list_collections():
+        raise RuntimeError("raw Qdrant transport details")
+
+    monkeypatch.setattr(
+        qdrant,
+        "get_collections",
+        fail_to_list_collections,
+    )
+
+    with pytest.raises(
+        VectorStoreError,
+        match="Qdrant collection initialization failed",
+    ) as exc_info:
+        repository.ensure_collection()
+
+    assert "raw Qdrant transport details" not in str(exc_info.value)
+    assert repository._collection_ready is False

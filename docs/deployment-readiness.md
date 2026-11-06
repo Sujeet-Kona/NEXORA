@@ -1,6 +1,6 @@
 # Deployment Readiness
 
-**Assessment date:** 2026-11-06  
+**Assessment date:** 2026-11-07  
 **Scope:** current NEXORA codebase after final hardening, gap closure, evaluation
 updates, and documentation cleanup.
 
@@ -29,17 +29,26 @@ availability, throughput, or scale that has not been measured.
 
 The final hardening/gap-closure baseline reached:
 
-- **588 tests passed**
-- **2 tests skipped**
-- 0 test failures
+- **GitHub Actions baseline:** 588 tests passed, 2 skipped, 0 failures
 - dependency security audit included in CI via `pip-audit`
 - backend byte-compilation checked in CI
 - Alembic migrations executed in CI against PostgreSQL 17
-- latest verification: [GitHub Actions run 42267665394](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42267665394)
+- latest recorded CI evidence: [GitHub Actions run 42267665394](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42267665394)
 
-CI runs the test stack through GitHub Actions. The live retrieval benchmark is
-not part of CI because it requires heavyweight embedding/reranker models and
-Qdrant.
+Additional local integration verification on **2026-11-07** used PostgreSQL 17
+and Qdrant 1.19.1 with the integration services running:
+
+- **590 tests passed**
+- **0 skipped**
+- **0 warnings**
+- Alembic migrations applied successfully to the isolated `nexora_test` database
+- backend byte-compilation passed
+- `pip-audit 2.10.1 -r requirements.txt`: **No known vulnerabilities found**
+
+The local integration run is separate from the GitHub Actions baseline; the
+two test counts are not being conflated. CI runs the test stack through GitHub
+Actions. The live retrieval benchmark is not part of CI because it requires
+heavyweight embedding/reranker models and Qdrant.
 
 ### Live retrieval evaluation
 

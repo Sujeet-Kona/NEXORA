@@ -1,6 +1,6 @@
 # Deployment Readiness
 
-**Assessment date:** 2026-10-30  
+**Assessment date:** 2026-11-06  
 **Scope:** current NEXORA codebase after final hardening, gap closure, evaluation
 updates, and documentation cleanup.
 
@@ -35,6 +35,7 @@ The final hardening/gap-closure baseline reached:
 - dependency security audit included in CI via `pip-audit`
 - backend byte-compilation checked in CI
 - Alembic migrations executed in CI against PostgreSQL 17
+- latest verification: [GitHub Actions run 42259580123](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42259580123)
 
 CI runs the test stack through GitHub Actions. The live retrieval benchmark is
 not part of CI because it requires heavyweight embedding/reranker models and

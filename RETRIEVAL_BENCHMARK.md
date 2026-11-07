@@ -4,13 +4,16 @@ This file records the current live retrieval benchmark for NEXORA. The values
 below are measured by `backend/evaluation/benchmark.py`; they are not estimated
 or extrapolated.
 
-## Current dataset
+## Current evaluation set
 
 - **16 documents**
-- **220 chunks** after production extraction and chunking
-- **62 positive evaluation questions** in the updated evaluation set
+- **62 positive evaluation questions**
 - **6 negative questions** used by the broader answer evaluation
 - Ground truth is defined by the labeled evaluation cases and anchor text.
+
+The last measured run used 220 chunks and the previous 60-question positive set.
+The chunk-preservation change requires a new live run before publishing an
+updated corpus chunk count or metrics for the current 62-question set.
 
 ## Metrics
 

@@ -43,6 +43,31 @@ def reciprocal_rank(
     return 0.0
 
 
+def ndcg_at_k(
+    relevant: set[int],
+    retrieved: list[int],
+    k: int,
+) -> float:
+    """Normalized discounted cumulative gain for binary chunk relevance."""
+    if k < 1:
+        raise ValueError("k must be at least 1")
+    if not relevant:
+        raise ValueError("relevant must be non-empty")
+
+    dcg = sum(
+        1.0 / math.log2(rank + 1)
+        for rank, chunk_id in enumerate(retrieved[:k], start=1)
+        if chunk_id in relevant
+    )
+    ideal_hits = min(len(relevant), k)
+    ideal_dcg = sum(
+        1.0 / math.log2(rank + 1)
+        for rank in range(1, ideal_hits + 1)
+    )
+
+    return dcg / ideal_dcg if ideal_dcg else 0.0
+
+
 def average_precision_at_k(
     relevant: set[int],
     retrieved: list[int],

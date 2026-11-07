@@ -116,3 +116,23 @@ headline benchmark:
 The current dataset is still small compared with a real enterprise corpus. It
 contains clean labeled cases, so the benchmark should be treated as a controlled
 engineering baseline rather than a general claim about retrieval quality.
+
+## Cross-encoder score filtering and diagnostics
+
+The cross-encoder returns a raw ranking logit. NEXORA applies a sigmoid
+transformation so the stored score is bounded to [0, 1]; this transformation
+preserves ordering but does **not** calibrate the value as a probability of
+relevance. RETRIEVAL_MIN_RELEVANCE is therefore an operational cutoff, not a
+probability guarantee.
+
+At debug log level, each reranked candidate records its chunk ID, page range,
+raw logit, sigmoid score, configured/overridden threshold, and whether it
+survived. If every candidate is filtered, NEXORA emits a warning with the
+candidate count and threshold. These logs intentionally omit passage text and
+the user query.
+
+The live retrieval benchmark now reports both the configured production
+threshold and an evaluation-only no-score-filter control. This isolates the
+effect of threshold filtering without changing the production default. Compare
+the two configurations on the same seeded corpus before changing
+RETRIEVAL_MIN_RELEVANCE.

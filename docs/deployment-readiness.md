@@ -37,7 +37,7 @@ The final hardening/gap-closure baseline reached:
 - Production API image built and started with PostgreSQL and Qdrant.
 - `/health/ready` passed; registration, login, profile, refresh-token rotation,
   and logout smoke tests passed.
-- Evidence: [latest GitHub Actions run](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42376016382).
+- Evidence: [PR #7 checks](https://github.com/Sujeet-Kona/NEXORA/pull/7).
 
 Additional local integration verification on **2026-11-07** used PostgreSQL 17
 and Qdrant 1.19.1 with the integration services running:

@@ -142,7 +142,7 @@ Use a dedicated, git-ignored verification env file. This avoids the repository's
 development .env and uses fresh random secrets. The API binds to host loopback
 on port 18001 so it does not collide with a development API on port 8000.
 
-\`\`\`bash
+```bash
 cd ~/NEXORA
 umask 077
 POSTGRES_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
@@ -172,7 +172,7 @@ docker compose -p nexora_verify --env-file .env.verify \\
   -f docker-compose.prod.yml ps
 
 curl --fail --silent http://127.0.0.1:18001/health/ready
-\`\`\`
+```
 
 The first ingestion downloads the Hugging Face embedding and reranker models
 unless the model-cache volume is already populated. The API container must be
@@ -183,18 +183,18 @@ replace OLLAMA_BASE_URL with that host's reachable URL.
 
 Follow logs with the same env file and project name:
 
-\`\`\`bash
+```bash
 docker compose -p nexora_verify --env-file .env.verify \\
   -f docker-compose.prod.yml logs -f api
-\`\`\`
+```
 
 To stop the verification stack while preserving its database, uploaded files,
 Qdrant data, and model cache:
 
-\`\`\`bash
+```bash
 docker compose -p nexora_verify --env-file .env.verify \\
   -f docker-compose.prod.yml down
-\`\`\`
+```
 
 Only when you intentionally want to erase this isolated verification data and
 redownload models, add -v to down. Never use down -v against a real deployment
@@ -228,7 +228,7 @@ export NEXORA_EMAIL='your-smoke-user@example.com'
 read -s NEXORA_PASSWORD
 export NEXORA_PASSWORD
 .venv/bin/python scripts/smoke_test_live_deployment.py \\
-  --base-url http://127.0.0.1:8000 \\
+  --base-url http://127.0.0.1:18001 \\
   --pdf benchmark-data/LORA.pdf
 unset NEXORA_PASSWORD
 ```

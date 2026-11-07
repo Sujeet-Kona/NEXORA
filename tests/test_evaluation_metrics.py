@@ -5,6 +5,7 @@ from backend.evaluation.metrics import (
     fact_matches,
     indicates_refusal,
     latency_summary,
+    ndcg_at_k,
     normalize_answer_text,
     precision_at_k,
     recall_at_k,
@@ -51,6 +52,26 @@ def test_precision_at_k_with_no_hits():
 def test_precision_at_k_rejects_invalid_k():
     with pytest.raises(ValueError):
         precision_at_k({1}, [1], 0)
+
+
+def test_ndcg_at_k_rewards_relevant_chunks_at_higher_ranks():
+    relevant = {1, 2}
+
+    ideal = ndcg_at_k(relevant, [1, 2, 3], 3)
+    reversed_order = ndcg_at_k(relevant, [3, 2, 1], 3)
+    no_hits = ndcg_at_k(relevant, [3, 4], 3)
+
+    assert ideal == pytest.approx(1.0)
+    assert 0.0 < reversed_order < ideal
+    assert no_hits == 0.0
+
+
+def test_ndcg_at_k_rejects_invalid_arguments():
+    with pytest.raises(ValueError):
+        ndcg_at_k(set(), [1], 5)
+
+    with pytest.raises(ValueError):
+        ndcg_at_k({1}, [1], 0)
 
 
 def test_reciprocal_rank():

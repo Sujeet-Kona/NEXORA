@@ -66,6 +66,10 @@ def test_ndcg_at_k_rewards_relevant_chunks_at_higher_ranks():
     assert no_hits == 0.0
 
 
+def test_ndcg_at_k_does_not_double_count_duplicate_chunk_ids():
+    assert ndcg_at_k({1}, [1, 1], 2) == pytest.approx(1.0)
+
+
 def test_ndcg_at_k_rejects_invalid_arguments():
     with pytest.raises(ValueError):
         ndcg_at_k(set(), [1], 5)

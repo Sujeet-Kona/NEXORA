@@ -244,25 +244,29 @@ databases are affected.
   → byte-compile → `pytest -q`.
 - Separate `container-smoke` job builds the actual API image, starts the isolated
   production Compose stack with PostgreSQL and Qdrant, waits for migrations and
-  `/health/ready`, then tears down only its own volumes. It uses a dummy
+  `/health/ready`, then verifies registration, login, profile, refresh-token
+  rotation, and logout before tearing down only its own volumes. It uses a dummy
   OpenAI-compatible configuration and does **not** call an external LLM or prove
-  model quality; live inference still requires a deployment-host smoke test.
+  model quality; document ingestion and live inference still require a deployment-host smoke test.
 
 ## Recommended production architecture
 
 Keep NEXORA a **modular monolith**. A reasonable production topology:
 
-- **1..N stateless API replicas** behind a load balancer / reverse proxy
-  (TLS terminated at the proxy). Each replica lazily builds its own embedding /
-  Qdrant / LLM singletons, so horizontal scaling is safe.
+- **One API replica for the current implementation**, behind a host reverse
+  proxy with TLS termination. Do not horizontally scale this version yet:
+  BM25 indexes and login-throttle state are process-local, uploads use local
+  filesystem storage, and ingestion uses in-process background tasks. Multiple
+  replicas require shared BM25 invalidation/cache, shared rate limiting, shared
+  object storage, and a durable job queue before they are safe.
 - **Managed or self-hosted PostgreSQL 17** with backups and a tested restore.
 - **Qdrant** (self-hosted or Qdrant Cloud with `QDRANT_API_KEY`), persistent
   volume.
 - **Ollama** (or an OpenAI-compatible gateway) on a GPU host; set
   `OLLAMA_BASE_URL` accordingly.
-- **Object storage** for uploads if you scale beyond a single shared volume
-  (only `local` storage is implemented today; a shared/persistent volume is
-  required for multi-replica).
+- **Persistent local volume** for uploads for a single API replica. Object
+  storage is not implemented in the current codebase; add it before multi-replica
+  deployment rather than assuming a shared volume alone solves all state issues.
 
 Caveats to resolve before real production traffic (see
 [deployment-readiness.md](deployment-readiness.md)): the login throttle is

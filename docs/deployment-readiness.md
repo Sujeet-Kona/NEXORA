@@ -111,10 +111,11 @@ Implemented controls include:
 
 These are known architecture boundaries rather than hidden defects:
 
-- Login throttling is per process. A multi-replica deployment needs shared rate
-  limiting if a global login limit is required.
-- Uploaded files use local filesystem storage. Multi-replica deployments need
-  shared persistent storage or object storage.
+- BM25 indexes and login throttling are process-local. Cache invalidation and
+  login lockouts are not coordinated across API processes.
+- Uploaded files use local filesystem storage. The current deployment is
+  supported as a single API replica; a multi-replica deployment needs shared
+  persistent/object storage plus coordinated BM25 and rate-limit state.
 - Background ingestion uses FastAPI `BackgroundTasks`, not a durable queue.
   Stale `PROCESSING` documents are recovered and can be retried, but a durable
   queue would be preferable for large-scale production workloads.

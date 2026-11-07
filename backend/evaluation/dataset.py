@@ -426,7 +426,7 @@ def _normalize_match_text(text: str) -> str:
 def ground_truth_chunk_ids(
     chunks: list[CorpusChunk],
     case: EvaluationCase,
-) -> set[str]:
+) -> set[int]:
     normalized_anchor = _normalize_match_text(case.anchor)
 
     return {

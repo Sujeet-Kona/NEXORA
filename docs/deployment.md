@@ -8,7 +8,7 @@ status** of each part as of 2026-11-07.
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Multi-stage build → slim, non-root API image (uvicorn on 8000; readiness-based container healthcheck). |
-| `docker-entrypoint.sh` | Waits for Postgres, runs `alembic upgrade head`, then `exec`s the CMD. |
+| `docker-entrypoint.sh` | Waits for PostgreSQL and Qdrant, runs `alembic upgrade head`, then `exec`s the CMD. |
 | `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with persistent database, vector, upload, and model-cache volumes. |
 | `docker-compose.yml` | Dev-only: Postgres + Qdrant (no API). |
 | `.dockerignore` | Keeps `.git`, `.venv`, `.env`, tests, caches, and `*.md` out of the image. |
@@ -32,11 +32,13 @@ status** of each part as of 2026-11-07.
 
 `docker-entrypoint.sh` (`set -e`):
 
-1. Waits for Postgres with an inline Python loop (30 attempts × 2s). On failure
+1. Waits for PostgreSQL with an inline Python loop (30 attempts × 2s). On failure
    it logs **only the exception class**, never the connection URL (which may
    contain the password).
-2. If `RUN_MIGRATIONS` (default `true`) is `true`, runs `alembic upgrade head`.
-3. `exec "$@"` (the CMD).
+2. Waits for the configured Qdrant endpoint with `qdrant-client` (60 attempts × 2s),
+   including API-key authentication when configured. It logs exception classes only.
+3. If `RUN_MIGRATIONS` (default `true`) is `true`, runs `alembic upgrade head`.
+4. `exec "$@"` (the CMD).
 
 ## Production compose
 
@@ -45,12 +47,12 @@ status** of each part as of 2026-11-07.
 - **postgres** — `postgres:17`, healthcheck `pg_isready`, named volume
   `postgres_storage`. Not published to the host.
 - **qdrant** — `qdrant/qdrant:v1.19.1`, named volume `qdrant_storage`. Not
-  published to the host.
+  published to the host. The API entrypoint retries connectivity before migrations
+  and server startup; this avoids depending on curl/wget inside the minimal Qdrant image.
 - **api** — `build: .`, image `nexora-api:latest`, persistent `api_storage` and
   `model_cache` volumes (Hugging Face model downloads survive container recreation),
-  `depends_on` postgres
-  (`service_healthy`) and qdrant (`service_healthy`); Qdrant's `/healthz`
-  endpoint is polled before the API starts, `restart: unless-stopped`,
+  `depends_on` postgres (`service_healthy`) and qdrant (`service_started`);
+  the API entrypoint waits for Qdrant readiness before migrations, `restart: unless-stopped`,
   `extra_hosts: host.docker.internal:host-gateway`, ports
   `${API_PORT:-8000}:8000`, named volume `api_storage`.
 

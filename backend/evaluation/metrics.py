@@ -54,11 +54,12 @@ def ndcg_at_k(
     if not relevant:
         raise ValueError("relevant must be non-empty")
 
-    dcg = sum(
-        1.0 / math.log2(rank + 1)
-        for rank, chunk_id in enumerate(retrieved[:k], start=1)
-        if chunk_id in relevant
-    )
+    dcg = 0.0
+    seen: set[int] = set()
+    for rank, chunk_id in enumerate(retrieved[:k], start=1):
+        if chunk_id in relevant and chunk_id not in seen:
+            dcg += 1.0 / math.log2(rank + 1)
+        seen.add(chunk_id)
     ideal_hits = min(len(relevant), k)
     ideal_dcg = sum(
         1.0 / math.log2(rank + 1)

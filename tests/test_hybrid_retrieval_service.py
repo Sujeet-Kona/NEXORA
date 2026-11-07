@@ -559,7 +559,7 @@ def test_reranker_logs_raw_scores_and_all_filtered_warning(
     monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
     reranker = make_reranker([-2.0])
 
-    with caplog.at_level("DEBUG"):
+    with caplog.at_level("DEBUG", logger="nexora"):
         results = reranker.rerank(
             query="annual leave",
             chunks=[make_chunk(7, "candidate text")],

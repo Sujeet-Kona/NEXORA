@@ -1,11 +1,11 @@
 import logging
-from pathlib import Path
 from collections.abc import AsyncIterator
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.v1.router import router as api_router
@@ -120,12 +120,15 @@ def health_check():
 app.include_router(api_router)
 
 
-# Serve the optional same-origin web client after API routes are registered.
-# Keeping the UI in /frontend avoids changing the existing backend package.
+# Serve the optional same-origin web client without shadowing unknown API routes.
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 if frontend_dir.is_dir():
+    @app.get("/", include_in_schema=False)
+    def frontend_index():
+        return FileResponse(frontend_dir / "index.html")
+
     app.mount(
-        "/",
-        StaticFiles(directory=frontend_dir, html=True),
-        name="frontend",
+        "/static",
+        StaticFiles(directory=frontend_dir),
+        name="frontend-static",
     )

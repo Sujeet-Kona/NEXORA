@@ -56,7 +56,7 @@ from backend.services.rag_service import answer_question
 from backend.services.storage import LocalStorage
 
 
-_CITATION_INDEX = re.compile(r"(?<!\\w)\\[(\\d{1,2})\\]")
+_CITATION_INDEX = re.compile(r"(?<!\w)\[(\d{1,2})\]")
 
 
 def _has_grounded_citation(

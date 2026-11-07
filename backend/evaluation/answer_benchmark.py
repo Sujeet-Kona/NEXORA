@@ -6,7 +6,8 @@ rerank, then Ollama generation -- against live Postgres, Qdrant and
 Ollama, and measures:
 
 * fact accuracy     -- the expected fact appears in the answer
-* citation accuracy -- a ground-truth chunk appears in the sources
+* citation accuracy -- an inline citation maps to a returned source with labeled evidence
+* source hit rate   -- a ground-truth chunk appears in the returned sources
 * refusal rate      -- negative cases decline instead of fabricating
 * latency           -- total pipeline time and generation time alone
 

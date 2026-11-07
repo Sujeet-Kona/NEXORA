@@ -47,9 +47,12 @@ through the retrieval path as well.
 
 ## Current live benchmark
 
-The current live benchmark uses **16 documents, 220 chunks, and 60 evaluation
-questions**. It seeds a temporary organization through the production ingestion
-and indexing path and cleans the seeded data afterward.
+The last measured live baseline used **16 documents, 220 chunks, and 60 positive
+questions**. The current labeled set contains 62 positive questions. The
+chunk-preservation repair requires a fresh live run before publishing a new
+chunk count or updated metrics. The benchmark seeds a temporary organization
+through the production ingestion and indexing path and cleans the seeded data
+afterward.
 
 Run:
 
@@ -57,7 +60,7 @@ Run:
 HF_HUB_OFFLINE=1 .venv/bin/python -u -m backend.evaluation.benchmark --live
 ```
 
-Current measured results:
+Last measured baseline results:
 
 | configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
 |---|---:|---:|---:|---:|---:|
@@ -87,6 +90,16 @@ Current measured results:
 - **Precision@10:** the fraction of the first 10 results that are relevant.
 - **MRR:** the average reciprocal rank of the first relevant result. Higher is
   better; 1.0 means the first relevant result is ranked first for every case.
+- **nDCG@10:** ranking quality with a logarithmic discount for lower-ranked
+  relevant chunks.
+- **Ground-truth hit rate@10:** fraction of questions with at least one labeled
+  chunk in the first 10 results.
+- **Empty retrieval rate:** fraction of questions returning no chunks.
+- **Production context coverage:** recall, hit rate, empty-context rate, and mean
+  context chunks at the configured `RETRIEVAL_TOP_K` limit, compared with
+  the evaluation-only no-score-filter control.
+- **Reranker zero-survivor rate / retention rate:** fraction of non-empty
+  candidate pools completely filtered, and fraction of candidates retained.
 
 ## Cleanup verification
 
@@ -116,3 +129,25 @@ headline benchmark:
 The current dataset is still small compared with a real enterprise corpus. It
 contains clean labeled cases, so the benchmark should be treated as a controlled
 engineering baseline rather than a general claim about retrieval quality.
+
+## Cross-encoder score filtering and diagnostics
+
+The cross-encoder returns a raw ranking logit. NEXORA applies a sigmoid
+transformation so the stored score is bounded to [0, 1]; this transformation
+preserves ordering but does **not** calibrate the value as a probability of
+relevance. RETRIEVAL_MIN_RELEVANCE is therefore an operational cutoff, not a
+probability guarantee.
+
+Set LOG_LEVEL=DEBUG in the local environment and restart the API to
+record each reranked candidate's chunk ID, page range, raw logit, sigmoid
+score, configured production threshold, and keep/drop decision. If every
+candidate is filtered, NEXORA emits a warning with the candidate count and
+threshold. These logs intentionally omit passage text and the user query.
+Restore LOG_LEVEL=INFO after collecting the diagnostic trace.
+
+The live retrieval benchmark now reports both the configured production
+threshold and an explicitly private evaluation-only no-score-filter control.
+The production hybrid retrieval function has no threshold-override parameter.
+This isolates the effect of threshold filtering without changing the production
+default. Compare both configurations on the same seeded corpus before changing
+RETRIEVAL_MIN_RELEVANCE.

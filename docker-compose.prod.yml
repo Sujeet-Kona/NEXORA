@@ -9,7 +9,6 @@
 services:
   postgres:
     image: postgres:17
-    container_name: nexora-postgres-prod
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nexora}
@@ -25,7 +24,6 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.19.1
-    container_name: nexora-qdrant-prod
     restart: unless-stopped
     volumes:
       - qdrant_storage:/qdrant/storage
@@ -34,9 +32,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nexora-api:latest
-    container_name: nexora-api
+    image: ${NEXORA_IMAGE:-nexora-api:latest}
     restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +47,7 @@ services:
         condition: service_started
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-nexora}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexora}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in the environment or .env}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
@@ -55,9 +59,14 @@ services:
       CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_PATH: /app/storage
+      HF_HOME: /app/model-cache
       MAX_UPLOAD_SIZE_BYTES: ${MAX_UPLOAD_SIZE_BYTES:-10485760}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      QDRANT_UPSERT_BATCH_SIZE: ${QDRANT_UPSERT_BATCH_SIZE:-32}
       RUN_MIGRATIONS: ${RUN_MIGRATIONS:-true}
-      QDRANT_URL: http://qdrant:6333
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-nexora_document_chunks}
       RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-2}
@@ -79,11 +88,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000"
     volumes:
       - api_storage:/app/storage
+      - model_cache:/app/model-cache
 
 volumes:
   postgres_storage:
   qdrant_storage:
   api_storage:
+  model_cache:

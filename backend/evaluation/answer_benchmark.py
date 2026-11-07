@@ -6,7 +6,8 @@ rerank, then Ollama generation -- against live Postgres, Qdrant and
 Ollama, and measures:
 
 * fact accuracy     -- the expected fact appears in the answer
-* citation accuracy -- a ground-truth chunk appears in the sources
+* citation accuracy -- an inline citation maps to a returned source with labeled evidence
+* source hit rate   -- a ground-truth chunk appears in the returned sources
 * refusal rate      -- negative cases decline instead of fabricating
 * latency           -- total pipeline time and generation time alone
 
@@ -21,6 +22,7 @@ Usage:
     .venv/bin/python -m backend.evaluation.answer_benchmark
 """
 
+import re
 import time
 from uuid import uuid4
 
@@ -32,7 +34,9 @@ from backend.evaluation.benchmark import (
     seed_live_corpus,
 )
 from backend.evaluation.dataset import (
+    CorpusChunk,
     REFUSAL_MARKERS,
+    ground_truth_chunk_ids,
     load_cases,
     load_negative_cases,
 )
@@ -51,6 +55,35 @@ from backend.services.organization_service import (
 )
 from backend.services.rag_service import answer_question
 from backend.services.storage import LocalStorage
+
+
+_CITATION_INDEX = re.compile(r"(?<!\w)\[(\d{1,2})\]")
+
+
+def _has_grounded_citation(
+    answer: str,
+    sources,
+    relevant_chunk_ids: set[int],
+) -> bool:
+    """Require an inline citation that maps to a returned relevant source."""
+    cited_indices = [
+        int(match)
+        for match in _CITATION_INDEX.findall(answer)
+    ]
+
+    if not cited_indices:
+        return False
+
+    if any(
+        index < 1 or index > len(sources)
+        for index in cited_indices
+    ):
+        return False
+
+    return any(
+        sources[index - 1].chunk_id in relevant_chunk_ids
+        for index in cited_indices
+    )
 
 
 class TimingLLMClient:
@@ -82,13 +115,21 @@ def _relevant_chunk_ids(
     document_names: dict[int, str],
     case,
 ) -> set[int]:
-    relevant = {
-        chunk.id
+    corpus_chunks = [
+        CorpusChunk(
+            id=chunk.id,
+            document_id=chunk.document_id,
+            document_name=document_names[chunk.document_id],
+            chunk_index=chunk.chunk_index,
+            text=chunk.text,
+            page_start=chunk.page_start,
+            page_end=chunk.page_end,
+            organization_id=chunk.organization_id,
+        )
         for chunk in chunks
-        if document_names.get(chunk.document_id)
-        == case.document
-        and case.anchor in chunk.text
-    }
+        if chunk.document_id in document_names
+    ]
+    relevant = ground_truth_chunk_ids(corpus_chunks, case)
 
     if not relevant:
         raise RuntimeError(
@@ -158,6 +199,7 @@ def run_configuration(
 
     fact_hits = 0
     citation_hits = 0
+    ground_truth_source_hits = 0
     refusal_hits = 0
 
     total_latencies: list[float] = []
@@ -189,12 +231,18 @@ def run_configuration(
             case.expected,
         )
 
-        citation_ok = bool(
+        citation_ok = _has_grounded_citation(
+            response.answer,
+            response.sources,
+            relevant,
+        )
+        ground_truth_source_ok = bool(
             set(source_ids) & relevant
         )
 
         fact_hits += int(fact_ok)
         citation_hits += int(citation_ok)
+        ground_truth_source_hits += int(ground_truth_source_ok)
 
         total_latencies.append(total_elapsed)
         generation_latencies.append(generation_elapsed)
@@ -202,9 +250,10 @@ def run_configuration(
         print("-" * 78)
         print("Q:", case.question)
         print(
-            "  fact={} citation={} sources={} relevant={}".format(
+            "  fact={} grounded_citation={} relevant_source_retrieved={} sources={} relevant={}".format(
                 "OK" if fact_ok else "MISS",
                 "OK" if citation_ok else "MISS",
+                "YES" if ground_truth_source_ok else "NO",
                 source_ids,
                 sorted(relevant),
             )
@@ -267,6 +316,10 @@ def run_configuration(
         "fact_accuracy": fact_hits / total_count,
         "citation_hits": citation_hits,
         "citation_accuracy": citation_hits / total_count,
+        "ground_truth_source_hits": ground_truth_source_hits,
+        "ground_truth_source_hit_rate": (
+            ground_truth_source_hits / total_count
+        ),
         "negative_questions": negative_count,
         "refusal_hits": refusal_hits,
         "refusal_rate": (
@@ -293,6 +346,13 @@ def run_configuration(
             citation_hits,
             total_count,
             result["citation_accuracy"],
+        )
+    )
+    print(
+        "Ground-truth source hit: {}/{} = {:.4f}".format(
+            ground_truth_source_hits,
+            total_count,
+            result["ground_truth_source_hit_rate"],
         )
     )
     print(

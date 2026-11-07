@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from backend.api.v1.router import router as api_router
 from backend.core.config import settings
@@ -15,6 +16,7 @@ from backend.core.middleware import (
     RequestObservabilityMiddleware,
 )
 from backend.dependencies.database import get_session_factory
+from backend.services.providers import get_qdrant_repository
 from backend.services.document_processing_recovery import (
     recover_stale_processing_documents,
 )
@@ -111,8 +113,45 @@ register_exception_handlers(app)
 
 
 @app.get("/health")
+@app.get("/health/live")
 def health_check():
+    """Liveness probe: the API process is running."""
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness_check(request: Request):
+    """Readiness probe for the dependencies required by API requests."""
+    dependencies = {"postgres": "ok", "qdrant": "ok"}
+
+    try:
+        session_factory_provider = request.app.dependency_overrides.get(
+            get_session_factory,
+            get_session_factory,
+        )
+        session_factory = session_factory_provider()
+        db = session_factory()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 - expose status, not connection details
+        dependencies["postgres"] = "unavailable"
+
+    try:
+        qdrant = get_qdrant_repository()
+        qdrant.client.get_collections()
+    except Exception:  # noqa: BLE001 - expose status, not server details
+        dependencies["qdrant"] = "unavailable"
+
+    ready = all(status == "ok" for status in dependencies.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "dependencies": dependencies,
+        },
+    )
 
 
 app.include_router(api_router)

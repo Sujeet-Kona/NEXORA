@@ -11,6 +11,14 @@ SUPPORTED_ENVIRONMENTS = (
     "production",
 )
 
+SUPPORTED_LOG_LEVELS = (
+    "CRITICAL",
+    "ERROR",
+    "WARNING",
+    "INFO",
+    "DEBUG",
+)
+
 # Environments where unsafe configuration must prevent startup.
 PRODUCTION_ENVIRONMENTS = ("production",)
 
@@ -42,6 +50,7 @@ WEAK_JWT_SECRETS = frozenset(
 
 class Settings(BaseSettings):
     environment: str = "development"
+    log_level: str = "INFO"
 
     database_url: str
     jwt_secret_key: str
@@ -104,6 +113,19 @@ class Settings(BaseSettings):
             )
 
         return environment
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, value: str) -> str:
+        level = value.strip().upper()
+
+        if level not in SUPPORTED_LOG_LEVELS:
+            raise ValueError(
+                "LOG_LEVEL must be one of "
+                f"{', '.join(SUPPORTED_LOG_LEVELS)}"
+            )
+
+        return level
 
     @field_validator("jwt_algorithm")
     @classmethod

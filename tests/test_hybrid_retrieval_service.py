@@ -519,3 +519,119 @@ def test_empty_merged_candidates_short_circuits_rerank(monkeypatch):
     assert results == []
     # Short-circuit must happen: rerank method must not be invoked at all.
     assert call_counter["count"] == 0
+
+def test_evaluation_only_no_score_filter_control_keeps_all_candidates(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+    chunks = [
+        make_chunk(1, "candidate one"),
+        make_chunk(2, "candidate two"),
+    ]
+    reranker = make_reranker([-3.0, -4.0])
+
+    results = reranker._rerank_without_score_filter_for_evaluation(
+        query="annual leave",
+        chunks=chunks,
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [1, 2]
+    assert settings.retrieval_min_relevance == 0.5
+
+
+def test_production_reranker_does_not_accept_threshold_override():
+    reranker = make_reranker([-5.0])
+
+    with pytest.raises(TypeError):
+        reranker.rerank(
+            query="annual leave",
+            chunks=[make_chunk(1, "candidate")],
+            min_relevance=0.0,
+        )
+
+
+def test_reranker_logs_raw_scores_and_all_filtered_warning(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+    reranker = make_reranker([-2.0])
+
+    with caplog.at_level("DEBUG", logger="nexora"):
+        results = reranker.rerank(
+            query="annual leave",
+            chunks=[make_chunk(7, "candidate text")],
+        )
+
+    assert results == []
+    assert "raw_logit=-2.000000" in caplog.text
+    assert "sigmoid_score=" in caplog.text
+    assert "chunk_id=7" in caplog.text
+    assert "filtered all 1 candidates" in caplog.text
+
+
+def test_hybrid_retrieval_uses_production_reranker_path(monkeypatch):
+    captured = {}
+
+    class CapturingReranker:
+        def rerank(self, query, chunks):
+            captured["query"] = query
+            return chunks
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.get_reranker",
+        lambda: CapturingReranker(),
+    )
+
+    results = hybrid_retrieve_chunks(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        retrievers=[StubRetriever([make_chunk(1, "annual leave")])],
+        rerank_limit=1,
+        final_limit=1,
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [1]
+    assert captured == {"query": "annual leave"}
+
+
+def test_hybrid_retrieval_logs_stage_counts_without_query_text(
+    monkeypatch,
+    caplog,
+):
+    class CapturingReranker:
+        def rerank(self, query, chunks):
+            return chunks
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.get_reranker",
+        lambda: CapturingReranker(),
+    )
+    first = StubRetriever([make_chunk(1, "private query context")])
+    second = StubRetriever([make_chunk(2, "another private passage")])
+
+    with caplog.at_level("DEBUG", logger="nexora"):
+        results = hybrid_retrieve_chunks(
+            db=None,
+            organization_id=99,
+            query="do not log this question",
+            embedding_service=None,
+            qdrant_repository=None,
+            retrievers=[first, second],
+            rerank_limit=2,
+            final_limit=2,
+        )
+
+    assert len(results) == 2
+    assert "Hybrid retrieval diagnostics" in caplog.text
+    assert "StubRetriever:1,StubRetriever:1" in caplog.text
+    assert "fused_candidates=2" in caplog.text
+    assert "rerank_candidates=2" in caplog.text
+    assert "retained_candidates=2" in caplog.text
+    assert "final_context_candidates=2" in caplog.text
+    assert "do not log this question" not in caplog.text
+    assert "private query context" not in caplog.text
+    assert "organization_id=99" not in caplog.text

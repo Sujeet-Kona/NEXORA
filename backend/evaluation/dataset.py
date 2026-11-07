@@ -420,13 +420,15 @@ def _normalize_match_text(text: str) -> str:
     # Only remove the hyphen when both sides are part of a word.
     text = re.sub(r"(?<=\w)-\s*\n\s*(?=\w)", "", text)
 
-    return " ".join(text.split())
+    # PDF title text is frequently extracted in all caps; matching anchors
+    # must not depend on the source document's capitalization.
+    return " ".join(text.casefold().split())
 
 
 def ground_truth_chunk_ids(
     chunks: list[CorpusChunk],
     case: EvaluationCase,
-) -> set[str]:
+) -> set[int]:
     normalized_anchor = _normalize_match_text(case.anchor)
 
     return {

@@ -23,6 +23,7 @@ Unknown environment variables are ignored (`extra="ignore"`).
 | Variable | Default | Purpose |
 |---|---|---|
 | `ENVIRONMENT` | `development` | One of `development`, `testing`, `staging`, `production`. Production enables fail-fast safety validation. |
+| `LOG_LEVEL` | `INFO` | Application log level: `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG`. Use `DEBUG` temporarily when diagnosing retrieval scores. |
 | `CORS_ORIGINS` | empty | Comma-separated allowed browser origins. Empty disables CORS middleware. `*` is rejected in production. |
 | `CORS_ALLOW_CREDENTIALS` | `true` | Whether CORS requests may include credentials. |
 

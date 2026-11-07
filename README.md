@@ -79,7 +79,7 @@ Security controls include JWT access tokens, refresh-token rotation and revocati
 
 The live benchmark seeds an isolated benchmark organization, runs the normal ingestion/indexing path, evaluates labeled questions, and removes the temporary benchmark data.
 
-**Benchmark size:** 16 documents · 220 chunks · 60 labeled retrieval questions.
+**Last measured run:** 16 documents · 220 chunks · 60 labeled retrieval questions. The current evaluation set contains 62 positive retrieval questions (plus 6 negative answer cases); rerun the live benchmark before treating the figures below as measurements for that updated set.
 
 | Configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
 |---|---:|---:|---:|---:|---:|
@@ -126,6 +126,8 @@ See [Evaluation](docs/evaluation.md) for methodology, reproduction steps, limita
 ## Repository guide
 
 - [Architecture](docs/architecture.md) — components, request paths, ingestion and query flows.
+- [Deployment](docs/deployment.md) — production Compose setup, configuration, health checks, and smoke tests.
+- [Deployment readiness](docs/deployment-readiness.md) — verified capabilities, operational boundaries, and remaining production gates.
 - [Evaluation](docs/evaluation.md) — benchmark protocol, metrics, results, and limitations.
 - backend/api/ — HTTP endpoints and SSE entry points.
 - backend/services/ — ingestion, retrieval, generation, and lifecycle logic.

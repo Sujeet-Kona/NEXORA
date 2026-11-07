@@ -1,6 +1,7 @@
 from dataclasses import dataclass, replace
 import logging
 import math
+import time
 
 from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
@@ -46,6 +47,32 @@ class Reranker:
         query: str,
         chunks: list[RetrievedChunk],
     ) -> list[RetrievedChunk]:
+        """Apply the configured production relevance threshold."""
+        return self._rerank(
+            query,
+            chunks,
+            min_relevance=settings.retrieval_min_relevance,
+        )
+
+    def _rerank_without_score_filter_for_evaluation(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+    ) -> list[RetrievedChunk]:
+        """Evaluation-only control; production retrieval never calls this."""
+        return self._rerank(
+            query,
+            chunks,
+            min_relevance=0.0,
+        )
+
+    def _rerank(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+        *,
+        min_relevance: float,
+    ) -> list[RetrievedChunk]:
         if not chunks:
             return []
 
@@ -62,18 +89,46 @@ class Reranker:
             reverse=True,
         )
 
-        min_relevance = settings.retrieval_min_relevance
-
         grounded = []
 
         for chunk, logit in ranked:
-            relevance = _sigmoid(float(logit))
+            raw_logit = float(logit)
+            relevance = _sigmoid(raw_logit)
+            kept = relevance >= min_relevance
 
-            if relevance < min_relevance:
+            # Cross-encoder logits are ranking scores, not calibrated
+            # probabilities. The sigmoid is monotonic, but its output
+            # must not be interpreted as a probability of relevance.
+            logger.debug(
+                (
+                    "Cross-encoder candidate chunk_id=%d pages=%s-%s "
+                    "raw_logit=%.6f sigmoid_score=%.6f "
+                    "threshold=%.6f kept=%s"
+                ),
+                chunk.chunk_id,
+                chunk.page_start,
+                chunk.page_end,
+                raw_logit,
+                relevance,
+                min_relevance,
+                kept,
+            )
+
+            if not kept:
                 continue
 
             grounded.append(
                 replace(chunk, score=relevance)
+            )
+
+        if ranked and not grounded:
+            logger.warning(
+                (
+                    "Cross-encoder filtered all %d candidates "
+                    "at min_relevance=%.6f"
+                ),
+                len(ranked),
+                min_relevance,
             )
 
         return grounded
@@ -194,6 +249,7 @@ def hybrid_retrieve_chunks(
         )
         rerank_limit = final_limit
 
+    retrieval_started = time.perf_counter()
     rankings = [
         retriever.retrieve(
             db=db,
@@ -214,11 +270,44 @@ def hybrid_retrieve_chunks(
     if not candidates:
         # Nothing to rerank; the cross-encoder has nothing meaningful to
         # do. Skip the (expensive) empty forward pass.
+        logger.debug(
+            (
+                "Hybrid retrieval diagnostics retriever_counts=%s "
+                "fused_candidates=%d rerank_candidates=0 "
+                "retained_candidates=0 final_context_candidates=0 "
+                "elapsed_ms=%.3f"
+            ),
+            ",".join(
+                f"{type(retriever).__name__}:{len(ranking)}"
+                for retriever, ranking in zip(retrievers, rankings)
+            ),
+            len(fused),
+            (time.perf_counter() - retrieval_started) * 1000,
+        )
         return []
 
-    reranked = get_reranker().rerank(
+    reranker = get_reranker()
+    reranked = reranker.rerank(
         query=query,
         chunks=candidates,
     )
 
-    return reranked[:final_limit]
+    results = reranked[:final_limit]
+    logger.debug(
+        (
+            "Hybrid retrieval diagnostics retriever_counts=%s "
+            "fused_candidates=%d rerank_candidates=%d "
+            "retained_candidates=%d final_context_candidates=%d "
+            "elapsed_ms=%.3f"
+        ),
+        ",".join(
+            f"{type(retriever).__name__}:{len(ranking)}"
+            for retriever, ranking in zip(retrievers, rankings)
+        ),
+        len(fused),
+        len(candidates),
+        len(reranked),
+        len(results),
+        (time.perf_counter() - retrieval_started) * 1000,
+    )
+    return results

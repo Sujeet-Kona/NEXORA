@@ -40,6 +40,7 @@ from backend.evaluation.dataset import (
     load_cases,
 )
 from backend.evaluation.metrics import (
+    ndcg_at_k,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
@@ -61,7 +62,6 @@ from backend.services.embedding_service import EmbeddingService
 from backend.services.hybrid_retrieval_service import (
     _rrf_fuse,
     get_reranker,
-    hybrid_retrieve_chunks,
 )
 from backend.services.organization_service import (
     create_organization_service,
@@ -109,6 +109,54 @@ def evaluate_config(
             for gt, ranking in zip(ground_truths, rankings)
         )
         / case_count,
+        "ndcg_10": sum(
+            ndcg_at_k(gt, ranking, 10)
+            for gt, ranking in zip(ground_truths, rankings)
+        )
+        / case_count,
+        "ground_truth_hit_rate_10": sum(
+            1.0 if recall_at_k(gt, ranking, 10) > 0 else 0.0
+            for gt, ranking in zip(ground_truths, rankings)
+        )
+        / case_count,
+        "empty_retrieval_rate": sum(
+            1.0 if not ranking else 0.0
+            for ranking in rankings
+        )
+        / case_count,
+    }
+
+
+def evaluate_context_coverage(
+    rankings: list[list[int]],
+    ground_truths: list[set[int]],
+    context_limit: int,
+) -> dict:
+    if context_limit < 1:
+        raise ValueError("context_limit must be at least 1")
+    if not ground_truths or len(rankings) != len(ground_truths):
+        raise ValueError(
+            "rankings and ground_truths must be non-empty and aligned"
+        )
+
+    return {
+        "context_limit": context_limit,
+        "context_recall": sum(
+            recall_at_k(relevant, ranking, context_limit)
+            for relevant, ranking in zip(ground_truths, rankings)
+        ) / len(ground_truths),
+        "context_hit_rate": sum(
+            1.0 if recall_at_k(relevant, ranking, context_limit) > 0 else 0.0
+            for relevant, ranking in zip(ground_truths, rankings)
+        ) / len(ground_truths),
+        "empty_context_rate": sum(
+            1.0 if not ranking[:context_limit] else 0.0
+            for ranking in rankings
+        ) / len(ground_truths),
+        "mean_context_chunks": sum(
+            len(ranking[:context_limit])
+            for ranking in rankings
+        ) / len(ground_truths),
     }
 
 
@@ -121,6 +169,9 @@ def print_summary(results: list[dict]) -> None:
         f"{'Recall@10':>11}"
         f"{'Prec@10':>9}"
         f"{'MRR':>8}"
+        f"{'nDCG@10':>10}"
+        f"{'Hit@10':>9}"
+        f"{'Empty':>8}"
     )
 
     for result in results:
@@ -131,6 +182,9 @@ def print_summary(results: list[dict]) -> None:
             f"{result['recall_10']:>11.4f}"
             f"{result['precision_10']:>9.4f}"
             f"{result['mrr']:>8.4f}"
+            f"{result['ndcg_10']:>10.4f}"
+            f"{result['ground_truth_hit_rate_10']:>9.4f}"
+            f"{result['empty_retrieval_rate']:>8.4f}"
         )
 
 
@@ -475,11 +529,16 @@ def run_live() -> None:
             )
 
         ground_truths: list[set[int]] = []
+        reranker_candidate_counts: list[int] = []
+        reranker_retained_counts: list[int] = []
+        production_context_rankings: list[list[int]] = []
+        no_filter_context_rankings: list[list[int]] = []
         rankings_by_config: dict[str, list[list[int]]] = {
             "bm25": [],
             "dense": [],
             "hybrid_rrf": [],
             "hybrid_full": [],
+            "hybrid_no_score_filter": [],
         }
 
         corpus_chunks = [
@@ -530,11 +589,12 @@ def run_live() -> None:
                 chunk.chunk_id for chunk in lexical
             ]
 
+            fused_candidates = _rrf_fuse(
+                [dense, lexical],
+            )[:K]
             fused_ids = [
                 candidate.chunk.chunk_id
-                for candidate in _rrf_fuse(
-                    [dense, lexical],
-                )[:K]
+                for candidate in fused_candidates
             ]
 
             ground_truths.append(relevant)
@@ -546,20 +606,50 @@ def run_live() -> None:
             )
 
             if reranker_available:
-                hybrid = hybrid_retrieve_chunks(
-                    db=db,
-                    organization_id=organization_id,
+                reranker = get_reranker()
+                candidate_chunks = [
+                    candidate.chunk
+                    for candidate in fused_candidates
+                ]
+                hybrid = reranker.rerank(
                     query=case.question,
-                    embedding_service=embedding_service,
-                    qdrant_repository=qdrant_repository,
-                    rerank_limit=K,
-                    final_limit=K,
+                    chunks=candidate_chunks,
                 )
+                hybrid_without_score_filter = (
+                    reranker._rerank_without_score_filter_for_evaluation(
+                        query=case.question,
+                        chunks=candidate_chunks,
+                    )
+                )
+
+                reranker_candidate_counts.append(len(candidate_chunks))
+                reranker_retained_counts.append(len(hybrid))
 
                 rankings_by_config["hybrid_full"].append(
                     [
                         chunk.chunk_id
                         for chunk in hybrid
+                    ]
+                )
+                rankings_by_config["hybrid_no_score_filter"].append(
+                    [
+                        chunk.chunk_id
+                        for chunk in hybrid_without_score_filter
+                    ]
+                )
+
+                production_context_rankings.append(
+                    [
+                        chunk.chunk_id
+                        for chunk in hybrid[:settings.retrieval_top_k]
+                    ]
+                )
+                no_filter_context_rankings.append(
+                    [
+                        chunk.chunk_id
+                        for chunk in hybrid_without_score_filter[
+                            :settings.retrieval_top_k
+                        ]
                     ]
                 )
 
@@ -575,6 +665,10 @@ def run_live() -> None:
                     "Hybrid full top-10:",
                     rankings_by_config["hybrid_full"][-1],
                 )
+                print(
+                    "Hybrid no-score-filter top-10:",
+                    rankings_by_config["hybrid_no_score_filter"][-1],
+                )
 
         print_summary(
             [
@@ -583,6 +677,59 @@ def run_live() -> None:
                 if rankings
             ]
         )
+
+        if reranker_available:
+            for label, rankings in (
+                ("production_threshold", production_context_rankings),
+                ("no_score_filter_control", no_filter_context_rankings),
+            ):
+                coverage = evaluate_context_coverage(
+                    rankings,
+                    ground_truths,
+                    settings.retrieval_top_k,
+                )
+                print(
+                    "Production context coverage ({}, top_k={}): "
+                    "recall={:.4f} hit_rate={:.4f} empty_rate={:.4f} "
+                    "mean_chunks={:.2f}".format(
+                        label,
+                        coverage["context_limit"],
+                        coverage["context_recall"],
+                        coverage["context_hit_rate"],
+                        coverage["empty_context_rate"],
+                        coverage["mean_context_chunks"],
+                    )
+                )
+
+        if reranker_available:
+            evaluated_candidates = sum(
+                count for count in reranker_candidate_counts
+                if count > 0
+            )
+            zero_survivor_cases = sum(
+                1
+                for candidates, retained in zip(
+                    reranker_candidate_counts,
+                    reranker_retained_counts,
+                )
+                if candidates > 0 and retained == 0
+            )
+            zero_survivor_rate = (
+                zero_survivor_cases
+                / sum(count > 0 for count in reranker_candidate_counts)
+                if any(count > 0 for count in reranker_candidate_counts)
+                else 0.0
+            )
+            retained_rate = (
+                sum(reranker_retained_counts) / evaluated_candidates
+                if evaluated_candidates
+                else 0.0
+            )
+            print("Reranker candidates:", evaluated_candidates)
+            print("Reranker retained:", sum(reranker_retained_counts))
+            print("Reranker zero-survivor cases:", zero_survivor_cases)
+            print("Reranker zero-survivor rate:", f"{zero_survivor_rate:.4f}")
+            print("Reranker candidate retention rate:", f"{retained_rate:.4f}")
 
     finally:
         if organization_id is not None:

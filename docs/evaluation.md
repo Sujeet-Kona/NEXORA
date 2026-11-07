@@ -39,7 +39,7 @@ than inventing an answer.
 - **Ground-truth source hit rate** — whether a returned source contains labeled evidence, reported separately from whether the answer actually cites it.
 - **Refusal-marker rate** — whether the answer contains one of the configured refusal phrases. This is a phrase-based proxy, not a semantic judgment of whether the response truly abstained.
 
-## Current live retrieval benchmark
+## Last measured live retrieval baseline
 
 Measured with:
 

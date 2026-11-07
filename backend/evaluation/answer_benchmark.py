@@ -21,6 +21,7 @@ Usage:
     .venv/bin/python -m backend.evaluation.answer_benchmark
 """
 
+import re
 import time
 from uuid import uuid4
 
@@ -53,6 +54,35 @@ from backend.services.organization_service import (
 )
 from backend.services.rag_service import answer_question
 from backend.services.storage import LocalStorage
+
+
+_CITATION_INDEX = re.compile(r"(?<!\\w)\\[(\\d{1,2})\\]")
+
+
+def _has_grounded_citation(
+    answer: str,
+    sources,
+    relevant_chunk_ids: set[int],
+) -> bool:
+    """Require an inline citation that maps to a returned relevant source."""
+    cited_indices = [
+        int(match)
+        for match in _CITATION_INDEX.findall(answer)
+    ]
+
+    if not cited_indices:
+        return False
+
+    if any(
+        index < 1 or index > len(sources)
+        for index in cited_indices
+    ):
+        return False
+
+    return any(
+        sources[index - 1].chunk_id in relevant_chunk_ids
+        for index in cited_indices
+    )
 
 
 class TimingLLMClient:
@@ -199,7 +229,12 @@ def run_configuration(
             case.expected,
         )
 
-        citation_ok = bool(
+        citation_ok = _has_grounded_citation(
+            response.answer,
+            response.sources,
+            relevant,
+        )
+        ground_truth_source_ok = bool(
             set(source_ids) & relevant
         )
 

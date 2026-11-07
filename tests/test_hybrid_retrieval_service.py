@@ -605,3 +605,42 @@ def test_hybrid_retrieval_forwards_explicit_threshold_override(
         "query": "annual leave",
         "min_relevance": 0.0,
     }
+
+
+def test_hybrid_retrieval_logs_stage_counts_without_query_text(
+    monkeypatch,
+    caplog,
+):
+    class CapturingReranker:
+        def rerank(self, query, chunks):
+            return chunks
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.get_reranker",
+        lambda: CapturingReranker(),
+    )
+    first = StubRetriever([make_chunk(1, "private query context")])
+    second = StubRetriever([make_chunk(2, "another private passage")])
+
+    with caplog.at_level("DEBUG", logger="nexora"):
+        results = hybrid_retrieve_chunks(
+            db=None,
+            organization_id=99,
+            query="do not log this question",
+            embedding_service=None,
+            qdrant_repository=None,
+            retrievers=[first, second],
+            rerank_limit=2,
+            final_limit=2,
+        )
+
+    assert len(results) == 2
+    assert "Hybrid retrieval diagnostics" in caplog.text
+    assert "StubRetriever:1,StubRetriever:1" in caplog.text
+    assert "fused_candidates=2" in caplog.text
+    assert "rerank_candidates=2" in caplog.text
+    assert "retained_candidates=2" in caplog.text
+    assert "final_context_candidates=2" in caplog.text
+    assert "do not log this question" not in caplog.text
+    assert "private query context" not in caplog.text
+    assert "organization_id=99" not in caplog.text

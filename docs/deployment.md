@@ -229,6 +229,30 @@ rm -f .env.verify
 The `down -v` targets only the `nexora_verify` project, so no other volumes or
 databases are affected.
 
+## Real model and document smoke test
+
+After the stack is running and Ollama is reachable from the API container, run
+the checked-in end-to-end smoke script from the repository root. It registers
+(or logs in) a dedicated test user, creates a temporary organization, uploads
+LORA.pdf, waits for the document to become READY, then exercises title/authors,
+rank-four, equation, negative/refusal, and SSE queries. It prints source page
+provenance and timing; inspect the generated answers rather than treating HTTP
+200 as proof of answer quality.
+
+```bash
+export NEXORA_EMAIL='your-smoke-user@example.com'
+read -s NEXORA_PASSWORD
+export NEXORA_PASSWORD
+.venv/bin/python scripts/smoke_test_live_deployment.py \\
+  --base-url http://127.0.0.1:8000 \\
+  --pdf benchmark-data/LORA.pdf
+unset NEXORA_PASSWORD
+```
+
+The script intentionally leaves its test organization and uploaded document in
+the local stack so the result can be inspected through the API. Delete that
+organization/document using the normal authenticated API after reviewing it.
+
 ## CI pipeline
 
 `.github/workflows/ci.yml` runs on push to `main` and on pull requests:

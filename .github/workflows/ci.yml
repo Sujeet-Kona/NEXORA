@@ -68,8 +68,8 @@ jobs:
       - name: Dependency security audit
         run: pip-audit -r requirements.txt
 
-      - name: Byte-compile backend
-        run: python -m compileall -q backend
+      - name: Byte-compile backend and operational scripts
+        run: python -m compileall -q backend scripts
 
       - name: Run tests
         run: pytest -q --junitxml=test-results.xml

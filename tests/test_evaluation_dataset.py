@@ -15,11 +15,11 @@ def test_pdf_text_normalization_joins_hyphenated_line_breaks():
     )
 
 
-def test_dataset_has_60_cases_across_16_documents():
+def test_dataset_has_62_cases_across_16_documents():
     cases = load_cases()
     documents = Counter(case.document for case in cases)
 
-    assert len(cases) == 60
+    assert len(cases) == 62
     assert len(documents) == 16
 
     docx_counts = {
@@ -37,7 +37,7 @@ def test_dataset_has_60_cases_across_16_documents():
     assert set(docx_counts.values()) == {3}
 
     assert len(pdf_counts) == 6
-    assert set(pdf_counts.values()) == {5}
+    assert sorted(pdf_counts.values()) == [5, 5, 5, 5, 5, 7]
 
 
 def test_corpus_chunks_cover_all_case_documents():

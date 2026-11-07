@@ -29,6 +29,12 @@ services:
     restart: unless-stopped
     volumes:
       - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:6333/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   api:
     build:
@@ -41,7 +47,7 @@ services:
       postgres:
         condition: service_healthy
       qdrant:
-        condition: service_started
+        condition: service_healthy
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-nexora}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexora}

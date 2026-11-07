@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#090d18">
+  <meta name="description" content="NEXORA — private, evidence-grounded knowledge workspace.">
+  <title>NEXORA — Knowledge workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <div id="auth-screen" class="auth-screen">
+    <div class="auth-art">
+      <div class="brand"><span class="brand-mark">N</span><span>NEXORA</span></div>
+      <div class="art-copy"><div class="eyebrow"><span class="pulse"></span> PRIVATE KNOWLEDGE SYSTEM</div><h1>Your knowledge.<br><em>Within reach.</em></h1><p>Bring your documents together. Ask better questions. Follow every answer back to its source.</p></div>
+      <div class="orbit"><div class="orbit-core">N</div><i></i><b></b><span></span></div>
+      <div class="art-foot"><span>RETRIEVAL · CONTEXT · CLARITY</span><span>01 / WORKSPACE</span></div>
+    </div>
+    <div class="auth-panel">
+      <div class="auth-mobile-brand brand"><span class="brand-mark">N</span><span>NEXORA</span></div>
+      <div class="auth-box"><div class="eyebrow">WELCOME TO YOUR WORKSPACE</div><h2 id="auth-title">Sign in</h2><p class="muted" id="auth-subtitle">Continue to your private knowledge base.</p>
+        <form id="auth-form" class="stack">
+          <label id="name-wrap" class="field hidden">Full name<input id="full-name" autocomplete="name" maxlength="255"></label>
+          <label class="field">Email address<input id="email" type="email" autocomplete="email" required></label>
+          <label class="field">Password<input id="password" type="password" autocomplete="current-password" minlength="8" required></label>
+          <button class="btn primary wide" id="auth-submit">Continue <span>↗</span></button>
+        </form>
+        <p class="switch-auth"><span id="auth-switch-copy">New to NEXORA?</span> <button class="text-btn" id="auth-switch">Create account</button></p>
+        <p class="form-error" id="auth-error" role="alert"></p>
+      </div>
+      <div class="auth-note">Your workspace is scoped to your organization.<br>Documents remain behind your authenticated API.</div>
+    </div>
+  </div>
+
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#"><span class="brand-mark">N</span><span>NEXORA</span></a>
+      <div class="workspace-label">WORKSPACE</div>
+      <div class="org-picker"><span class="org-dot"></span><select id="org-select" aria-label="Organization"><option value="">Choose workspace</option></select><span class="chevron">⌄</span></div>
+      <button class="new-org" id="new-org">＋ Create workspace</button>
+      <div class="nav-label">YOUR SPACE</div>
+      <button class="nav-item active" data-view="chat"><span class="nav-icon">◈</span> Ask NEXORA <kbd>01</kbd></button>
+      <button class="nav-item" data-view="library"><span class="nav-icon">▤</span> Knowledge library <kbd>02</kbd></button>
+      <div class="sidebar-bottom"><div class="system-card"><span class="status-dot"></span><div><strong>Local-first engine</strong><small>Private inference runtime</small></div><span class="system-spark">✳</span></div><div class="user-row"><div class="avatar" id="user-avatar">N</div><div class="user-meta"><strong id="user-name">Workspace user</strong><small id="user-email"></small></div><button class="icon-btn" id="logout" title="Sign out">↗</button></div></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar"><div><span class="breadcrumb">NEXORA</span><span class="crumb-sep">/</span><span id="page-name">Ask NEXORA</span></div><div class="top-actions"><span class="secure-label"><span class="status-dot"></span> PRIVATE SESSION</span><button class="icon-btn" id="refresh" title="Refresh workspace">↻</button></div></header>
+      <section id="chat-view" class="view">
+        <div class="chat-heading"><div class="eyebrow"><span class="pulse"></span> GROUNDED INTELLIGENCE</div><h1>Good questions lead<br>to <em>clear answers.</em></h1><p>Ask across your documents. Every supported answer comes with sources you can inspect.</p></div>
+        <div class="chat-layout">
+          <div class="conversation-panel">
+            <div id="messages" class="messages"><div class="welcome-message"><div class="welcome-icon">✳</div><strong>Your knowledge, connected.</strong><p>Choose a workspace, add documents to your library, then ask a question. NEXORA will retrieve relevant passages and show where its answer came from.</p><div class="suggestions"><button class="suggestion">Summarize the key points in my documents</button><button class="suggestion">What topics are covered in this knowledge base?</button></div></div></div>
+            <form id="ask-form" class="composer"><textarea id="question" rows="1" maxlength="2000" placeholder="Ask a question about your documents…" required></textarea><div class="composer-foot"><span><span class="kbd-dot">↵</span> Enter to send · Shift + Enter for a new line</span><button class="send-btn" id="send" type="submit" aria-label="Send question">↑</button></div></form>
+            <div class="disclaimer">Answers are generated from retrieved context. Always verify important details against the cited source.</div>
+          </div>
+          <aside class="context-panel"><div class="panel-head"><span>RETRIEVAL CONTEXT</span><span class="live-tag">LIVE</span></div><div id="context-empty" class="context-empty"><div class="context-orb">⌕</div><strong>Waiting for a question</strong><p>Retrieved passages and source references will appear here after you ask.</p></div><div id="sources" class="sources"></div><div class="context-bottom"><div class="mini-stat"><span>INDEXED DOCS</span><strong id="indexed-count">—</strong></div><div class="mini-stat"><span>WORKSPACE</span><strong id="context-org">Not selected</strong></div></div></aside>
+        </div>
+      </section>
+
+      <section id="library-view" class="view hidden">
+        <div class="page-heading"><div><div class="eyebrow">YOUR KNOWLEDGE BASE</div><h1>Knowledge <em>library.</em></h1><p>Manage the documents NEXORA can retrieve from.</p></div><div class="library-count"><strong id="doc-count">0</strong><span>DOCUMENTS</span></div></div>
+        <div class="upload-zone" id="drop-zone"><div class="upload-icon">↑</div><div><strong>Drop your documents here</strong><p>PDF or DOCX · Up to 10 MB per file</p></div><label class="btn secondary upload-btn">Browse files<input id="file-input" type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple hidden></label></div>
+        <div class="library-toolbar"><div><strong>All documents</strong><span id="doc-subtitle">Files in this workspace</span></div><button class="btn ghost" id="reload-docs">↻ Refresh</button></div>
+        <div id="document-list" class="document-list"><div class="empty-state">Select a workspace to view its documents.</div></div>
+      </section>
+      <footer class="main-footer"><span>NEXORA <span class="footer-dot">·</span> EVIDENCE FIRST</span><span>BUILT FOR PRIVATE KNOWLEDGE</span></footer>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+  <dialog id="org-dialog" class="modal"><form method="dialog" id="org-form"><div class="modal-head"><div><div class="eyebrow">NEW WORKSPACE</div><h2>Create a space</h2></div><button class="icon-btn" value="cancel" aria-label="Close">×</button></div><p class="muted">Create an organization to keep documents and retrieval scoped together.</p><label class="field">Workspace name<input id="org-name" maxlength="255" required placeholder="e.g. Research team"></label><div class="modal-actions"><button class="btn ghost" value="cancel">Cancel</button><button class="btn primary" id="create-org" type="submit">Create workspace ↗</button></div></form></dialog>
+  <script src="/app.js" defer></script>
+</body></html>

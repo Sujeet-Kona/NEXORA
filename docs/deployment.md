@@ -9,7 +9,7 @@ status** of each part as of 2026-11-07.
 |------|---------|
 | `Dockerfile` | Multi-stage build → slim, non-root API image (uvicorn on 8000; readiness-based container healthcheck). |
 | `docker-entrypoint.sh` | Waits for Postgres, runs `alembic upgrade head`, then `exec`s the CMD. |
-| `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with named volumes. |
+| `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with persistent database, vector, upload, and model-cache volumes. |
 | `docker-compose.yml` | Dev-only: Postgres + Qdrant (no API). |
 | `.dockerignore` | Keeps `.git`, `.venv`, `.env`, tests, caches, and `*.md` out of the image. |
 | `.github/workflows/ci.yml` | CI: Postgres-only service, migrations, `pip-audit`, compileall, `pytest -q`. |
@@ -46,7 +46,9 @@ status** of each part as of 2026-11-07.
   `postgres_storage`. Not published to the host.
 - **qdrant** — `qdrant/qdrant:v1.19.1`, named volume `qdrant_storage`. Not
   published to the host.
-- **api** — `build: .`, image `nexora-api:latest`, `depends_on` postgres
+- **api** — `build: .`, image `nexora-api:latest`, persistent `api_storage` and
+  `model_cache` volumes (Hugging Face model downloads survive container recreation),
+  `depends_on` postgres
   (`service_healthy`) and qdrant (`service_healthy`); Qdrant's `/healthz`
   endpoint is polled before the API starts, `restart: unless-stopped`,
   `extra_hosts: host.docker.internal:host-gateway`, ports
@@ -59,7 +61,12 @@ status** of each part as of 2026-11-07.
 `OLLAMA_MODEL` defaults to `qwen3:8b`; `ENVIRONMENT` defaults to `production`.
 
 Only the API port is published; Postgres and Qdrant are reachable **only** on
-the internal compose network. The API's `/health` and `/health/live` endpoints
+the internal compose network. The Hugging Face embedding and cross-encoder artifacts are downloaded on first use
+and cached under `HF_HOME=/app/model-cache`; the named `model_cache` volume keeps
+them across API container replacement. First use still requires outbound access
+to the Hugging Face Hub unless the cache is pre-populated.
+
+The API's `/health` and `/health/live` endpoints
 are liveness probes; `/health/ready` executes a lightweight PostgreSQL query and
 checks Qdrant connectivity, returning HTTP 503 when either dependency is down.
 The container healthcheck uses readiness, not liveness.

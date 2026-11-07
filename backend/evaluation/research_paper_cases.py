@@ -37,7 +37,9 @@ PAPER_CASE_DATA = [
     {
         "question": "What is the full title of the LoRA paper?",
         "document": "LORA.pdf",
-        "anchor": "LoRA: Low-Rank Adaptation of Large Language Models",
+        # Keep the anchor short: PDF title extraction can split title lines
+        # across text spans while preserving the phrase in a single chunk.
+        "anchor": "Low-Rank Adaptation of Large Language Models",
         "expected": ("LoRA: Low-Rank Adaptation of Large Language Models",),
     },
     {

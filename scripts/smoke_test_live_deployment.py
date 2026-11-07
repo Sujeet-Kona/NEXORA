@@ -55,12 +55,14 @@ def _wait_until_ready(
     client: httpx.Client,
     organization_id: int,
     document_id: int,
+    headers: dict[str, str],
     timeout_seconds: int,
 ) -> dict:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         response = client.get(
-            f"/api/v1/organizations/{organization_id}/documents/{document_id}"
+            f"/api/v1/organizations/{organization_id}/documents/{document_id}",
+            headers=headers,
         )
         response.raise_for_status()
         document = response.json()
@@ -87,10 +89,12 @@ def _print_query_result(
     organization_id: int,
     question: str,
     index: int,
+    headers: dict[str, str],
 ) -> None:
     response = client.post(
         f"/api/v1/organizations/{organization_id}/query",
         json={"question": question},
+        headers=headers,
     )
     response.raise_for_status()
     result = response.json()
@@ -176,6 +180,7 @@ def main() -> None:
             client,
             organization_id,
             document_id,
+            headers,
             args.wait_seconds,
         )
         print(
@@ -194,6 +199,7 @@ def main() -> None:
                 organization_id,
                 question,
                 index,
+                headers,
             )
 
         print("\n===== SSE STREAM SMOKE TEST =====")

@@ -176,7 +176,26 @@ Before using NEXORA for real external traffic, the deployment should provide:
 These are deployment requirements, not reasons to add unnecessary infrastructure
 to the student project itself.
 
-## 7. Final assessment
+## 7. Deployment verification status
+
+The repository includes a production Compose definition, but the existence of
+that file is not proof of a working deployment. The following must be verified
+on the target host before calling the deployment complete:
+
+- Production Compose configuration validation in CI.
+- Container image build on the deployment architecture.
+- PostgreSQL migration and API startup against an isolated stack.
+- Qdrant health/readiness and collection initialization.
+- Registration, login, authenticated upload, document processing, query, and SSE.
+- Persistence across API/container restart and recovery after dependency restart.
+- TLS, secret injection, backups, and restore procedure on the chosen host.
+
+The API exposes `/health/live` for process liveness and `/health/ready` for
+PostgreSQL/Qdrant readiness. These checks do not prove that the external LLM or
+embedding/reranker model artifacts are available; model-serving smoke tests are
+separate deployment gates.
+
+## 8. Final assessment
 
 NEXORA should be presented as:
 

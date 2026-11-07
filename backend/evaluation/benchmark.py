@@ -127,6 +127,39 @@ def evaluate_config(
     }
 
 
+def evaluate_context_coverage(
+    rankings: list[list[int]],
+    ground_truths: list[set[int]],
+    context_limit: int,
+) -> dict:
+    if context_limit < 1:
+        raise ValueError("context_limit must be at least 1")
+    if not ground_truths or len(rankings) != len(ground_truths):
+        raise ValueError(
+            "rankings and ground_truths must be non-empty and aligned"
+        )
+
+    return {
+        "context_limit": context_limit,
+        "context_recall": sum(
+            recall_at_k(relevant, ranking, context_limit)
+            for relevant, ranking in zip(ground_truths, rankings)
+        ) / len(ground_truths),
+        "context_hit_rate": sum(
+            1.0 if recall_at_k(relevant, ranking, context_limit) > 0 else 0.0
+            for relevant, ranking in zip(ground_truths, rankings)
+        ) / len(ground_truths),
+        "empty_context_rate": sum(
+            1.0 if not ranking[:context_limit] else 0.0
+            for ranking in rankings
+        ) / len(ground_truths),
+        "mean_context_chunks": sum(
+            len(ranking[:context_limit])
+            for ranking in rankings
+        ) / len(ground_truths),
+    }
+
+
 def print_summary(results: list[dict]) -> None:
     print("=" * 78)
     print(
@@ -498,6 +531,8 @@ def run_live() -> None:
         ground_truths: list[set[int]] = []
         reranker_candidate_counts: list[int] = []
         reranker_retained_counts: list[int] = []
+        production_context_rankings: list[list[int]] = []
+        no_filter_context_rankings: list[list[int]] = []
         rankings_by_config: dict[str, list[list[int]]] = {
             "bm25": [],
             "dense": [],
@@ -603,6 +638,21 @@ def run_live() -> None:
                     ]
                 )
 
+                production_context_rankings.append(
+                    [
+                        chunk.chunk_id
+                        for chunk in hybrid[:settings.retrieval_top_k]
+                    ]
+                )
+                no_filter_context_rankings.append(
+                    [
+                        chunk.chunk_id
+                        for chunk in hybrid_without_score_filter[
+                            :settings.retrieval_top_k
+                        ]
+                    ]
+                )
+
             print("=" * 78)
             print("Question:", case.question)
             print("Relevant chunk IDs:", sorted(relevant))
@@ -627,6 +677,29 @@ def run_live() -> None:
                 if rankings
             ]
         )
+
+        if reranker_available:
+            for label, rankings in (
+                ("production_threshold", production_context_rankings),
+                ("no_score_filter_control", no_filter_context_rankings),
+            ):
+                coverage = evaluate_context_coverage(
+                    rankings,
+                    ground_truths,
+                    settings.retrieval_top_k,
+                )
+                print(
+                    "Production context coverage ({}, top_k={}): "
+                    "recall={:.4f} hit_rate={:.4f} empty_rate={:.4f} "
+                    "mean_chunks={:.2f}".format(
+                        label,
+                        coverage["context_limit"],
+                        coverage["context_recall"],
+                        coverage["context_hit_rate"],
+                        coverage["empty_context_rate"],
+                        coverage["mean_context_chunks"],
+                    )
+                )
 
         if reranker_available:
             evaluated_candidates = sum(

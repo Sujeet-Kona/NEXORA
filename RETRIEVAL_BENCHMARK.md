@@ -8,7 +8,7 @@ or extrapolated.
 
 - **16 documents**
 - **220 chunks** after production extraction and chunking
-- **60 positive evaluation questions**
+- **62 positive evaluation questions** in the updated evaluation set
 - **6 negative questions** used by the broader answer evaluation
 - Ground truth is defined by the labeled evaluation cases and anchor text.
 
@@ -18,7 +18,12 @@ or extrapolated.
 - `Precision@k` — fraction of the top k results that are relevant.
 - `MRR` — mean reciprocal rank of the first relevant result.
 
-## Current live benchmark
+## Last measured live benchmark
+
+The table below is the last measured run on the previous 60-question set.
+The checked-in evaluation set now contains 62 positive questions after adding
+LoRA title and first-author regression cases. Rerun the live benchmark before
+treating these figures as measurements for the updated 62-question set.
 
 Run:
 

@@ -34,8 +34,8 @@ than inventing an answer.
 - **Empty retrieval rate** — fraction of questions returning no chunks.
 - **Reranker zero-survivor rate** and **candidate retention rate** — how often the threshold removes every fused candidate and what fraction of candidates survive.
 - **Fact-match rate** — whether the answer contains one of the labeled expected phrases, matched as a whole token sequence (case/whitespace normalized). This avoids substring false positives such as counting `120 days` as `20 days`; it is still a lexical heuristic, not semantic or human evaluation.
-- **Citation accuracy** — whether the answer contains a valid citation mapping
-  to a returned source.
+- **Citation accuracy** — whether at least one inline citation in the answer maps to a returned source that contains labeled ground-truth evidence; out-of-range or absent citation markers do not count.
+- **Ground-truth source hit rate** — whether a returned source contains labeled evidence, reported separately from whether the answer actually cites it.
 - **Refusal-marker rate** — whether the answer contains one of the configured refusal phrases. This is a phrase-based proxy, not a semantic judgment of whether the response truly abstained.
 
 ## Current live retrieval benchmark

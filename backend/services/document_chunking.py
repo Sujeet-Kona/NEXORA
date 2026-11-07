@@ -23,11 +23,6 @@ _HEADING_LINE_RE = re.compile(
     re.MULTILINE,
 )
 
-# Maximum number of consecutive duplicate empty/whitespace chunk tokens the
-# filter will drop. Kept small so it never hides an actual bug.
-_MAX_STRIP_PASSES = 3
-
-
 @dataclass(frozen=True)
 class ChunkSpan:
     text: str
@@ -61,25 +56,17 @@ def _ensure_structural_heading_boundaries(text: str) -> str:
 
 
 def _clean_chunks(chunks: list[str]) -> list[str]:
-    """Drop empty / whitespace-only chunks and collapse consecutive exact
-    duplicates. Chunk order is preserved."""
-    cleaned: list[str] = []
-    for raw in chunks:
-        chunk = raw.strip()
-        if not chunk:
-            continue
-        if cleaned and cleaned[-1] == chunk:
-            # Collapse duplicate-adjacent content produced by overlap at
-            # a page boundary. Never collapse across more than one pass
-            # so a genuine repetition is still preserved.
-            logger.debug(
-                "Collapsing consecutive duplicate chunk of len=%d",
-                len(chunk),
-            )
-            continue
-        cleaned.append(chunk)
+    """Remove empty chunks without discarding repeated source passages.
 
-    return cleaned
+    Identical adjacent chunks can represent distinct occurrences in the
+    original document (including separate pages), so content equality is
+    not a safe deduplication criterion.
+    """
+    return [
+        chunk.strip()
+        for chunk in chunks
+        if chunk.strip()
+    ]
 
 
 def split_text(
@@ -181,7 +168,10 @@ def _chunk_offsets(
             continue
 
         offsets.append((index, index + len(text)))
-        cursor = index
+        # Advance by one character rather than by the full chunk length:
+        # chunks overlap, and repeated chunk text must map to the next
+        # occurrence instead of being assigned the same source offset.
+        cursor = index + 1
 
     return offsets
 

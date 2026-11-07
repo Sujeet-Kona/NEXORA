@@ -12,7 +12,7 @@ status** of each part as of 2026-11-07.
 | `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with persistent database, vector, upload, and model-cache volumes. |
 | `docker-compose.yml` | Dev-only: Postgres + Qdrant (no API). |
 | `.dockerignore` | Keeps `.git`, `.venv`, `.env`, tests, caches, and `*.md` out of the image. |
-| `.github/workflows/ci.yml` | CI: Postgres-only service, migrations, `pip-audit`, compileall, `pytest -q`. |
+| `.github/workflows/ci.yml` | CI: migrations, `pip-audit`, compileall, `pytest -q`, Compose validation, and a production-container smoke test. |
 
 ## The API image
 

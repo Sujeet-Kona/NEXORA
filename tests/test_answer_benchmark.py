@@ -58,3 +58,18 @@ def test_answer_benchmark_keeps_ground_truth_document_scoped():
         )
     else:
         raise AssertionError("Ground truth must remain document-scoped")
+
+
+def test_answer_benchmark_requires_inline_citation_to_relevant_source():
+    from backend.evaluation.answer_benchmark import _has_grounded_citation
+
+    sources = [
+        SimpleNamespace(chunk_id=17),
+        SimpleNamespace(chunk_id=18),
+    ]
+
+    assert _has_grounded_citation("The title is LoRA [1].", sources, {17})
+    assert not _has_grounded_citation("The title is LoRA.", sources, {17})
+    assert not _has_grounded_citation("The title is LoRA [2].", sources, {17})
+    assert not _has_grounded_citation("The title is LoRA [3].", sources, {17})
+    assert not _has_grounded_citation("The title is LoRA [1] [3].", sources, {17})

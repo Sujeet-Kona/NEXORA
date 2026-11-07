@@ -9,7 +9,7 @@ status** of each part as of 2026-11-07.
 |------|---------|
 | `Dockerfile` | Multi-stage build → slim, non-root API image (uvicorn on 8000; readiness-based container healthcheck). |
 | `docker-entrypoint.sh` | Waits for PostgreSQL and Qdrant, runs `alembic upgrade head`, then `exec`s the CMD. |
-| `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with persistent database, vector, upload, and model-cache volumes. |
+| `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with project-scoped container names and persistent database, vector, upload, and model-cache volumes. |
 | `docker-compose.yml` | Dev-only: Postgres + Qdrant (no API). |
 | `.dockerignore` | Keeps `.git`, `.venv`, `.env`, tests, caches, and `*.md` out of the image. |
 | `.github/workflows/ci.yml` | CI: migrations, `pip-audit`, compileall, `pytest -q`, Compose validation, and a production-container smoke test. |
@@ -49,7 +49,8 @@ status** of each part as of 2026-11-07.
 - **qdrant** — `qdrant/qdrant:v1.19.1`, named volume `qdrant_storage`. Not
   published to the host. The API entrypoint retries connectivity before migrations
   and server startup; this avoids depending on curl/wget inside the minimal Qdrant image.
-- **api** — `build: .`, image `nexora-api:latest`, persistent `api_storage` and
+- **api** — `build: .`, image `${NEXORA_IMAGE:-nexora-api:latest}`, Compose-project-scoped
+  container names (no fixed `container_name`), persistent `api_storage` and
   `model_cache` volumes (Hugging Face model downloads survive container recreation),
   `depends_on` postgres (`service_healthy`) and qdrant (`service_started`);
   the API entrypoint waits for Qdrant readiness before migrations, `restart: unless-stopped`,

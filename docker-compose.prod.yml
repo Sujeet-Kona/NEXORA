@@ -9,7 +9,6 @@
 services:
   postgres:
     image: postgres:17
-    container_name: nexora-postgres-prod
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nexora}
@@ -25,7 +24,6 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.19.1
-    container_name: nexora-qdrant-prod
     restart: unless-stopped
     volumes:
       - qdrant_storage:/qdrant/storage
@@ -34,8 +32,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: nexora-api:latest
-    container_name: nexora-api
+    image: ${NEXORA_IMAGE:-nexora-api:latest}
     restart: unless-stopped
     init: true
     security_opt:

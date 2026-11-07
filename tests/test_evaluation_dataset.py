@@ -16,7 +16,7 @@ def test_pdf_text_normalization_joins_hyphenated_line_breaks():
 
 
 def test_pdf_text_normalization_is_case_insensitive_and_handles_title_wrap():
-    extracted = "LORA: LOW-RANK ADAPTATION OF LARGE LAN-\\nGUAGE MODELS"
+    extracted = "LORA: LOW-RANK ADAPTATION OF LARGE LAN-\nGUAGE MODELS"
     anchor = "Low-Rank Adaptation of Large Language Models"
 
     assert _normalize_match_text(extracted) == _normalize_match_text(anchor)

@@ -54,7 +54,9 @@ status** of each part as of 2026-11-07.
   `depends_on` postgres (`service_healthy`) and qdrant (`service_started`);
   the API entrypoint waits for Qdrant readiness before migrations, `restart: unless-stopped`,
   `extra_hosts: host.docker.internal:host-gateway`, ports
-  `${API_PORT:-8000}:8000`, named volume `api_storage`.
+  `${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8000}:8000`, named volumes
+  `api_storage` and `model_cache`. The API binds to loopback on the host by default;
+  put a TLS reverse proxy in front of it rather than exposing port 8000 publicly.
 
 **Required variables** (compose uses `:?` so it refuses to start without them):
 `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`. `DATABASE_URL` is built from
@@ -62,8 +64,9 @@ status** of each part as of 2026-11-07.
 `http://host.docker.internal:11434` (Ollama runs on the Docker host);
 `OLLAMA_MODEL` defaults to `qwen3:8b`; `ENVIRONMENT` defaults to `production`.
 
-Only the API port is published; Postgres and Qdrant are reachable **only** on
-the internal compose network. The Ollama model is not bundled in the Compose stack. Install Ollama on the
+Only the API port is published, bound to host loopback by default; Postgres and
+Qdrant are reachable **only** on the internal compose network. Configure a host
+reverse proxy with TLS and point it to `127.0.0.1:${API_PORT:-8000}`. The Ollama model is not bundled in the Compose stack. Install Ollama on the
 configured inference host and pull the configured model before accepting RAG
 traffic, for example `ollama pull qwen3:8b` (use the exact value of
 `OLLAMA_MODEL`). Verify that `OLLAMA_BASE_URL` is reachable from the API
@@ -198,6 +201,7 @@ POSTGRES_PASSWORD=verify-only-local-pass
 POSTGRES_DB=nexora
 JWT_SECRET_KEY=verify-only-0123456789abcdefghijklmnopqrstuvwxyzABCDEF
 API_PORT=8000
+API_BIND_ADDRESS=127.0.0.1
 EOF
 
 # 3. Boot an isolated stack
@@ -206,7 +210,7 @@ docker compose -p nexora_verify --env-file .env.verify \
 
 # 4. Wait for health, then check
 docker compose -p nexora_verify -f docker-compose.prod.yml ps
-curl -fsS http://localhost:8000/health   # expect {"status":"ok"}
+curl -fsS http://127.0.0.1:8000/health/ready   # expect {"status":"ready", ...}
 
 # 5. Inspect logs for secrets / leaks (should show none)
 docker compose -p nexora_verify -f docker-compose.prod.yml logs api | grep -iE 'password|secret|token' || echo "no secrets in logs"

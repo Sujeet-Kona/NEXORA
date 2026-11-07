@@ -125,11 +125,12 @@ preserves ordering but does **not** calibrate the value as a probability of
 relevance. RETRIEVAL_MIN_RELEVANCE is therefore an operational cutoff, not a
 probability guarantee.
 
-At debug log level, each reranked candidate records its chunk ID, page range,
-raw logit, sigmoid score, configured/overridden threshold, and whether it
-survived. If every candidate is filtered, NEXORA emits a warning with the
-candidate count and threshold. These logs intentionally omit passage text and
-the user query.
+Set LOG_LEVEL=DEBUG in the local environment and restart the API to
+record each reranked candidate's chunk ID, page range, raw logit, sigmoid
+score, configured/overridden threshold, and keep/drop decision. If every
+candidate is filtered, NEXORA emits a warning with the candidate count and
+threshold. These logs intentionally omit passage text and the user query.
+Restore LOG_LEVEL=INFO after collecting the diagnostic trace.
 
 The live retrieval benchmark now reports both the configured production
 threshold and an evaluation-only no-score-filter control. This isolates the

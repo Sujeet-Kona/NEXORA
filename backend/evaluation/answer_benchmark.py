@@ -32,7 +32,9 @@ from backend.evaluation.benchmark import (
     seed_live_corpus,
 )
 from backend.evaluation.dataset import (
+    CorpusChunk,
     REFUSAL_MARKERS,
+    ground_truth_chunk_ids,
     load_cases,
     load_negative_cases,
 )
@@ -82,13 +84,21 @@ def _relevant_chunk_ids(
     document_names: dict[int, str],
     case,
 ) -> set[int]:
-    relevant = {
-        chunk.id
+    corpus_chunks = [
+        CorpusChunk(
+            id=chunk.id,
+            document_id=chunk.document_id,
+            document_name=document_names[chunk.document_id],
+            chunk_index=chunk.chunk_index,
+            text=chunk.text,
+            page_start=chunk.page_start,
+            page_end=chunk.page_end,
+            organization_id=chunk.organization_id,
+        )
         for chunk in chunks
-        if document_names.get(chunk.document_id)
-        == case.document
-        and case.anchor in chunk.text
-    }
+        if chunk.document_id in document_names
+    ]
+    relevant = ground_truth_chunk_ids(corpus_chunks, case)
 
     if not relevant:
         raise RuntimeError(

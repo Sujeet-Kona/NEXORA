@@ -21,8 +21,8 @@ status** of each part as of 2026-11-07.
   into a virtualenv at `/opt/venv`.
 - **Runtime** stage copies the venv + `backend` + `alembic` + `alembic.ini` +
   entrypoint, creates a non-root system user `app`, sets `PYTHONUNBUFFERED=1`,
-  `PYTHONDONTWRITEBYTECODE=1`, `STORAGE_PATH=/app/storage`, `chown`s the storage
-  dir, and runs as `USER app`.
+  `PYTHONDONTWRITEBYTECODE=1`, `STORAGE_PATH=/app/storage`, `HF_HOME=/app/model-cache`,
+  creates and `chown`s both persistent directories, and runs as `USER app`.
 - `EXPOSE 8000`; `HEALTHCHECK` hits `http://127.0.0.1:8000/health/ready` every 30s
   (timeout 5s, start-period 60s, 3 retries).
 - `ENTRYPOINT ["./docker-entrypoint.sh"]`,
@@ -63,7 +63,9 @@ status** of each part as of 2026-11-07.
 `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`. `DATABASE_URL` is built from
 `POSTGRES_*`; `QDRANT_URL=http://qdrant:6333`; `OLLAMA_BASE_URL` defaults to
 `http://host.docker.internal:11434` (Ollama runs on the Docker host);
-`OLLAMA_MODEL` defaults to `qwen3:8b`; `ENVIRONMENT` defaults to `production`.
+`OLLAMA_MODEL` defaults to `qwen3:8b`; `LOG_LEVEL`, embedding settings, and
+Ollama generation settings are forwarded from the production env file;
+`ENVIRONMENT` defaults to `production`.
 
 Only the API port is published, bound to host loopback by default; Postgres and
 Qdrant are reachable **only** on the internal compose network. Configure a host
@@ -134,102 +136,83 @@ docker compose --env-file /secure/path/prod.env \
   -f docker-compose.prod.yml config --quiet
 ```
 
-## Start the production stack
+## Start and verify the production stack
 
-Use an explicit production env file (see the **WARNING** above — a bare
-`docker compose ... up` will silently pick up the dev `.env`):
+Use a dedicated, git-ignored verification env file. This avoids the repository's
+development .env and uses fresh random secrets. The API binds to host loopback
+on port 18001 so it does not collide with a development API on port 8000.
 
-```bash
-docker compose --env-file /secure/path/prod.env \
-  -f docker-compose.prod.yml up -d --build
-```
-
-If you pass secrets inline instead, you must also set `OLLAMA_BASE_URL`
-explicitly, otherwise the dev `.env` value (`localhost:11434`) overrides the
-compose default and generation fails inside the container:
-
-```bash
-POSTGRES_PASSWORD='...' \
-JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" \
-OLLAMA_BASE_URL='http://host.docker.internal:11434' \
-  docker compose -f docker-compose.prod.yml up -d --build
-```
-
-Never commit these secrets. Generate a strong JWT secret, e.g.:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-To skip migrations on start: pass `RUN_MIGRATIONS=false` to the `api` service.
-
-## Historical verification status (2026-09-28)
-
-| Check | Command | Result |
-|-------|---------|--------|
-| Compose config valid + required-var guards | `docker compose -f docker-compose.prod.yml config -q` (with throwaway env) | **PASS** (validated offline) |
-| Image build | `docker build -t nexora:deployment-check .` | **Not verified — Docker daemon unavailable** |
-| Prod stack boot (Postgres→Qdrant→API→Alembic→health) | `docker compose ... up -d --build` then health check | **Not verified — Docker daemon unavailable** |
-
-During that 2026-09-28 session, the Docker daemon would not come up
-(`docker info` failed; only native Postgres/Qdrant/Ollama processes were
-running). Per the project rule, missing verification was reported as **"Not
-verified"** rather than assumed. The compose **configuration** was validated
-offline and passed, and the required-variable guards (`POSTGRES_PASSWORD`,
-`JWT_SECRET_KEY`) were confirmed to abort startup when unset.
-
-### Follow-up status (2026-11-07)
-
-Docker is now available for local development: the PostgreSQL 17 and Qdrant
-1.19.1 development containers have been started and their health checks passed.
-The production Docker image build and isolated `docker-compose.prod.yml` stack
-have **not yet been verified**; complete the smoke-test procedure below before
-claiming production-container verification.
-
-### Exact commands to finish Docker verification
-
-Run these once a Docker daemon is available. Use **safe local test
-credentials** and an **isolated project name** so nothing shared is touched:
-
-```bash
-# 1. Build the image
-docker build -t nexora:deployment-check .
-
-# 2. Write throwaway creds to a git-ignored file (NEVER commit)
-cat > .env.verify <<'EOF'
+\`\`\`bash
+cd ~/NEXORA
+umask 077
+POSTGRES_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+JWT_SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+cat > .env.verify <<EOF
 POSTGRES_USER=nexora
-POSTGRES_PASSWORD=verify-only-local-pass
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_DB=nexora
-JWT_SECRET_KEY=verify-only-0123456789abcdefghijklmnopqrstuvwxyzABCDEF
-API_PORT=8000
+JWT_SECRET_KEY=$JWT_SECRET_KEY
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=qwen3:8b
+LLM_PROVIDER=ollama
+ENVIRONMENT=production
+API_PORT=18001
 API_BIND_ADDRESS=127.0.0.1
+LOG_LEVEL=INFO
 EOF
+unset POSTGRES_PASSWORD JWT_SECRET_KEY
 
-# 3. Boot an isolated stack
-docker compose -p nexora_verify --env-file .env.verify \
+docker compose -p nexora_verify --env-file .env.verify \\
+  -f docker-compose.prod.yml config --quiet
+
+docker compose -p nexora_verify --env-file .env.verify \\
   -f docker-compose.prod.yml up -d --build
 
-# 4. Wait for health, then check
-docker compose -p nexora_verify -f docker-compose.prod.yml ps
-curl -fsS http://127.0.0.1:8000/health/ready   # expect {"status":"ready", ...}
+docker compose -p nexora_verify --env-file .env.verify \\
+  -f docker-compose.prod.yml ps
 
-# 5. Inspect logs for secrets / leaks (should show none)
-docker compose -p nexora_verify -f docker-compose.prod.yml logs api | grep -iE 'password|secret|token' || echo "no secrets in logs"
+curl --fail --silent http://127.0.0.1:18001/health/ready
+\`\`\`
 
-# 6. Authenticated smoke test
-curl -fsS -X POST http://localhost:8000/api/v1/auth/register \
-  -H 'content-type: application/json' \
-  -d '{"email":"verify@example.com","full_name":"Verify","password":"verify-only-pass"}'
+The first ingestion downloads the Hugging Face embedding and reranker models
+unless the model-cache volume is already populated. The API container must be
+able to reach the configured Ollama endpoint. On Docker Desktop for Mac,
+host.docker.internal points back to the Mac; verify Ollama is running and that
+the configured OLLAMA_MODEL has been pulled. If Ollama runs on another host,
+replace OLLAMA_BASE_URL with that host's reachable URL.
 
-# 7. Tear down the isolated project only (removes its volumes)
-docker compose -p nexora_verify --env-file .env.verify \
-  -f docker-compose.prod.yml down -v
-rm -f .env.verify
-```
+Follow logs with the same env file and project name:
 
-The `down -v` targets only the `nexora_verify` project, so no other volumes or
-databases are affected.
+\`\`\`bash
+docker compose -p nexora_verify --env-file .env.verify \\
+  -f docker-compose.prod.yml logs -f api
+\`\`\`
 
+To stop the verification stack while preserving its database, uploaded files,
+Qdrant data, and model cache:
+
+\`\`\`bash
+docker compose -p nexora_verify --env-file .env.verify \\
+  -f docker-compose.prod.yml down
+\`\`\`
+
+Only when you intentionally want to erase this isolated verification data and
+redownload models, add -v to down. Never use down -v against a real deployment
+unless deleting all persisted application data is intended.
+
+## Verification status
+
+The historical 2026-09-28 local Docker-daemon limitation is superseded by the
+current GitHub Actions container smoke test. The current CI run successfully
+built the production image, started PostgreSQL and Qdrant, applied migrations,
+passed /health/ready, and completed registration, login, authenticated profile,
+refresh-token rotation, and logout.
+
+This verifies the container packaging and core API startup path. It does not
+verify real Ollama inference, document upload/processing, retrieval quality,
+answer citations, SSE, public TLS, backups, or disaster recovery. Those require
+the real-model smoke test below on the target host.
+ 
 ## Real model and document smoke test
 
 After the stack is running and Ollama is reachable from the API container, run

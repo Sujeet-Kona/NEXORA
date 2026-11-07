@@ -29,11 +29,15 @@ availability, throughput, or scale that has not been measured.
 
 The final hardening/gap-closure baseline reached:
 
-- **GitHub Actions baseline:** 588 tests passed, 2 skipped, 0 failures
-- dependency security audit included in CI via `pip-audit`
-- backend byte-compilation checked in CI
-- Alembic migrations executed in CI against PostgreSQL 17
-- latest recorded CI evidence: [GitHub Actions run 42267665394](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42267665394)
+- **Latest GitHub Actions run:** 610 tests passed, 2 skipped, 0 failures.
+- `pip-audit`: no known vulnerabilities found in pinned application dependencies.
+- Backend and operational-script byte-compilation passed.
+- Alembic migrations passed against PostgreSQL 17.
+- Production Compose configuration validation passed.
+- Production API image built and started with PostgreSQL and Qdrant.
+- `/health/ready` passed; registration, login, profile, refresh-token rotation,
+  and logout smoke tests passed.
+- Evidence: [latest GitHub Actions run](https://github.com/Sujeet-Kona/NEXORA/actions/runs/42376016382).
 
 Additional local integration verification on **2026-11-07** used PostgreSQL 17
 and Qdrant 1.19.1 with the integration services running:
@@ -149,6 +153,9 @@ The live retrieval benchmark is an engineering baseline, not a production SLA.
 - The corpus is controlled and small compared with a real enterprise corpus.
 - Retrieval metrics are not answer-quality metrics.
 - The 93.33% headline is **Recall@5**, not accuracy.
+- The LoRA title ground-truth failure was traced to case-sensitive anchor
+  normalization against an all-caps PDF title; case-insensitive matching and a
+  regression test now cover the actual line-wrapped PDF text.
 - No human-rated helpfulness or fluency score is claimed.
 - Answer fact-match and refusal metrics are lexical phrase heuristics, not semantic or human review.
 - Local model latency is hardware-dependent.
@@ -167,7 +174,9 @@ Before using NEXORA for real external traffic, the deployment should provide:
 2. Secure PostgreSQL credentials and backups with a tested restore procedure.
 3. Persistent Qdrant storage and persistent document storage.
 4. TLS termination and explicit CORS configuration.
-5. Shared rate limiting if multiple API replicas are deployed.
+5. Keep one API replica with the current implementation. Multiple replicas require
+   shared BM25 cache/invalidation, shared login rate limiting, shared upload
+   storage, and a durable background-job queue.
 6. Durable background-job infrastructure if ingestion volume requires it.
 7. Centralized logs/metrics/tracing and alerting.
 8. Load testing at expected concurrency and documented capacity limits.
@@ -183,18 +192,22 @@ The repository includes a production Compose definition, but the existence of
 that file is not proof of a working deployment. The following must be verified
 on the target host before calling the deployment complete:
 
-- Production Compose configuration validation in CI.
-- Container image build on the deployment architecture.
-- PostgreSQL migration and API startup against an isolated stack.
-- Qdrant health/readiness and collection initialization.
-- Registration, login, authenticated upload, document processing, query, and SSE.
-- Persistence across API/container restart and recovery after dependency restart.
-- TLS, secret injection, backups, and restore procedure on the chosen host.
+- **Verified in CI:** production Compose configuration, API image build, isolated
+  PostgreSQL/Qdrant startup, Alembic migrations, `/health/ready`, registration,
+  login, profile, refresh-token rotation, and logout.
+- **Still requires real-host verification:** Ollama model connectivity, PDF upload
+  and processing, live retrieval and answer quality, citations, and SSE.
+- **Still requires deployment-operator work:** TLS/reverse proxy, production secret
+  injection, backups, tested restore, persistence across restarts, and host-level
+  monitoring/alerts.
 
 The API exposes `/health/live` for process liveness and `/health/ready` for
 PostgreSQL/Qdrant readiness. These checks do not prove that the external LLM or
-embedding/reranker model artifacts are available; model-serving smoke tests are
-separate deployment gates.
+embedding/reranker model artifacts are available. The CI container smoke test
+uses a dummy OpenAI-compatible provider; it does not call Ollama or validate
+answer quality. The checked-in `scripts/smoke_test_live_deployment.py` exercises
+real upload, processing, retrieval, answers, negative/refusal behavior, and SSE
+against a running target once Ollama is configured.
 
 ## 8. Final assessment
 

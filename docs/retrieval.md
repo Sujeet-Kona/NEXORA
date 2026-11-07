@@ -140,13 +140,14 @@ probability guarantee.
 
 Set LOG_LEVEL=DEBUG in the local environment and restart the API to
 record each reranked candidate's chunk ID, page range, raw logit, sigmoid
-score, configured/overridden threshold, and keep/drop decision. If every
+score, configured production threshold, and keep/drop decision. If every
 candidate is filtered, NEXORA emits a warning with the candidate count and
 threshold. These logs intentionally omit passage text and the user query.
 Restore LOG_LEVEL=INFO after collecting the diagnostic trace.
 
 The live retrieval benchmark now reports both the configured production
-threshold and an evaluation-only no-score-filter control. This isolates the
-effect of threshold filtering without changing the production default. Compare
-the two configurations on the same seeded corpus before changing
+threshold and an explicitly private evaluation-only no-score-filter control.
+The production hybrid retrieval function has no threshold-override parameter.
+This isolates the effect of threshold filtering without changing the production
+default. Compare both configurations on the same seeded corpus before changing
 RETRIEVAL_MIN_RELEVANCE.

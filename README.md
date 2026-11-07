@@ -126,6 +126,8 @@ See [Evaluation](docs/evaluation.md) for methodology, reproduction steps, limita
 ## Repository guide
 
 - [Architecture](docs/architecture.md) — components, request paths, ingestion and query flows.
+- [Deployment](docs/deployment.md) — production Compose setup, configuration, health checks, and smoke tests.
+- [Deployment readiness](docs/deployment-readiness.md) — verified capabilities, operational boundaries, and remaining production gates.
 - [Evaluation](docs/evaluation.md) — benchmark protocol, metrics, results, and limitations.
 - backend/api/ — HTTP endpoints and SSE entry points.
 - backend/services/ — ingestion, retrieval, generation, and lifecycle logic.

@@ -47,9 +47,12 @@ through the retrieval path as well.
 
 ## Current live benchmark
 
-The current live benchmark uses **16 documents, 220 chunks, and 60 evaluation
-questions**. It seeds a temporary organization through the production ingestion
-and indexing path and cleans the seeded data afterward.
+The last measured live baseline used **16 documents, 220 chunks, and 60 positive
+questions**. The current labeled set contains 62 positive questions. The
+chunk-preservation repair requires a fresh live run before publishing a new
+chunk count or updated metrics. The benchmark seeds a temporary organization
+through the production ingestion and indexing path and cleans the seeded data
+afterward.
 
 Run:
 
@@ -87,6 +90,13 @@ Current measured results:
 - **Precision@10:** the fraction of the first 10 results that are relevant.
 - **MRR:** the average reciprocal rank of the first relevant result. Higher is
   better; 1.0 means the first relevant result is ranked first for every case.
+- **nDCG@10:** ranking quality with a logarithmic discount for lower-ranked
+  relevant chunks.
+- **Ground-truth hit rate@10:** fraction of questions with at least one labeled
+  chunk in the first 10 results.
+- **Empty retrieval rate:** fraction of questions returning no chunks.
+- **Reranker zero-survivor rate / retention rate:** fraction of non-empty
+  candidate pools completely filtered, and fraction of candidates retained.
 
 ## Cleanup verification
 

@@ -29,6 +29,37 @@ print("database never became ready", flush=True)
 sys.exit(1)
 PY
 
+# Wait for Qdrant using qdrant-client from the API image. The official
+# Qdrant image is minimal and does not guarantee curl or wget is installed.
+python - <<'PY'
+import os
+import sys
+import time
+
+from qdrant_client import QdrantClient
+
+url = os.environ.get("QDRANT_URL", "http://localhost:6333")
+api_key = os.environ.get("QDRANT_API_KEY") or None
+client = QdrantClient(url=url, api_key=api_key, timeout=5)
+
+for attempt in range(1, 61):
+    try:
+        client.get_collections()
+        client.close()
+        print("qdrant ready", flush=True)
+        sys.exit(0)
+    except Exception as exc:  # noqa: BLE001 - retry transient startup failures
+        print(
+            f"waiting for qdrant ({attempt}/60): {exc.__class__.__name__}",
+            flush=True,
+        )
+        time.sleep(2)
+
+client.close()
+print("qdrant never became ready", flush=True)
+sys.exit(1)
+PY
+
 if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
     echo "applying database migrations"
     alembic upgrade head

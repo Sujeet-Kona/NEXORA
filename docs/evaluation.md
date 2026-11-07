@@ -16,9 +16,9 @@ The current dataset is defined in `backend/evaluation/dataset.py` and combines
 policy cases with research-paper cases:
 
 - **16 benchmark documents**
-- **220 chunks** after production extraction and chunking
-- **60 positive evaluation questions**
+- **62 positive evaluation questions** in the current labeled set
 - **6 negative evaluation questions**
+- The last measured live run used 220 chunks and the previous 60-question positive set; rerun after the current chunk-preservation change before reporting a new corpus chunk count or updated metrics.
 - Ground truth is based on labeled source documents and anchor text.
 
 The negative cases test that the system refuses unsupported questions rather
@@ -29,6 +29,10 @@ than inventing an answer.
 - **Recall@k** — fraction of relevant ground-truth chunks present in the top k.
 - **Precision@k** — fraction of the top k results that are relevant.
 - **MRR** — mean reciprocal rank of the first relevant result.
+- **nDCG@k** — ranking quality with a logarithmic discount for lower-ranked relevant chunks.
+- **Ground-truth hit rate@k** — fraction of questions with at least one labeled chunk in the top k.
+- **Empty retrieval rate** — fraction of questions returning no chunks.
+- **Reranker zero-survivor rate** and **candidate retention rate** — how often the threshold removes every fused candidate and what fraction of candidates survive.
 - **Fact-match rate** — whether the answer contains one of the labeled expected phrases, matched as a whole token sequence (case/whitespace normalized). This avoids substring false positives such as counting `120 days` as `20 days`; it is still a lexical heuristic, not semantic or human evaluation.
 - **Citation accuracy** — whether the answer contains a valid citation mapping
   to a returned source.
@@ -43,10 +47,13 @@ HF_HUB_OFFLINE=1 .venv/bin/python -u -m backend.evaluation.benchmark --live
 ```
 
 The live run seeds a temporary organization through the production document
-pipeline, indexes the benchmark corpus in PostgreSQL/Qdrant, evaluates all 60
-questions, and then removes the seeded data.
+pipeline, indexes the benchmark corpus in PostgreSQL/Qdrant, evaluates the
+labeled cases, and then removes the seeded data.
 
-**Current result: 16 documents / 220 chunks / 60 evaluation questions.**
+**Last measured baseline: 16 documents / 220 chunks / 60 positive questions.**
+The current set contains 62 positive questions. The figures below remain the
+previous measured baseline and must not be attributed to the expanded set or
+the updated chunk-preservation behavior.
 
 | configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
 |---|---:|---:|---:|---:|---:|
@@ -119,8 +126,9 @@ than production data.
 
 ## Limitations
 
-- The current retrieval benchmark has 60 positive questions over 16 documents;
-  it is still much smaller and cleaner than a real enterprise corpus.
+- The current labeled retrieval set has 62 positive questions over 16 documents;
+  the published numeric baseline still reflects the earlier 60-question run.
+  It is much smaller and cleaner than a real enterprise corpus.
 - Retrieval metrics do not equal end-to-end answer quality.
 - No human-rated helpfulness or fluency score is claimed by the retrieval
   benchmark.

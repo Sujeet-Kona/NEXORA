@@ -40,6 +40,7 @@ from backend.evaluation.dataset import (
     load_cases,
 )
 from backend.evaluation.metrics import (
+    ndcg_at_k,
     precision_at_k,
     recall_at_k,
     reciprocal_rank,
@@ -108,6 +109,21 @@ def evaluate_config(
             for gt, ranking in zip(ground_truths, rankings)
         )
         / case_count,
+        "ndcg_10": sum(
+            ndcg_at_k(gt, ranking, 10)
+            for gt, ranking in zip(ground_truths, rankings)
+        )
+        / case_count,
+        "ground_truth_hit_rate_10": sum(
+            1.0 if recall_at_k(gt, ranking, 10) > 0 else 0.0
+            for gt, ranking in zip(ground_truths, rankings)
+        )
+        / case_count,
+        "empty_retrieval_rate": sum(
+            1.0 if not ranking else 0.0
+            for ranking in rankings
+        )
+        / case_count,
     }
 
 
@@ -120,6 +136,9 @@ def print_summary(results: list[dict]) -> None:
         f"{'Recall@10':>11}"
         f"{'Prec@10':>9}"
         f"{'MRR':>8}"
+        f"{'nDCG@10':>10}"
+        f"{'Hit@10':>9}"
+        f"{'Empty':>8}"
     )
 
     for result in results:
@@ -130,6 +149,9 @@ def print_summary(results: list[dict]) -> None:
             f"{result['recall_10']:>11.4f}"
             f"{result['precision_10']:>9.4f}"
             f"{result['mrr']:>8.4f}"
+            f"{result['ndcg_10']:>10.4f}"
+            f"{result['ground_truth_hit_rate_10']:>9.4f}"
+            f"{result['empty_retrieval_rate']:>8.4f}"
         )
 
 
@@ -474,6 +496,8 @@ def run_live() -> None:
             )
 
         ground_truths: list[set[int]] = []
+        reranker_candidate_counts: list[int] = []
+        reranker_retained_counts: list[int] = []
         rankings_by_config: dict[str, list[list[int]]] = {
             "bm25": [],
             "dense": [],
@@ -563,6 +587,9 @@ def run_live() -> None:
                     min_relevance=0.0,
                 )
 
+                reranker_candidate_counts.append(len(candidate_chunks))
+                reranker_retained_counts.append(len(hybrid))
+
                 rankings_by_config["hybrid_full"].append(
                     [
                         chunk.chunk_id
@@ -600,6 +627,36 @@ def run_live() -> None:
                 if rankings
             ]
         )
+
+        if reranker_available:
+            evaluated_candidates = sum(
+                count for count in reranker_candidate_counts
+                if count > 0
+            )
+            zero_survivor_cases = sum(
+                1
+                for candidates, retained in zip(
+                    reranker_candidate_counts,
+                    reranker_retained_counts,
+                )
+                if candidates > 0 and retained == 0
+            )
+            zero_survivor_rate = (
+                zero_survivor_cases
+                / sum(count > 0 for count in reranker_candidate_counts)
+                if any(count > 0 for count in reranker_candidate_counts)
+                else 0.0
+            )
+            retained_rate = (
+                sum(reranker_retained_counts) / evaluated_candidates
+                if evaluated_candidates
+                else 0.0
+            )
+            print("Reranker candidates:", evaluated_candidates)
+            print("Reranker retained:", sum(reranker_retained_counts))
+            print("Reranker zero-survivor cases:", zero_survivor_cases)
+            print("Reranker zero-survivor rate:", f"{zero_survivor_rate:.4f}")
+            print("Reranker candidate retention rate:", f"{retained_rate:.4f}")
 
     finally:
         if organization_id is not None:

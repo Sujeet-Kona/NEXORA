@@ -250,9 +250,10 @@ def run_configuration(
         print("-" * 78)
         print("Q:", case.question)
         print(
-            "  fact={} citation={} sources={} relevant={}".format(
+            "  fact={} grounded_citation={} relevant_source_retrieved={} sources={} relevant={}".format(
                 "OK" if fact_ok else "MISS",
                 "OK" if citation_ok else "MISS",
+                "YES" if ground_truth_source_ok else "NO",
                 source_ids,
                 sorted(relevant),
             )

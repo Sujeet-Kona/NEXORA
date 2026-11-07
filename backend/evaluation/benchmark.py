@@ -61,7 +61,6 @@ from backend.services.embedding_service import EmbeddingService
 from backend.services.hybrid_retrieval_service import (
     _rrf_fuse,
     get_reranker,
-    hybrid_retrieve_chunks,
 )
 from backend.services.organization_service import (
     create_organization_service,
@@ -531,11 +530,12 @@ def run_live() -> None:
                 chunk.chunk_id for chunk in lexical
             ]
 
+            fused_candidates = _rrf_fuse(
+                [dense, lexical],
+            )[:K]
             fused_ids = [
                 candidate.chunk.chunk_id
-                for candidate in _rrf_fuse(
-                    [dense, lexical],
-                )[:K]
+                for candidate in fused_candidates
             ]
 
             ground_truths.append(relevant)
@@ -547,23 +547,18 @@ def run_live() -> None:
             )
 
             if reranker_available:
-                hybrid = hybrid_retrieve_chunks(
-                    db=db,
-                    organization_id=organization_id,
+                reranker = get_reranker()
+                candidate_chunks = [
+                    candidate.chunk
+                    for candidate in fused_candidates
+                ]
+                hybrid = reranker.rerank(
                     query=case.question,
-                    embedding_service=embedding_service,
-                    qdrant_repository=qdrant_repository,
-                    rerank_limit=K,
-                    final_limit=K,
+                    chunks=candidate_chunks,
                 )
-                hybrid_without_score_filter = hybrid_retrieve_chunks(
-                    db=db,
-                    organization_id=organization_id,
+                hybrid_without_score_filter = reranker.rerank(
                     query=case.question,
-                    embedding_service=embedding_service,
-                    qdrant_repository=qdrant_repository,
-                    rerank_limit=K,
-                    final_limit=K,
+                    chunks=candidate_chunks,
                     # Evaluation-only control; production defaults are unchanged.
                     min_relevance=0.0,
                 )

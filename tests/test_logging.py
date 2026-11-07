@@ -26,6 +26,7 @@ def test_invalid_log_level_is_rejected():
 
 def test_configure_logging_uses_settings_log_level(monkeypatch):
     logger = logging.getLogger(LOGGER_NAME)
+    original_level = settings.log_level
 
     monkeypatch.setattr(settings, "log_level", "DEBUG")
     configure_logging()
@@ -34,3 +35,6 @@ def test_configure_logging_uses_settings_log_level(monkeypatch):
     monkeypatch.setattr(settings, "log_level", "INFO")
     configure_logging()
     assert logger.level == logging.INFO
+
+    monkeypatch.setattr(settings, "log_level", original_level)
+    configure_logging()

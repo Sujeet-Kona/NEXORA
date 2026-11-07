@@ -233,9 +233,14 @@ databases are affected.
   CI-only insecure `JWT_SECRET_KEY`, `JWT_ALGORITHM=HS256`,
   `STORAGE_BACKEND=local`, `STORAGE_PATH=storage`. `ENVIRONMENT` is **not** set
   (so it defaults to development and prod fail-fast is not triggered).
-- Steps: checkout → setup-python 3.12 (pip cache) → install deps →
-  `alembic upgrade head` → `pip-audit -r requirements.txt` →
-  `python -m compileall -q backend` → `pytest -q`.
+- Test job: checkout → setup-python 3.12 → install deps → production Compose
+  config validation → `alembic upgrade head` → `pip-audit -r requirements.txt`
+  → byte-compile → `pytest -q`.
+- Separate `container-smoke` job builds the actual API image, starts the isolated
+  production Compose stack with PostgreSQL and Qdrant, waits for migrations and
+  `/health/ready`, then tears down only its own volumes. It uses a dummy
+  OpenAI-compatible configuration and does **not** call an external LLM or prove
+  model quality; live inference still requires a deployment-host smoke test.
 
 ## Recommended production architecture
 

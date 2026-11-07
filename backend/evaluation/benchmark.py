@@ -480,6 +480,7 @@ def run_live() -> None:
             "dense": [],
             "hybrid_rrf": [],
             "hybrid_full": [],
+            "hybrid_no_score_filter": [],
         }
 
         corpus_chunks = [
@@ -555,11 +556,28 @@ def run_live() -> None:
                     rerank_limit=K,
                     final_limit=K,
                 )
+                hybrid_without_score_filter = hybrid_retrieve_chunks(
+                    db=db,
+                    organization_id=organization_id,
+                    query=case.question,
+                    embedding_service=embedding_service,
+                    qdrant_repository=qdrant_repository,
+                    rerank_limit=K,
+                    final_limit=K,
+                    # Evaluation-only control; production defaults are unchanged.
+                    min_relevance=0.0,
+                )
 
                 rankings_by_config["hybrid_full"].append(
                     [
                         chunk.chunk_id
                         for chunk in hybrid
+                    ]
+                )
+                rankings_by_config["hybrid_no_score_filter"].append(
+                    [
+                        chunk.chunk_id
+                        for chunk in hybrid_without_score_filter
                     ]
                 )
 
@@ -574,6 +592,10 @@ def run_live() -> None:
                 print(
                     "Hybrid full top-10:",
                     rankings_by_config["hybrid_full"][-1],
+                )
+                print(
+                    "Hybrid no-score-filter top-10:",
+                    rankings_by_config["hybrid_no_score_filter"][-1],
                 )
 
         print_summary(

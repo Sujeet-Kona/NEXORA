@@ -519,3 +519,89 @@ def test_empty_merged_candidates_short_circuits_rerank(monkeypatch):
     assert results == []
     # Short-circuit must happen: rerank method must not be invoked at all.
     assert call_counter["count"] == 0
+
+def test_reranker_threshold_can_be_overridden_without_changing_settings(
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+    chunks = [
+        make_chunk(1, "candidate one"),
+        make_chunk(2, "candidate two"),
+    ]
+    reranker = make_reranker([-3.0, -4.0])
+
+    results = reranker.rerank(
+        query="annual leave",
+        chunks=chunks,
+        min_relevance=0.0,
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [1, 2]
+    assert settings.retrieval_min_relevance == 0.5
+
+
+@pytest.mark.parametrize("bad_threshold", [-0.01, 1.01])
+def test_reranker_rejects_invalid_threshold_override(bad_threshold):
+    reranker = make_reranker([1.0])
+
+    with pytest.raises(ValueError, match="min_relevance"):
+        reranker.rerank(
+            query="annual leave",
+            chunks=[make_chunk(1, "candidate")],
+            min_relevance=bad_threshold,
+        )
+
+
+def test_reranker_logs_raw_scores_and_all_filtered_warning(
+    monkeypatch,
+    caplog,
+):
+    monkeypatch.setattr(settings, "retrieval_min_relevance", 0.5)
+    reranker = make_reranker([-2.0])
+
+    with caplog.at_level("DEBUG"):
+        results = reranker.rerank(
+            query="annual leave",
+            chunks=[make_chunk(7, "candidate text")],
+        )
+
+    assert results == []
+    assert "raw_logit=-2.000000" in caplog.text
+    assert "sigmoid_score=" in caplog.text
+    assert "chunk_id=7" in caplog.text
+    assert "filtered all 1 candidates" in caplog.text
+
+
+def test_hybrid_retrieval_forwards_explicit_threshold_override(
+    monkeypatch,
+):
+    captured = {}
+
+    class CapturingReranker:
+        def rerank(self, query, chunks, *, min_relevance=None):
+            captured["query"] = query
+            captured["min_relevance"] = min_relevance
+            return chunks
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.get_reranker",
+        lambda: CapturingReranker(),
+    )
+
+    results = hybrid_retrieve_chunks(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        retrievers=[StubRetriever([make_chunk(1, "annual leave")])],
+        rerank_limit=1,
+        final_limit=1,
+        min_relevance=0.0,
+    )
+
+    assert [chunk.chunk_id for chunk in results] == [1]
+    assert captured == {
+        "query": "annual leave",
+        "min_relevance": 0.0,
+    }

@@ -19,6 +19,7 @@ from backend.services.organization_membership_service import (
 )
 from backend.services.organization_service import (
     create_organization_service,
+    list_user_organizations_service,
 )
 
 
@@ -26,6 +27,23 @@ router = APIRouter(
     prefix="/organizations",
     tags=["organizations"],
 )
+
+
+@router.get(
+    "",
+    response_model=list[OrganizationResponse],
+)
+def list_organizations(
+    current_user: CurrentUser,
+    pagination: Pagination,
+    db: Session = Depends(get_db),
+):
+    return list_user_organizations_service(
+        db=db,
+        user_id=current_user.id,
+        limit=pagination.limit,
+        offset=pagination.offset,
+    )
 
 
 @router.post(

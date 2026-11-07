@@ -199,6 +199,30 @@ def test_split_document_does_not_cite_an_blank_page():
     )
 
 
+def test_split_document_preserves_identical_chunks_on_distinct_pages():
+    repeated_page = (
+        "Repeated source passage with enough text to form a complete chunk. "
+        * 3
+    )
+    document = make_document(repeated_page, repeated_page)
+
+    spans = split_document(
+        document,
+        chunk_size=len(repeated_page) + 10,
+        chunk_overlap=0,
+    )
+
+    assert len(spans) == 2
+    assert [span.text for span in spans] == [
+        repeated_page.strip(),
+        repeated_page.strip(),
+    ]
+    assert [
+        (span.page_start, span.page_end)
+        for span in spans
+    ] == [(1, 1), (2, 2)]
+
+
 def test_split_document_returns_empty_for_blank_document():
     document = make_document("   ", "\n\n")
 

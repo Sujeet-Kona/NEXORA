@@ -198,6 +198,7 @@ def run_configuration(
 
     fact_hits = 0
     citation_hits = 0
+    ground_truth_source_hits = 0
     refusal_hits = 0
 
     total_latencies: list[float] = []
@@ -240,6 +241,7 @@ def run_configuration(
 
         fact_hits += int(fact_ok)
         citation_hits += int(citation_ok)
+        ground_truth_source_hits += int(ground_truth_source_ok)
 
         total_latencies.append(total_elapsed)
         generation_latencies.append(generation_elapsed)
@@ -312,6 +314,10 @@ def run_configuration(
         "fact_accuracy": fact_hits / total_count,
         "citation_hits": citation_hits,
         "citation_accuracy": citation_hits / total_count,
+        "ground_truth_source_hits": ground_truth_source_hits,
+        "ground_truth_source_hit_rate": (
+            ground_truth_source_hits / total_count
+        ),
         "negative_questions": negative_count,
         "refusal_hits": refusal_hits,
         "refusal_rate": (
@@ -338,6 +344,13 @@ def run_configuration(
             citation_hits,
             total_count,
             result["citation_accuracy"],
+        )
+    )
+    print(
+        "Ground-truth source hit: {}/{} = {:.4f}".format(
+            ground_truth_source_hits,
+            total_count,
+            result["ground_truth_source_hit_rate"],
         )
     )
     print(

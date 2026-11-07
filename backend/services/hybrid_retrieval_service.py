@@ -45,9 +45,18 @@ class Reranker:
         self,
         query: str,
         chunks: list[RetrievedChunk],
+        *,
+        min_relevance: float | None = None,
     ) -> list[RetrievedChunk]:
         if not chunks:
             return []
+
+        if min_relevance is None:
+            min_relevance = settings.retrieval_min_relevance
+        elif not 0.0 <= min_relevance <= 1.0:
+            raise ValueError(
+                "min_relevance must be between 0.0 and 1.0"
+            )
 
         pairs = [
             [query, chunk.text]
@@ -62,18 +71,46 @@ class Reranker:
             reverse=True,
         )
 
-        min_relevance = settings.retrieval_min_relevance
-
         grounded = []
 
         for chunk, logit in ranked:
-            relevance = _sigmoid(float(logit))
+            raw_logit = float(logit)
+            relevance = _sigmoid(raw_logit)
+            kept = relevance >= min_relevance
 
-            if relevance < min_relevance:
+            # Cross-encoder logits are ranking scores, not calibrated
+            # probabilities. The sigmoid is monotonic, but its output
+            # must not be interpreted as a probability of relevance.
+            logger.debug(
+                (
+                    "Cross-encoder candidate chunk_id=%d pages=%s-%s "
+                    "raw_logit=%.6f sigmoid_score=%.6f "
+                    "threshold=%.6f kept=%s"
+                ),
+                chunk.chunk_id,
+                chunk.page_start,
+                chunk.page_end,
+                raw_logit,
+                relevance,
+                min_relevance,
+                kept,
+            )
+
+            if not kept:
                 continue
 
             grounded.append(
                 replace(chunk, score=relevance)
+            )
+
+        if ranked and not grounded:
+            logger.warning(
+                (
+                    "Cross-encoder filtered all %d candidates "
+                    "at min_relevance=%.6f"
+                ),
+                len(ranked),
+                min_relevance,
             )
 
         return grounded
@@ -141,6 +178,7 @@ def hybrid_retrieve_chunks(
     final_limit: int | None = None,
     limit: int | None = None,
     document_ids: list[int] | None = None,
+    min_relevance: float | None = None,
 ) -> list[RetrievedChunk]:
     if not query.strip():
         raise ValueError("Query cannot be empty")
@@ -216,9 +254,17 @@ def hybrid_retrieve_chunks(
         # do. Skip the (expensive) empty forward pass.
         return []
 
-    reranked = get_reranker().rerank(
-        query=query,
-        chunks=candidates,
-    )
+    reranker = get_reranker()
+    if min_relevance is None:
+        reranked = reranker.rerank(
+            query=query,
+            chunks=candidates,
+        )
+    else:
+        reranked = reranker.rerank(
+            query=query,
+            chunks=candidates,
+            min_relevance=min_relevance,
+        )
 
     return reranked[:final_limit]

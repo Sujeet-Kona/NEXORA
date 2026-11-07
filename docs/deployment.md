@@ -7,7 +7,7 @@ status** of each part as of 2026-11-07.
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | Multi-stage build → slim, non-root API image (uvicorn on 8000). |
+| `Dockerfile` | Multi-stage build → slim, non-root API image (uvicorn on 8000; readiness-based container healthcheck). |
 | `docker-entrypoint.sh` | Waits for Postgres, runs `alembic upgrade head`, then `exec`s the CMD. |
 | `docker-compose.prod.yml` | Wires API + `postgres:17` + `qdrant:v1.19.1` with named volumes. |
 | `docker-compose.yml` | Dev-only: Postgres + Qdrant (no API). |
@@ -23,7 +23,7 @@ status** of each part as of 2026-11-07.
   entrypoint, creates a non-root system user `app`, sets `PYTHONUNBUFFERED=1`,
   `PYTHONDONTWRITEBYTECODE=1`, `STORAGE_PATH=/app/storage`, `chown`s the storage
   dir, and runs as `USER app`.
-- `EXPOSE 8000`; `HEALTHCHECK` hits `http://127.0.0.1:8000/health` every 30s
+- `EXPOSE 8000`; `HEALTHCHECK` hits `http://127.0.0.1:8000/health/ready` every 30s
   (timeout 5s, start-period 60s, 3 retries).
 - `ENTRYPOINT ["./docker-entrypoint.sh"]`,
   `CMD ["uvicorn","backend.main:app","--host","0.0.0.0","--port","8000"]`.
@@ -47,7 +47,8 @@ status** of each part as of 2026-11-07.
 - **qdrant** — `qdrant/qdrant:v1.19.1`, named volume `qdrant_storage`. Not
   published to the host.
 - **api** — `build: .`, image `nexora-api:latest`, `depends_on` postgres
-  (`service_healthy`) and qdrant (`service_started`), `restart: unless-stopped`,
+  (`service_healthy`) and qdrant (`service_healthy`); Qdrant's `/healthz`
+  endpoint is polled before the API starts, `restart: unless-stopped`,
   `extra_hosts: host.docker.internal:host-gateway`, ports
   `${API_PORT:-8000}:8000`, named volume `api_storage`.
 
@@ -58,7 +59,10 @@ status** of each part as of 2026-11-07.
 `OLLAMA_MODEL` defaults to `qwen3:8b`; `ENVIRONMENT` defaults to `production`.
 
 Only the API port is published; Postgres and Qdrant are reachable **only** on
-the internal compose network.
+the internal compose network. The API's `/health` and `/health/live` endpoints
+are liveness probes; `/health/ready` executes a lightweight PostgreSQL query and
+checks Qdrant connectivity, returning HTTP 503 when either dependency is down.
+The container healthcheck uses readiness, not liveness.
 
 ### WARNING: `docker compose` auto-loads the repo `.env` (dev-only)
 
@@ -83,13 +87,19 @@ production file (kept outside the repo, or a git-ignored `prod.env`), and
 generate a **fresh** `JWT_SECRET_KEY` for each environment:
 
 ```bash
-# Production env file (never commit; store in your secret manager)
+# Create a protected env file. Generate URL-safe DB credentials and a fresh JWT key.
+umask 077
+POSTGRES_PASSWORD="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+JWT_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+cat > /secure/path/prod.env <<EOF
 POSTGRES_USER=nexora
-POSTGRES_PASSWORD=<strong, unique>
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_DB=nexora
-JWT_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
-OLLAMA_BASE_URL=http://host.docker.internal:11434   # or the GPU host address
+JWT_SECRET_KEY=$JWT_SECRET_KEY
+OLLAMA_BASE_URL=http://host.docker.internal:11434
 ENVIRONMENT=production
+EOF
+unset POSTGRES_PASSWORD JWT_SECRET_KEY
 
 docker compose --env-file /secure/path/prod.env \
   -f docker-compose.prod.yml up -d --build
@@ -103,7 +113,7 @@ starting:
 
 ```bash
 docker compose --env-file /secure/path/prod.env \
-  -f docker-compose.prod.yml config | grep -E 'JWT_SECRET_KEY|OLLAMA_BASE_URL'
+  -f docker-compose.prod.yml config --quiet
 ```
 
 ## Start the production stack

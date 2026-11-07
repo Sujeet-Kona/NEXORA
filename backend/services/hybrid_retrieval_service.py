@@ -46,18 +46,35 @@ class Reranker:
         self,
         query: str,
         chunks: list[RetrievedChunk],
+    ) -> list[RetrievedChunk]:
+        """Apply the configured production relevance threshold."""
+        return self._rerank(
+            query,
+            chunks,
+            min_relevance=settings.retrieval_min_relevance,
+        )
+
+    def rerank_without_score_filter_for_evaluation(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
+    ) -> list[RetrievedChunk]:
+        """Evaluation-only control; production retrieval never calls this."""
+        return self._rerank(
+            query,
+            chunks,
+            min_relevance=0.0,
+        )
+
+    def _rerank(
+        self,
+        query: str,
+        chunks: list[RetrievedChunk],
         *,
-        min_relevance: float | None = None,
+        min_relevance: float,
     ) -> list[RetrievedChunk]:
         if not chunks:
             return []
-
-        if min_relevance is None:
-            min_relevance = settings.retrieval_min_relevance
-        elif not 0.0 <= min_relevance <= 1.0:
-            raise ValueError(
-                "min_relevance must be between 0.0 and 1.0"
-            )
 
         pairs = [
             [query, chunk.text]
@@ -179,7 +196,6 @@ def hybrid_retrieve_chunks(
     final_limit: int | None = None,
     limit: int | None = None,
     document_ids: list[int] | None = None,
-    min_relevance: float | None = None,
 ) -> list[RetrievedChunk]:
     if not query.strip():
         raise ValueError("Query cannot be empty")
@@ -271,17 +287,10 @@ def hybrid_retrieve_chunks(
         return []
 
     reranker = get_reranker()
-    if min_relevance is None:
-        reranked = reranker.rerank(
-            query=query,
-            chunks=candidates,
-        )
-    else:
-        reranked = reranker.rerank(
-            query=query,
-            chunks=candidates,
-            min_relevance=min_relevance,
-        )
+    reranked = reranker.rerank(
+        query=query,
+        chunks=candidates,
+    )
 
     results = reranked[:final_limit]
     logger.debug(

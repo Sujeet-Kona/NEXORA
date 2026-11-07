@@ -615,11 +615,11 @@ def run_live() -> None:
                     query=case.question,
                     chunks=candidate_chunks,
                 )
-                hybrid_without_score_filter = reranker.rerank(
-                    query=case.question,
-                    chunks=candidate_chunks,
-                    # Evaluation-only control; production defaults are unchanged.
-                    min_relevance=0.0,
+                hybrid_without_score_filter = (
+                    reranker.rerank_without_score_filter_for_evaluation(
+                        query=case.question,
+                        chunks=candidate_chunks,
+                    )
                 )
 
                 reranker_candidate_counts.append(len(candidate_chunks))

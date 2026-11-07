@@ -59,6 +59,9 @@ jobs:
           JWT_SECRET_KEY: compose-validation-only-0123456789abcdefghijklmnopqrstuvwxyz
         run: docker compose -f docker-compose.prod.yml config --quiet
 
+      - name: Inspect LoRA PDF extraction and ground-truth anchors
+        run: python scripts/inspect_lora_pdf.py
+
       - name: Apply database migrations
         run: alembic upgrade head
 

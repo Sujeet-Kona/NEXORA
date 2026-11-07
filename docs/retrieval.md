@@ -60,7 +60,7 @@ Run:
 HF_HUB_OFFLINE=1 .venv/bin/python -u -m backend.evaluation.benchmark --live
 ```
 
-Current measured results:
+Last measured baseline results:
 
 | configuration | Recall@1 | Recall@5 | Recall@10 | Precision@10 | MRR |
 |---|---:|---:|---:|---:|---:|

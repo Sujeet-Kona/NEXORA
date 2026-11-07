@@ -21,6 +21,7 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
+    HF_HOME=/app/model-cache \
     STORAGE_PATH=/app/storage
 
 RUN groupadd --system app \
@@ -35,7 +36,7 @@ COPY alembic.ini ./alembic.ini
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 RUN chmod +x ./docker-entrypoint.sh \
-    && mkdir -p /app/storage \
+    && mkdir -p /app/storage /app/model-cache \
     && chown -R app:app /app
 
 USER app

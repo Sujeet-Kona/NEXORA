@@ -95,6 +95,9 @@ Current measured results:
 - **Ground-truth hit rate@10:** fraction of questions with at least one labeled
   chunk in the first 10 results.
 - **Empty retrieval rate:** fraction of questions returning no chunks.
+- **Production context coverage:** recall, hit rate, empty-context rate, and mean
+  context chunks at the configured `RETRIEVAL_TOP_K` limit, compared with
+  the evaluation-only no-score-filter control.
 - **Reranker zero-survivor rate / retention rate:** fraction of non-empty
   candidate pools completely filtered, and fraction of candidates retained.
 

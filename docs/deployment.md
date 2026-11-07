@@ -61,7 +61,11 @@ status** of each part as of 2026-11-07.
 `OLLAMA_MODEL` defaults to `qwen3:8b`; `ENVIRONMENT` defaults to `production`.
 
 Only the API port is published; Postgres and Qdrant are reachable **only** on
-the internal compose network. The Hugging Face embedding and cross-encoder artifacts are downloaded on first use
+the internal compose network. The Ollama model is not bundled in the Compose stack. Install Ollama on the
+configured inference host and pull the configured model before accepting RAG
+traffic, for example `ollama pull qwen3:8b` (use the exact value of
+`OLLAMA_MODEL`). Verify that `OLLAMA_BASE_URL` is reachable from the API
+container. The Hugging Face embedding and cross-encoder artifacts are downloaded on first use
 and cached under `HF_HOME=/app/model-cache`; the named `model_cache` volume keeps
 them across API container replacement. First use still requires outbound access
 to the Hugging Face Hub unless the cache is pre-populated.
@@ -104,6 +108,7 @@ POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_DB=nexora
 JWT_SECRET_KEY=$JWT_SECRET_KEY
 OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_MODEL=qwen3:8b
 ENVIRONMENT=production
 EOF
 unset POSTGRES_PASSWORD JWT_SECRET_KEY

@@ -10,7 +10,7 @@ def test_answer_benchmark_uses_shared_pdf_text_normalization():
             id=17,
             document_id=4,
             chunk_index=0,
-            text="Low-Rank Adaptation of Large\\nLanguage Models",
+            text="Low-Rank Adaptation of Large\nLanguage Models",
             page_start=1,
             page_end=1,
             organization_id=2,

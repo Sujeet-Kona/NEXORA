@@ -248,8 +248,9 @@ organization/document using the normal authenticated API after reviewing it.
   `STORAGE_BACKEND=local`, `STORAGE_PATH=storage`. `ENVIRONMENT` is **not** set
   (so it defaults to development and prod fail-fast is not triggered).
 - Test job: checkout → setup-python 3.12 → install deps → production Compose
-  config validation → `alembic upgrade head` → `pip-audit -r requirements.txt`
-  → byte-compile → `pytest -q`.
+  config validation → inspect LoRA PDF extraction and ground-truth anchors →
+  `alembic upgrade head` → `pip-audit -r requirements.txt` → byte-compile
+  backend and scripts → `pytest -q`.
 - Separate `container-smoke` job builds the actual API image, starts the isolated
   production Compose stack with PostgreSQL and Qdrant, waits for migrations and
   `/health/ready`, then verifies registration, login, profile, refresh-token

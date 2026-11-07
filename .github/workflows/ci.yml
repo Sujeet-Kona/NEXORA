@@ -46,6 +46,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Validate production Compose configuration
+        env:
+          POSTGRES_PASSWORD: compose-validation-only-password
+          JWT_SECRET_KEY: compose-validation-only-0123456789abcdefghijklmnopqrstuvwxyz
+        run: docker compose -f docker-compose.prod.yml config --quiet
+
       - name: Apply database migrations
         run: alembic upgrade head
 

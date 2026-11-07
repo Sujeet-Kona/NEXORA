@@ -83,6 +83,27 @@ def get_organization_members(
     )
 
 
+
+def get_user_organizations(
+    db: Session,
+    user_id: int,
+    limit: int,
+    offset: int,
+) -> list[Organization]:
+    return (
+        db.query(Organization)
+        .join(
+            OrganizationMembership,
+            OrganizationMembership.organization_id == Organization.id,
+        )
+        .filter(OrganizationMembership.user_id == user_id)
+        .order_by(Organization.id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
 def update_membership_role(
     db: Session,
     membership: OrganizationMembership,

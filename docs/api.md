@@ -42,6 +42,7 @@ Pagination: the user, member, and document **list** endpoints accept `limit`
 
 | Method | Path | Auth | Request | Response |
 |--------|------|------|---------|----------|
+| GET | `/api/v1/organizations` | bearer | — | `200` organizations the caller belongs to (paginated) |
 | POST | `/api/v1/organizations` | bearer | `{ name (1–255) }` | `201` `OrganizationResponse` (creator becomes owner) |
 | POST | `/api/v1/organizations/{id}/members` | org admin/owner | `{ user_id (>0), role }` | `201` `OrganizationMemberResponse` |
 | GET | `/api/v1/organizations/{id}/members` | org member | — | `200` list (paginated) |

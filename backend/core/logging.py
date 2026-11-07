@@ -1,5 +1,7 @@
 import logging
 
+from backend.core.config import settings
+
 
 LOGGER_NAME = "nexora"
 
@@ -7,7 +9,7 @@ LOGGER_NAME = "nexora"
 def configure_logging() -> None:
     logger = logging.getLogger(LOGGER_NAME)
 
-    logger.setLevel(logging.INFO)
+    logger.setLevel(getattr(logging, settings.log_level))
 
     if logger.handlers:
         return

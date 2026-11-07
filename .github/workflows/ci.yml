@@ -70,3 +70,50 @@ jobs:
         with:
           name: pytest-results
           path: test-results.xml
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create isolated smoke-test environment
+        run: |
+          umask 077
+          cat > .env.verify <<'EOF'
+          POSTGRES_USER=nexora
+          POSTGRES_PASSWORD=compose-smoke-only-password
+          POSTGRES_DB=nexora
+          JWT_SECRET_KEY=compose-smoke-only-0123456789abcdefghijklmnopqrstuvwxyz
+          LLM_PROVIDER=openai
+          OPENAI_API_KEY=compose-smoke-only-key
+          OPENAI_MODEL=compose-smoke-only-model
+          API_PORT=18000
+          EOF
+
+      - name: Build and start production Compose stack
+        run: |
+          docker compose -p nexora_ci --env-file .env.verify \
+            -f docker-compose.prod.yml up -d --build
+
+      - name: Verify API readiness after migrations
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18000/health/ready; then
+              echo
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose -p nexora_ci --env-file .env.verify \
+            -f docker-compose.prod.yml ps
+          docker compose -p nexora_ci --env-file .env.verify \
+            -f docker-compose.prod.yml logs --no-color
+          exit 1
+
+      - name: Tear down isolated stack
+        if: always()
+        run: |
+          docker compose -p nexora_ci --env-file .env.verify \
+            -f docker-compose.prod.yml down -v --remove-orphans

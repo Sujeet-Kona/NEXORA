@@ -123,6 +123,23 @@ See [Evaluation](docs/evaluation.md) for methodology, reproduction steps, limita
 | Documents | PyMuPDF, python-docx |
 | Testing / delivery | pytest, Docker, Docker Compose, GitHub Actions |
 
+## Web interface
+
+NEXORA includes a lightweight, same-origin web client served by FastAPI at `/`.
+It provides account registration/sign-in, organization selection and creation,
+PDF/DOCX upload, document lifecycle visibility, streamed RAG chat, and retrieved
+source references. The client calls the existing versioned API; the only API
+addition for the interface is an authenticated, membership-scoped
+`GET /api/v1/organizations` listing.
+
+Run the backend using the normal setup instructions, then open
+`http://127.0.0.1:8000/`. No separate frontend development server or CORS
+configuration is required. Access tokens are kept in page memory rather than
+browser local storage; refreshing the page requires signing in again.
+
+The interface respects the API's existing tenant and role checks. It does not
+provide an alternate authorization path or bypass document processing.
+
 ## Repository guide
 
 - [Architecture](docs/architecture.md) — components, request paths, ingestion and query flows.

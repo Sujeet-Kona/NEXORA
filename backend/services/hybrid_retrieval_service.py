@@ -1,6 +1,7 @@
 from dataclasses import dataclass, replace
 import logging
 import math
+import time
 
 from sentence_transformers import CrossEncoder
 from sqlalchemy.orm import Session
@@ -232,6 +233,7 @@ def hybrid_retrieve_chunks(
         )
         rerank_limit = final_limit
 
+    retrieval_started = time.perf_counter()
     rankings = [
         retriever.retrieve(
             db=db,
@@ -252,6 +254,20 @@ def hybrid_retrieve_chunks(
     if not candidates:
         # Nothing to rerank; the cross-encoder has nothing meaningful to
         # do. Skip the (expensive) empty forward pass.
+        logger.debug(
+            (
+                "Hybrid retrieval diagnostics retriever_counts=%s "
+                "fused_candidates=%d rerank_candidates=0 "
+                "retained_candidates=0 final_context_candidates=0 "
+                "elapsed_ms=%.3f"
+            ),
+            ",".join(
+                f"{type(retriever).__name__}:{len(ranking)}"
+                for retriever, ranking in zip(retrievers, rankings)
+            ),
+            len(fused),
+            (time.perf_counter() - retrieval_started) * 1000,
+        )
         return []
 
     reranker = get_reranker()
@@ -267,4 +283,22 @@ def hybrid_retrieve_chunks(
             min_relevance=min_relevance,
         )
 
-    return reranked[:final_limit]
+    results = reranked[:final_limit]
+    logger.debug(
+        (
+            "Hybrid retrieval diagnostics retriever_counts=%s "
+            "fused_candidates=%d rerank_candidates=%d "
+            "retained_candidates=%d final_context_candidates=%d "
+            "elapsed_ms=%.3f"
+        ),
+        ",".join(
+            f"{type(retriever).__name__}:{len(ranking)}"
+            for retriever, ranking in zip(retrievers, rankings)
+        ),
+        len(fused),
+        len(candidates),
+        len(reranked),
+        len(results),
+        (time.perf_counter() - retrieval_started) * 1000,
+    )
+    return results

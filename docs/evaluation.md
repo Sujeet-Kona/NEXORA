@@ -32,6 +32,7 @@ than inventing an answer.
 - **nDCG@k** — ranking quality with a logarithmic discount for lower-ranked relevant chunks.
 - **Ground-truth hit rate@k** — fraction of questions with at least one labeled chunk in the top k.
 - **Empty retrieval rate** — fraction of questions returning no chunks.
+- **Production context coverage** — recall, hit rate, empty-context rate, and mean number of chunks at the configured `RETRIEVAL_TOP_K` limit, compared with the evaluation-only no-score-filter control.
 - **Reranker zero-survivor rate** and **candidate retention rate** — how often the threshold removes every fused candidate and what fraction of candidates survive.
 - **Fact-match rate** — whether the answer contains one of the labeled expected phrases, matched as a whole token sequence (case/whitespace normalized). This avoids substring false positives such as counting `120 days` as `20 days`; it is still a lexical heuristic, not semantic or human evaluation.
 - **Citation accuracy** — whether at least one inline citation in the answer maps to a returned source that contains labeled ground-truth evidence; out-of-range or absent citation markers do not count.

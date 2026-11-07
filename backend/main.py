@@ -120,12 +120,16 @@ def health_check():
 
 
 @app.get("/health/ready")
-def readiness_check():
+def readiness_check(request: Request):
     """Readiness probe for the dependencies required by API requests."""
     dependencies = {"postgres": "ok", "qdrant": "ok"}
 
     try:
-        session_factory = get_session_factory()
+        session_factory_provider = request.app.dependency_overrides.get(
+            get_session_factory,
+            get_session_factory,
+        )
+        session_factory = session_factory_provider()
         db = session_factory()
         try:
             db.execute(text("SELECT 1"))

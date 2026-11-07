@@ -530,13 +530,24 @@ def test_evaluation_only_no_score_filter_control_keeps_all_candidates(
     ]
     reranker = make_reranker([-3.0, -4.0])
 
-    results = reranker.rerank_without_score_filter_for_evaluation(
+    results = reranker._rerank_without_score_filter_for_evaluation(
         query="annual leave",
         chunks=chunks,
     )
 
     assert [chunk.chunk_id for chunk in results] == [1, 2]
     assert settings.retrieval_min_relevance == 0.5
+
+
+def test_production_reranker_does_not_accept_threshold_override():
+    reranker = make_reranker([-5.0])
+
+    with pytest.raises(TypeError):
+        reranker.rerank(
+            query="annual leave",
+            chunks=[make_chunk(1, "candidate")],
+            min_relevance=0.0,
+        )
 
 
 def test_reranker_logs_raw_scores_and_all_filtered_warning(

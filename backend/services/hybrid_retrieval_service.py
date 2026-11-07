@@ -54,7 +54,7 @@ class Reranker:
             min_relevance=settings.retrieval_min_relevance,
         )
 
-    def rerank_without_score_filter_for_evaluation(
+    def _rerank_without_score_filter_for_evaluation(
         self,
         query: str,
         chunks: list[RetrievedChunk],

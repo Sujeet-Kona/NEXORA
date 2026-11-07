@@ -616,7 +616,7 @@ def run_live() -> None:
                     chunks=candidate_chunks,
                 )
                 hybrid_without_score_filter = (
-                    reranker.rerank_without_score_filter_for_evaluation(
+                    reranker._rerank_without_score_filter_for_evaluation(
                         query=case.question,
                         chunks=candidate_chunks,
                     )

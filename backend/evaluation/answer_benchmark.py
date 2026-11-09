@@ -60,6 +60,11 @@ class TimingLLMClient:
         self._delegate = delegate
         self.last_elapsed: float | None = None
 
+    @property
+    def last_usage(self):
+        """Expose token usage expected by the production RAG response path."""
+        return self._delegate.last_usage
+
     def generate(
         self,
         *,

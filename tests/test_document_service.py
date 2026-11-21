@@ -7,7 +7,6 @@ from backend.core.exceptions import (
     InvalidDocumentStatusTransitionError,
     OrganizationAccessDeniedError,
     OrganizationMembershipRequiredError,
-    InvalidDocumentStatusTransitionError,
 )
 from backend.db.models import (
     DocumentStatus,

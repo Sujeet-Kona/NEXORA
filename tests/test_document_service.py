@@ -242,48 +242,91 @@ def test_member_cannot_update_document_status(db):
         )
 
 
-def test_admin_can_update_document_status(db):
+def test_admin_can_retry_failed_document_status(db):
     owner = create_user(
         db,
         "document-admin-owner@example.com",
         "Document Admin Owner",
     )
-
     admin = create_user(
         db,
         "document-admin@example.com",
         "Document Admin",
     )
-
     organization = create_organization_service(
         db=db,
         name="Admin Document Company",
         user_id=owner.id,
     )
-
     add_membership(
         db,
         organization.id,
         admin.id,
         OrganizationRole.ADMIN,
     )
-
     document = create_document(
         db=db,
         organization_id=organization.id,
         uploaded_by=owner.id,
         name="admin-status.pdf",
     )
+    update_document_failure(
+        db=db,
+        document=document,
+        failure_reason="Test failure",
+    )
 
     updated = update_document_status_service(
         db=db,
         organization_id=organization.id,
         document_id=document.id,
-        status=DocumentStatus.PROCESSING,
+        status=DocumentStatus.PENDING,
         current_user=admin,
     )
 
-    assert updated.status == DocumentStatus.PROCESSING
+    assert updated.status == DocumentStatus.PENDING
+
+
+def test_admin_cannot_manually_set_processing_status(db):
+    owner = create_user(
+        db,
+        "document-admin-processing-owner@example.com",
+        "Document Admin Processing Owner",
+    )
+    admin = create_user(
+        db,
+        "document-admin-processing@example.com",
+        "Document Admin Processing",
+    )
+    organization = create_organization_service(
+        db=db,
+        name="Admin Processing Company",
+        user_id=owner.id,
+    )
+    add_membership(
+        db,
+        organization.id,
+        admin.id,
+        OrganizationRole.ADMIN,
+    )
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="admin-processing.pdf",
+    )
+
+    with pytest.raises(Exception):
+        update_document_status_service(
+            db=db,
+            organization_id=organization.id,
+            document_id=document.id,
+            status=DocumentStatus.PROCESSING,
+            current_user=admin,
+        )
+
+    db.refresh(document)
+    assert document.status == DocumentStatus.PENDING
 
 
 def test_member_cannot_delete_document(db):

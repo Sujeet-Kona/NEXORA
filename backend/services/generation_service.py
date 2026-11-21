@@ -11,7 +11,7 @@ from backend.services.retrieval_service import RetrievedChunk
 SYSTEM_PROMPT = """
 You are Nexora, a grounded enterprise knowledge assistant.
 Answer the user's question using only the supplied document context.
-Each context passage begins with a bracketed number such as [1].
+Each context passage is represented in the context JSON with a numeric citation field (1, 2, ...).
 Cite the passages you rely on by placing their bracketed numbers
 inline in your answer, for example: "Staff receive 20 days of
 annual leave [1]." Only cite passages that actually support a

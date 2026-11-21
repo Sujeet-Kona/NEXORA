@@ -4,6 +4,7 @@ import pytest
 
 from backend.core.exceptions import (
     DocumentNotFoundError,
+    InvalidDocumentStatusTransitionError,
     OrganizationAccessDeniedError,
     OrganizationMembershipRequiredError,
     InvalidDocumentStatusTransitionError,

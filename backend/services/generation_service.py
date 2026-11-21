@@ -126,7 +126,10 @@ class StreamedCitationFilter:
     def flush(self) -> str:
         text, self._pending = self._pending, ""
 
-        return text
+        return _remove_invalid_markers(
+            text,
+            self._valid_count,
+        )
 
 
 def usable_chunks(
@@ -198,6 +201,8 @@ def stream_answer(
         raise ValueError(
             "Question cannot be empty"
         )
+
+    chunks = usable_chunks(chunks)
 
     if not chunks:
         raise ValueError(

@@ -431,3 +431,30 @@ def test_blank_chunks_never_shift_citation_numbers():
     # returned for citation_index=1 are that same chunk.
     assert "[1]\nreal passage" in llm.user_prompt
     assert [chunk.chunk_id for chunk in generated.sources] == [2]
+
+
+def test_stream_filter_flush_removes_invalid_complete_marker():
+    from backend.services.generation_service import StreamedCitationFilter
+
+    citation_filter = StreamedCitationFilter(valid_count=1)
+    assert citation_filter.feed("Answer [1] and unsupported [") == "Answer [1] and unsupported"
+    assert citation_filter.feed("2]") == ""
+    assert citation_filter.flush() == ""
+
+
+def test_stream_answer_ignores_blank_chunks_for_citation_alignment():
+    llm = StreamingLLM(["Answer [1]."])
+    blank = make_chunk(text="   ")
+    useful = make_chunk(text="A useful passage.")
+    deltas = list(
+        stream_answer(
+            question="What does it say?",
+            chunks=[blank, useful],
+            llm_client=llm,
+        )
+    )
+
+    assert deltas == ["Answer [1]."]
+    assert "[1]" in llm.user_prompt
+    assert "A useful passage." in llm.user_prompt
+    assert "   " not in llm.user_prompt

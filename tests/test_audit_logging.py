@@ -227,7 +227,11 @@ def test_document_upload_records_audit(
     assert content.decode() not in repr(entry.details)
 
 
-def test_document_status_change_records_audit(client, db):
+def test_document_status_change_records_audit(client, db, monkeypatch):
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        lambda document_id, session_factory: None,
+    )
     register(client, "status@example.com")
     token = login(client, "status@example.com").json()[
         "access_token"
@@ -246,9 +250,7 @@ def test_document_status_change_records_audit(client, db):
 
     document_id = create_response.json()["id"]
 
-    document = db.query(Document).filter(
-        Document.id == document_id
-    ).first()
+    document = db.query(Document).filter(Document.id == document_id).first()
     assert document is not None
     document.status = DocumentStatus.FAILED
     db.commit()

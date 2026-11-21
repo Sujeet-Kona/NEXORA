@@ -6,6 +6,7 @@ from backend.core.exceptions import (
     DocumentNotFoundError,
     OrganizationAccessDeniedError,
     OrganizationMembershipRequiredError,
+    InvalidDocumentStatusTransitionError,
 )
 from backend.db.models import (
     DocumentStatus,
@@ -15,6 +16,7 @@ from backend.db.models import (
 )
 from backend.repositories.document_repository import (
     create_document,
+    update_document_failure,
 )
 from backend.services.document_service import (
     create_document_service,
@@ -316,7 +318,7 @@ def test_admin_cannot_manually_set_processing_status(db):
         name="admin-processing.pdf",
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidDocumentStatusTransitionError):
         update_document_status_service(
             db=db,
             organization_id=organization.id,

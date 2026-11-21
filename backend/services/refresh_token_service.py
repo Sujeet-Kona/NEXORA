@@ -68,7 +68,7 @@ def refresh_access_token_service(
         days=settings.refresh_token_expire_days,
     )
 
-    rotate_refresh_token(
+    rotated_token = rotate_refresh_token(
         db=db,
         current_refresh_token=stored_token,
         new_user_id=user.id,
@@ -76,6 +76,11 @@ def refresh_access_token_service(
         new_expires_at=new_expires_at,
         revoked_at=now,
     )
+
+    if rotated_token is None:
+        raise InvalidCredentialsError(
+            "Invalid refresh token"
+        )
 
     new_access_token = create_access_token(
         str(user.id),

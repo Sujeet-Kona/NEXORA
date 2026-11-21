@@ -12,6 +12,7 @@ from backend.dependencies.database import (
     get_session_factory,
 )
 from backend.dependencies.pagination import Pagination
+from backend.db.models import DocumentStatus
 from backend.services.providers import get_qdrant_repository
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.schemas.document import (
@@ -208,6 +209,13 @@ def update_document_status(
         get_session_factory,
     ),
 ):
+    current_document = get_document_service(
+        db=db,
+        organization_id=organization_id,
+        document_id=document_id,
+        current_user=current_user,
+    )
+
     document = update_document_status_service(
         db=db,
         organization_id=organization_id,
@@ -216,9 +224,12 @@ def update_document_status(
         current_user=current_user,
     )
 
-    # FAILED -> PENDING is the explicit admin retry transition. Enqueue
-    # processing instead of leaving the document pending without a worker.
-    if document.status.value == "pending":
+    # Only an explicit FAILED -> PENDING transition is a retry. Repeated
+    # no-op PENDING requests must not start processing empty placeholders.
+    if (
+        current_document.status == DocumentStatus.FAILED
+        and document.status == DocumentStatus.PENDING
+    ):
         background_tasks.add_task(
             process_document_background,
             document.id,

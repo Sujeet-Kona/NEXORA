@@ -12,6 +12,7 @@ from backend.dependencies.database import (
     get_session_factory,
 )
 from backend.dependencies.pagination import Pagination
+from backend.db.models import DocumentStatus
 from backend.services.providers import get_qdrant_repository
 from backend.repositories.qdrant_repository import QdrantRepository
 from backend.schemas.document import (
@@ -202,15 +203,41 @@ def update_document_status(
     document_id: int,
     request: DocumentStatusUpdate,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    session_factory: Callable[[], Session] = Depends(
+        get_session_factory,
+    ),
 ):
-    return update_document_status_service(
+    current_document = get_document_service(
+        db=db,
+        organization_id=organization_id,
+        document_id=document_id,
+        current_user=current_user,
+    )
+    previous_status = current_document.status
+
+    document = update_document_status_service(
         db=db,
         organization_id=organization_id,
         document_id=document_id,
         status=request.status,
         current_user=current_user,
     )
+
+    # Only an explicit FAILED -> PENDING transition is a retry. Repeated
+    # no-op PENDING requests must not start processing empty placeholders.
+    if (
+        previous_status == DocumentStatus.FAILED
+        and document.status == DocumentStatus.PENDING
+    ):
+        background_tasks.add_task(
+            process_document_background,
+            document.id,
+            session_factory,
+        )
+
+    return document
 
 
 @router.delete(

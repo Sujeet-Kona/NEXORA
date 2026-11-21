@@ -758,3 +758,65 @@ def test_cleanup_failure_does_not_mask_original_processing_error(
         document_id=document.id,
         organization_id=organization.id,
     )
+
+
+def test_postgres_chunk_cleanup_failure_still_attempts_qdrant_cleanup(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "processing-postgres-cleanup@example.com",
+        "Processing PostgreSQL Cleanup",
+    )
+    organization = create_organization_service(
+        db=db,
+        name="Processing PostgreSQL Cleanup Company",
+        user_id=owner.id,
+    )
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="postgres-cleanup.pdf",
+        storage_key="documents/postgres-cleanup.pdf",
+        content_type="application/pdf",
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
+    )
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.index_document_chunks",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError("primary indexing error")
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.delete_chunks_for_document",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError("PostgreSQL cleanup error")
+        ),
+    )
+
+    qdrant = Mock()
+
+    with pytest.raises(RuntimeError, match="primary indexing error"):
+        process_document(
+            db=db,
+            document_id=document.id,
+            embedding_service=Mock(),
+            qdrant_repository=qdrant,
+        )
+
+    db.refresh(document)
+    assert document.status == DocumentStatus.FAILED
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document.id,
+        organization_id=organization.id,
+    )

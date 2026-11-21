@@ -1,5 +1,6 @@
-﻿from datetime import datetime
+from datetime import datetime
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from backend.db.models import RefreshToken
@@ -55,8 +56,23 @@ def rotate_refresh_token(
     new_token_hash: str,
     new_expires_at: datetime,
     revoked_at: datetime,
-) -> RefreshToken:
-    current_refresh_token.revoked_at = revoked_at
+) -> RefreshToken | None:
+    # Atomically consume the old token. The conditional UPDATE is the concurrency
+    # guard: concurrent requests may read the token, but only one can revoke
+    # an unrevoked, unexpired row and proceed to create a replacement.
+    result = db.execute(
+        update(RefreshToken)
+        .where(
+            RefreshToken.id == current_refresh_token.id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > revoked_at,
+        )
+        .values(revoked_at=revoked_at)
+    )
+
+    if result.rowcount != 1:
+        db.rollback()
+        return None
 
     new_refresh_token = RefreshToken(
         user_id=new_user_id,
@@ -65,7 +81,13 @@ def rotate_refresh_token(
     )
 
     db.add(new_refresh_token)
-    db.commit()
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(new_refresh_token)
 
     return new_refresh_token

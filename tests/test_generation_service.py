@@ -148,8 +148,8 @@ def test_generate_answer_numbers_context_passages():
     assert '"citation": 2' in llm.user_prompt
     assert "Second remote work clause." in llm.user_prompt
 
-    assert llm.user_prompt.index("[1]") < llm.user_prompt.index(
-        "[2]"
+    assert llm.user_prompt.index('"citation": 1') < llm.user_prompt.index(
+        '"citation": 2'
     )
 
 
@@ -291,7 +291,7 @@ def test_stream_answer_yields_deltas_and_numbered_context():
         "20 days of leave [1].",
     ]
 
-    assert "[1]\n" in llm.user_prompt
+    assert '"citation": 1' in llm.user_prompt
     assert "Do not invent facts" in llm.system_prompt
 
 

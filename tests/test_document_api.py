@@ -610,4 +610,6 @@ def test_admin_retry_failed_document_schedules_processing(
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
-    assert scheduled == [(document_id, scheduled[0][1])]
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == document_id
+    assert callable(scheduled[0][1])

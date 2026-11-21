@@ -440,3 +440,21 @@ def test_stream_filter_flush_removes_invalid_complete_marker():
     assert citation_filter.feed("Answer [1] and unsupported [") == "Answer [1] and unsupported"
     assert citation_filter.feed("2]") == ""
     assert citation_filter.flush() == ""
+
+
+def test_stream_answer_ignores_blank_chunks_for_citation_alignment():
+    llm = StreamingLLM(["Answer [1]."])
+    blank = make_chunk(text="   ")
+    useful = make_chunk(text="A useful passage.")
+    deltas = list(
+        stream_answer(
+            question="What does it say?",
+            chunks=[blank, useful],
+            llm_client=llm,
+        )
+    )
+
+    assert deltas == ["Answer [1]."]
+    assert "[1]" in llm.user_prompt
+    assert "A useful passage." in llm.user_prompt
+    assert "   " not in llm.user_prompt

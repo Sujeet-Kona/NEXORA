@@ -19,7 +19,6 @@ from backend.db.models import RefreshToken, User
 from backend.services import refresh_token_service
 
 
-@pytest.mark.integration
 def test_postgres_concurrent_refresh_token_rotation_consumes_token_once(
     monkeypatch,
 ):
@@ -91,7 +90,11 @@ def test_postgres_concurrent_refresh_token_rotation_consumes_token_once(
             )
             assert len(tokens) == 2
             consumed = next(token for token in tokens if token.token_hash == token_hash)
-            replacements = [token for token in tokens if token.token_hash != token_hash]
+            replacements = [
+                token
+                for token in tokens
+                if token.token_hash != token_hash
+            ]
             assert consumed.revoked_at is not None
             assert len(replacements) == 1
             assert replacements[0].revoked_at is None

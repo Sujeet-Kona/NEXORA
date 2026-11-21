@@ -161,3 +161,47 @@ def test_rotate_refresh_token_revokes_old_and_creates_new(db):
     assert found_new is not None
     assert found_new.id == new_token.id
 
+
+
+def test_rotate_refresh_token_rejects_replay(db):
+    user = User(
+        email="refresh-replay@example.com",
+        full_name="Refresh Replay User",
+        password_hash="test-hash",
+    )
+
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    old_token = create_refresh_token(
+        db=db,
+        user_id=user.id,
+        token_hash="g" * 64,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    revoked_at = datetime.now(timezone.utc)
+
+    first_rotation = rotate_refresh_token(
+        db=db,
+        current_refresh_token=old_token,
+        new_user_id=user.id,
+        new_token_hash="h" * 64,
+        new_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        revoked_at=revoked_at,
+    )
+
+    replay_rotation = rotate_refresh_token(
+        db=db,
+        current_refresh_token=old_token,
+        new_user_id=user.id,
+        new_token_hash="i" * 64,
+        new_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        revoked_at=datetime.now(timezone.utc),
+    )
+
+    assert first_rotation is not None
+    assert replay_rotation is None
+    assert get_refresh_token_by_hash(db, "h" * 64) is not None
+    assert get_refresh_token_by_hash(db, "i" * 64) is None

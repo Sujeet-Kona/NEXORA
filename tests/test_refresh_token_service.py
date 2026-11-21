@@ -227,3 +227,38 @@ def test_logout_user_service_rejects_already_revoked_token(db):
             db=db,
             refresh_token=raw_token,
         )
+
+
+
+def test_refresh_service_rejects_when_atomic_rotation_loses_race(
+    monkeypatch,
+    db,
+):
+    user = User(
+        email="refresh-race-rejected@example.com",
+        full_name="Refresh Race Rejected User",
+        password_hash="test-hash",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    raw_token = create_refresh_token()
+    stored_token = RefreshToken(
+        user_id=user.id,
+        token_hash=hash_refresh_token(raw_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    db.add(stored_token)
+    db.commit()
+
+    monkeypatch.setattr(
+        "backend.services.refresh_token_service.rotate_refresh_token",
+        lambda **kwargs: None,
+    )
+
+    with pytest.raises(InvalidCredentialsError, match="Invalid refresh token"):
+        refresh_access_token_service(
+            db=db,
+            refresh_token=raw_token,
+        )

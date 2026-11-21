@@ -126,7 +126,10 @@ class StreamedCitationFilter:
     def flush(self) -> str:
         text, self._pending = self._pending, ""
 
-        return text
+        return _remove_invalid_markers(
+            text,
+            self._valid_count,
+        )
 
 
 def usable_chunks(

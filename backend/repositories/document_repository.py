@@ -1,3 +1,4 @@
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from backend.core.exceptions import (
@@ -143,6 +144,28 @@ def get_document_names(
         document_id: name
         for document_id, name in rows
     }
+
+
+
+
+def claim_pending_document_processing(
+    db: Session,
+    document_id: int,
+) -> bool:
+    """Atomically claim a PENDING document for one processing worker."""
+    result = db.execute(
+        update(Document)
+        .where(
+            Document.id == document_id,
+            Document.status == DocumentStatus.PENDING,
+        )
+        .values(
+            status=DocumentStatus.PROCESSING,
+            failure_reason=None,
+        )
+    )
+    db.commit()
+    return result.rowcount == 1
 
 
 def update_document_status(

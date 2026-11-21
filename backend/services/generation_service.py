@@ -202,6 +202,8 @@ def stream_answer(
             "Question cannot be empty"
         )
 
+    chunks = usable_chunks(chunks)
+
     if not chunks:
         raise ValueError(
             "Cannot stream without retrieved context"

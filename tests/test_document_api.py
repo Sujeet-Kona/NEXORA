@@ -364,7 +364,7 @@ def test_member_cannot_update_document_status(
     assert response.status_code == 403
 
 
-def test_admin_can_update_document_status(
+def test_admin_cannot_manually_set_processing_status(
     client,
     db,
 ):
@@ -420,8 +420,10 @@ def test_admin_can_update_document_status(
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "processing"
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Cannot change document status from 'pending' to 'processing'"
+    )
 
 
 def test_member_cannot_delete_document(

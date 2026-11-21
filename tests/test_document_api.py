@@ -2,6 +2,7 @@
 
 from backend.db.models import (
     Document,
+    DocumentStatus,
     OrganizationMembership,
     OrganizationRole,
     User,
@@ -557,3 +558,58 @@ def test_admin_can_delete_document(
         .first()
         is None
     )
+
+
+def test_admin_retry_failed_document_schedules_processing(
+    client,
+    db,
+    monkeypatch,
+):
+    owner_token = register_and_login(
+        client,
+        "document-api-retry-owner@example.com",
+    )
+    admin_token = register_and_login(
+        client,
+        "document-api-retry-admin@example.com",
+    )
+    organization_id = create_organization(
+        client,
+        owner_token,
+        "Document Retry Company",
+    )
+    admin = get_user(db, "document-api-retry-admin@example.com")
+    add_member(db, organization_id, admin.id, OrganizationRole.ADMIN)
+
+    create_response = client.post(
+        f"/api/v1/organizations/{organization_id}/documents",
+        json={"name": "retry.pdf"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert create_response.status_code == 201
+    document_id = create_response.json()["id"]
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.FAILED
+    db.commit()
+
+    scheduled = []
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        lambda document_id, session_factory: scheduled.append(
+            (document_id, session_factory)
+        ),
+    )
+
+    response = client.patch(
+        f"/api/v1/organizations/{organization_id}/documents/{document_id}",
+        json={"status": "pending"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == document_id
+    assert callable(scheduled[0][1])

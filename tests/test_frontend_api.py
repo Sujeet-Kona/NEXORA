@@ -83,3 +83,10 @@ def test_frontend_is_served_without_shadowing_api_docs(client):
     assert script.status_code == 200
     assert "textContent" in script.text
     assert docs.status_code == 200
+
+
+def test_frontend_bounds_refresh_retry_and_flushes_sse_buffer(client):
+    script = client.get('/static/app.js').text
+    assert 'retryRefresh=true' in script
+    assert 'retryRefresh:false' in script
+    assert "buffer+'\\n\\n'" in script

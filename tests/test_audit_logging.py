@@ -255,7 +255,6 @@ def test_document_status_change_records_audit(client, db, monkeypatch):
     document.status = DocumentStatus.FAILED
     db.commit()
 
-
     patch_response = client.patch(
         f"/api/v1/organizations/{organization_id}/documents/{document_id}",
         json={"status": "pending"},

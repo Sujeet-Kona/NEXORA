@@ -205,6 +205,7 @@ def _cleanup_uploaded_storage(storage, storage_key: str | None, document_id: int
             extra={"document_id": document_id},
         )
 
+
 def upload_document_service(
     db: Session,
     organization_id: int,
@@ -356,7 +357,6 @@ def upload_document_version_service(
         db.rollback()
         _cleanup_uploaded_storage(storage, new_storage_key, document.id)
         raise
-
 
     except Exception as exc:
         db.rollback()

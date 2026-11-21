@@ -6,6 +6,8 @@ from backend.core.config import settings
 from backend.db.models import (
     AuditAction,
     AuditLog,
+    Document,
+    DocumentStatus,
     User,
     UserRole,
 )
@@ -225,7 +227,11 @@ def test_document_upload_records_audit(
     assert content.decode() not in repr(entry.details)
 
 
-def test_document_status_change_records_audit(client, db):
+def test_document_status_change_records_audit(client, db, monkeypatch):
+    monkeypatch.setattr(
+        "backend.api.v1.documents.process_document_background",
+        lambda document_id, session_factory: None,
+    )
     register(client, "status@example.com")
     token = login(client, "status@example.com").json()[
         "access_token"
@@ -244,9 +250,15 @@ def test_document_status_change_records_audit(client, db):
 
     document_id = create_response.json()["id"]
 
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.FAILED
+    db.commit()
+
+
     patch_response = client.patch(
         f"/api/v1/organizations/{organization_id}/documents/{document_id}",
-        json={"status": "processing"},
+        json={"status": "pending"},
         headers=auth_header(token),
     )
 
@@ -257,7 +269,7 @@ def test_document_status_change_records_audit(client, db):
     assert entry is not None
     assert entry.organization_id == organization_id
     assert entry.resource_id == document_id
-    assert entry.details == {"status": "processing"}
+    assert entry.details == {"status": "pending"}
 
 
 def test_document_delete_records_audit(client, db):

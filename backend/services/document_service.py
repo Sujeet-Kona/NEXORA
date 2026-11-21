@@ -192,6 +192,19 @@ def create_document_service(
     )
 
 
+
+def _cleanup_uploaded_storage(storage, storage_key: str | None, document_id: int) -> None:
+    if not storage_key:
+        return
+
+    try:
+        storage.delete(storage_key)
+    except Exception:
+        logger.warning(
+            "Failed uploaded file cleanup after document operation failure",
+            extra={"document_id": document_id},
+        )
+
 def upload_document_service(
     db: Session,
     organization_id: int,
@@ -257,8 +270,7 @@ def upload_document_service(
 
     except Exception as exc:
         db.rollback()
-        if storage_key:
-            storage.delete(storage_key)
+        _cleanup_uploaded_storage(storage, storage_key, document.id)
         raise DocumentUploadFailedError("Document upload failed") from exc
 
 
@@ -342,14 +354,13 @@ def upload_document_version_service(
 
     except DocumentDeletionFailedError:
         db.rollback()
-        if new_storage_key:
-            storage.delete(new_storage_key)
+        _cleanup_uploaded_storage(storage, new_storage_key, document.id)
         raise
+
 
     except Exception as exc:
         db.rollback()
-        if new_storage_key:
-            storage.delete(new_storage_key)
+        _cleanup_uploaded_storage(storage, new_storage_key, document.id)
         raise DocumentUploadFailedError("Document upload failed") from exc
 
     invalidate_bm25_index(organization_id)

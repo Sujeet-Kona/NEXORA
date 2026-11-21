@@ -463,6 +463,17 @@ def update_document_status_service(
     if not document:
         raise DocumentNotFoundError("Document not found")
 
+    # The public status endpoint is a manual retry control only. Processing
+    # and READY are worker-owned states; allowing callers to set them directly
+    # can leave documents stuck or falsely searchable without indexed chunks.
+    if (
+        document.status != DocumentStatus.FAILED
+        or status != DocumentStatus.PENDING
+    ):
+        raise InvalidDocumentStatusTransitionError(
+            "Manual status updates may only reset FAILED documents to PENDING"
+        )
+
     _validate_status_transition(
         current_status=document.status,
         new_status=status,

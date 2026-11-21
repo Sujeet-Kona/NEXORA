@@ -4,6 +4,7 @@ import pytest
 
 from backend.core.exceptions import (
     DocumentNotFoundError,
+    InvalidDocumentStatusTransitionError,
     OrganizationAccessDeniedError,
     OrganizationMembershipRequiredError,
 )
@@ -275,15 +276,19 @@ def test_admin_can_update_document_status(db):
         name="admin-status.pdf",
     )
 
-    updated = update_document_status_service(
-        db=db,
-        organization_id=organization.id,
-        document_id=document.id,
-        status=DocumentStatus.PROCESSING,
-        current_user=admin,
-    )
+    with pytest.raises(
+        InvalidDocumentStatusTransitionError,
+        match="Manual status updates may only reset FAILED documents to PENDING",
+    ):
+        update_document_status_service(
+            db=db,
+            organization_id=organization.id,
+            document_id=document.id,
+            status=DocumentStatus.PROCESSING,
+            current_user=admin,
+        )
 
-    assert updated.status == DocumentStatus.PROCESSING
+    assert document.status == DocumentStatus.PENDING
 
 
 def test_member_cannot_delete_document(db):

@@ -333,6 +333,67 @@ def test_member_cannot_delete_document(db):
     qdrant.delete_document_chunks.assert_not_called()
 
 
+def test_admin_delete_succeeds_when_storage_cleanup_fails(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "document-delete-cleanup-owner@example.com",
+        "Document Delete Cleanup Owner",
+    )
+    admin = create_user(
+        db,
+        "document-delete-cleanup-admin@example.com",
+        "Document Delete Cleanup Admin",
+    )
+    organization = create_organization_service(
+        db=db,
+        name="Delete Cleanup Failure Company",
+        user_id=owner.id,
+    )
+    add_membership(
+        db,
+        organization.id,
+        admin.id,
+        OrganizationRole.ADMIN,
+    )
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="cleanup-failure.pdf",
+        storage_key="organizations/1/documents/1/fake.pdf",
+    )
+    qdrant = Mock()
+    monkeypatch.setattr(
+        "backend.services.document_service.LocalStorage.delete",
+        lambda self, key: (_ for _ in ()).throw(
+            OSError("disk cleanup unavailable")
+        ),
+    )
+
+    delete_document_service(
+        db=db,
+        organization_id=organization.id,
+        document_id=document.id,
+        current_user=admin,
+        qdrant_repository=qdrant,
+    )
+
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document.id,
+        organization_id=organization.id,
+    )
+    with pytest.raises(DocumentNotFoundError):
+        get_document_service(
+            db=db,
+            organization_id=organization.id,
+            document_id=document.id,
+            current_user=owner,
+        )
+
+
 def test_admin_can_delete_document(db):
     owner = create_user(
         db,

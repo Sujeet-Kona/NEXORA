@@ -3,11 +3,13 @@
 import pytest
 
 from backend.core.exceptions import (
+    DocumentUploadFailedError,
     DocumentNotFoundError,
     OrganizationAccessDeniedError,
     OrganizationMembershipRequiredError,
 )
 from backend.db.models import (
+    Document,
     DocumentStatus,
     OrganizationMembership,
     OrganizationRole,
@@ -22,6 +24,7 @@ from backend.services.document_service import (
     get_document_service,
     list_documents_service,
     update_document_status_service,
+    upload_document_service,
 )
 from backend.services.organization_service import (
     create_organization_service,
@@ -388,3 +391,49 @@ def test_admin_can_delete_document(db):
             document_id=document.id,
             current_user=owner,
         )
+
+
+def test_upload_cleanup_failure_does_not_mask_upload_error(db, monkeypatch):
+    user = create_user(
+        db,
+        "upload-cleanup-owner@example.com",
+        "Upload Cleanup Owner",
+    )
+    organization = create_organization_service(
+        db=db,
+        name="Upload Cleanup Company",
+        user_id=user.id,
+    )
+
+    monkeypatch.setattr(
+        "backend.services.document_service.LocalStorage.save",
+        lambda self, **kwargs: "test-storage-key",
+    )
+    monkeypatch.setattr(
+        "backend.services.document_service.LocalStorage.delete",
+        lambda self, storage_key: (_ for _ in ()).throw(
+            OSError("cleanup failed")
+        ),
+    )
+    monkeypatch.setattr(
+        "backend.services.document_service.finalize_document_upload",
+        lambda **kwargs: (_ for _ in ()).throw(
+            RuntimeError("database finalize failed")
+        ),
+    )
+
+    with pytest.raises(DocumentUploadFailedError) as error:
+        upload_document_service(
+            db=db,
+            organization_id=organization.id,
+            filename="cleanup.pdf",
+            content=b"%PDF-1.7 valid",
+            content_type="application/pdf",
+            current_user=user,
+        )
+
+    assert isinstance(error.value.__cause__, RuntimeError)
+    assert db.query(Document).filter(
+        Document.organization_id == organization.id,
+        Document.name == "cleanup.pdf",
+    ).count() == 0

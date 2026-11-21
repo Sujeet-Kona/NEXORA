@@ -196,24 +196,38 @@ def process_document(
         )
 
         if refreshed_document:
-            update_document_failure(
-                db=db,
-                document=refreshed_document,
-                failure_reason=_failure_reason(exc),
-            )
+            # Persist FAILED independently so cleanup errors cannot leave the
+            # document marked READY or PROCESSING.
+            try:
+                update_document_failure(
+                    db=db,
+                    document=refreshed_document,
+                    failure_reason=_failure_reason(exc),
+                )
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "Failed to persist document failure status",
+                    extra={"document_id": document_id},
+                )
 
-            # Chunks are committed before indexing, so a failure mid-pipeline
-            # would otherwise leave a FAILED document searchable. Purge the
-            # committed rows, drop the cached BM25 corpus, and best-effort
-            # remove any vectors written.
-            delete_chunks_for_document(
-                db=db,
-                document_id=document_id,
-                organization_id=organization_id,
-            )
-            db.commit()
-
-            invalidate_bm25_index(organization_id)
+            # Each cleanup step is isolated: failure deleting committed SQL
+            # chunks must not prevent the Qdrant purge from being attempted.
+            try:
+                delete_chunks_for_document(
+                    db=db,
+                    document_id=document_id,
+                    organization_id=organization_id,
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    "Failed to purge PostgreSQL chunks during processing cleanup",
+                    extra={"document_id": document_id},
+                )
+            finally:
+                invalidate_bm25_index(organization_id)
 
             try:
                 qdrant_repository.delete_document_chunks(
@@ -221,9 +235,9 @@ def process_document(
                     organization_id=organization_id,
                 )
             except Exception:
-                logger.warning(
-                    "Failed to purge vectors for document %d during error cleanup",
-                    document_id,
+                logger.exception(
+                    "Failed to purge Qdrant vectors during processing cleanup",
+                    extra={"document_id": document_id},
                 )
 
         raise

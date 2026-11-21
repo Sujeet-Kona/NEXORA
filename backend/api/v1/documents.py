@@ -215,6 +215,7 @@ def update_document_status(
         document_id=document_id,
         current_user=current_user,
     )
+    previous_status = current_document.status
 
     document = update_document_status_service(
         db=db,
@@ -227,7 +228,7 @@ def update_document_status(
     # Only an explicit FAILED -> PENDING transition is a retry. Repeated
     # no-op PENDING requests must not start processing empty placeholders.
     if (
-        current_document.status == DocumentStatus.FAILED
+        previous_status == DocumentStatus.FAILED
         and document.status == DocumentStatus.PENDING
     ):
         background_tasks.add_task(

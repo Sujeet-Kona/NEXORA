@@ -202,15 +202,30 @@ def update_document_status(
     document_id: int,
     request: DocumentStatusUpdate,
     current_user: CurrentUser,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    session_factory: Callable[[], Session] = Depends(
+        get_session_factory,
+    ),
 ):
-    return update_document_status_service(
+    document = update_document_status_service(
         db=db,
         organization_id=organization_id,
         document_id=document_id,
         status=request.status,
         current_user=current_user,
     )
+
+    # FAILED -> PENDING is the explicit admin retry transition. Enqueue
+    # processing instead of leaving the document pending without a worker.
+    if document.status.value == "pending":
+        background_tasks.add_task(
+            process_document_background,
+            document.id,
+            session_factory,
+        )
+
+    return document
 
 
 @router.delete(

@@ -7,6 +7,7 @@ from backend.db.models import (
 )
 from backend.repositories.document_repository import (
     create_document,
+    claim_pending_document_processing,
     delete_document,
     get_document_by_id,
     get_documents_for_organization,
@@ -404,3 +405,30 @@ def test_replace_document_file_resets_status_and_failure_reason(
     assert updated.status == DocumentStatus.PENDING
     assert updated.failure_reason is None
     assert updated.name == "policy-v2.pdf"
+
+
+
+def test_document_processing_claim_is_atomic_and_only_pending_can_be_claimed(db):
+    user = create_user(
+        db,
+        "processing-claim@example.com",
+        "Processing Claim",
+    )
+    organization = create_organization_service(
+        db=db,
+        name="Processing Claim Company",
+        user_id=user.id,
+    )
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=user.id,
+        name="claim.pdf",
+    )
+
+    assert claim_pending_document_processing(db, document.id) is True
+    assert claim_pending_document_processing(db, document.id) is False
+
+
+    db.refresh(document)
+    assert document.status == DocumentStatus.PROCESSING

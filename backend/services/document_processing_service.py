@@ -17,6 +17,7 @@ from backend.repositories.document_chunk_repository import (
 from backend.repositories.document_repository import (
     get_document_by_id,
     get_document_by_id_unscoped,
+    claim_pending_document_processing,
     update_document_extraction_stats,
     update_document_failure,
     update_document_status,
@@ -102,13 +103,16 @@ def process_document(
         )
         return
 
-    document.failure_reason = None
+    if not claim_pending_document_processing(db, document.id):
+        logger.info(
+            "Document %d was claimed by another worker; skipping duplicate invocation",
+            document.id,
+            extra={"document_id": document.id},
+        )
+        return
 
-    update_document_status(
-        db=db,
-        document=document,
-        status=DocumentStatus.PROCESSING,
-    )
+
+    document.failure_reason = None
 
     try:
         if not document.storage_key:

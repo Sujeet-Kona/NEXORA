@@ -48,6 +48,8 @@ def create_processing_document(db, email):
         .where(Document.id == document.id)
         .values(
             status=DocumentStatus.PROCESSING,
+            processing_attempt_id="stale-attempt-token",
+            processing_lease_expires_at=stale_at + STALE_PROCESSING_AFTER,
             updated_at=stale_at,
         )
     )
@@ -75,6 +77,8 @@ def test_stale_processing_document_is_recovered(db):
     assert recovered.failure_reason == (
         "Previous processing worker expired; document queued for retry"
     )
+    assert recovered.processing_attempt_id is None
+    assert recovered.processing_lease_expires_at is None
 
 
 def test_fresh_processing_document_is_not_recovered(db):
@@ -116,8 +120,14 @@ def test_startup_recovery_handles_multiple_stale_documents(db):
     assert recover_stale_processing_documents(db) == 2
 
     db.expire_all()
-    assert db.get(Document, first.id).status == DocumentStatus.PENDING
-    assert db.get(Document, second.id).status == DocumentStatus.PENDING
+    recovered_first = db.get(Document, first.id)
+    recovered_second = db.get(Document, second.id)
+    assert recovered_first.status == DocumentStatus.PENDING
+    assert recovered_second.status == DocumentStatus.PENDING
+    assert recovered_first.processing_attempt_id is None
+    assert recovered_first.processing_lease_expires_at is None
+    assert recovered_second.processing_attempt_id is None
+    assert recovered_second.processing_lease_expires_at is None
 
 
 def test_startup_recovery_resolves_overridden_session_factory(

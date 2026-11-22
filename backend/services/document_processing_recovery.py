@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from backend.db.models import (
@@ -62,7 +63,13 @@ def recover_stale_processing_documents(db: Session) -> int:
         db.query(Document)
         .filter(
             Document.status == DocumentStatus.PROCESSING,
-            Document.updated_at < cutoff,
+            or_(
+                Document.processing_lease_expires_at <= _utc_now_naive(),
+                (
+                    Document.processing_attempt_id.is_(None)
+                    & (Document.updated_at < cutoff)
+                ),
+            ),
         )
         .with_for_update(skip_locked=True)
         .all()
@@ -97,7 +104,13 @@ def recover_stale_document_processing(
         .filter(
             Document.id == document_id,
             Document.status == DocumentStatus.PROCESSING,
-            Document.updated_at < cutoff,
+            or_(
+                Document.processing_lease_expires_at <= _utc_now_naive(),
+                (
+                    Document.processing_attempt_id.is_(None)
+                    & (Document.updated_at < cutoff)
+                ),
+            ),
         )
         .with_for_update(skip_locked=True)
         .first()

@@ -54,7 +54,7 @@ def create_processing_document(db, email):
         .values(
             status=DocumentStatus.PROCESSING,
             processing_attempt_id="stale-attempt-token",
-            processing_lease_expires_at=stale_at + STALE_PROCESSING_AFTER,
+            processing_lease_expires_at=stale_at,
             updated_at=stale_at,
         )
     )
@@ -96,6 +96,10 @@ def test_fresh_processing_document_is_not_recovered(db):
         .where(Document.id == document.id)
         .values(
             status=DocumentStatus.PROCESSING,
+            processing_lease_expires_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                + timedelta(minutes=30)
+            ),
             updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
     )
@@ -250,3 +254,53 @@ def test_bulk_recovery_abandons_staging_generation_for_each_stale_attempt(db):
     assert db.get(
         DocumentProcessingGeneration, "bulk-stale-generation-two"
     ).status == "abandoned"
+
+
+def test_expired_lease_is_recovered_even_with_recent_updated_at(db):
+    document = create_processing_document(
+        db,
+        "recovery-expired-lease-recent-update@example.com",
+    )
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_lease_expires_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - timedelta(seconds=1)
+            ),
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+    )
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is True
+    db.expire_all()
+    assert db.get(Document, document.id).status == DocumentStatus.PENDING
+
+
+def test_unexpired_lease_is_not_recovered_when_updated_at_is_old(db):
+    document = create_processing_document(
+        db,
+        "recovery-live-lease-old-update@example.com",
+    )
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_lease_expires_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                + timedelta(minutes=10)
+            ),
+            updated_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - STALE_PROCESSING_AFTER
+                - timedelta(minutes=5)
+            ),
+        )
+    )
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is False
+    db.expire_all()
+    assert db.get(Document, document.id).status == DocumentStatus.PROCESSING

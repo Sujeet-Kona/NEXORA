@@ -145,3 +145,23 @@ A minimally invasive candidate protocol is therefore to acquire the same documen
 This is a feasibility proposal, not an implementation or proof. It appears less invasive than a distributed lock service, but timeout semantics and complete writer coverage must be proven first.
 
 **Verification limitation:** remote source review only; no local tests or CI run.
+
+
+## Qdrant timeout and writer-path review (checkpoint)
+
+**Reviewed:** 2026-11-22 at PR head `58e08e3e4c4e7cc6230baa5c423786dfae92d657`.
+
+### Findings
+
+- The generation-vector write is centralized in `QdrantRepository.upsert_generation_chunks`; it validates generation UUIDs, chunk indexes, embedding dimensions, and single-document/tenant scope per batch, then calls synchronous `client.upsert(..., wait=True)`.
+- The attempt-owned generation processing service is the observed production call site for this method. It batches upserts by `qdrant_upsert_batch_size` (default 32) and renews the processing lease before each batch. This renewal is committed preflight, not a lock held across the Qdrant request.
+- Qdrant client construction does not explicitly configure a timeout or retry policy in this repository. Runtime dependency is pinned to `qdrant-client==1.19.0`. Therefore this source review cannot establish whether a timed-out request may continue server-side after the synchronous call returns/raises; the client/server timeout behavior must be verified against the pinned client and protocol.
+- `wait=True` asks Qdrant to wait for the write operation to complete before acknowledging, but it does not by itself prove that a request abandoned by the client cannot complete later. Do not treat it as a fencing guarantee.
+- Legacy `upsert_chunks` is a separate path for integer chunk IDs. The legacy processor remains in the codebase, so a barrier integration must not accidentally wrap only generation writes while leaving any active legacy write/delete path able to race. This review did not complete an exhaustive caller inventory because remote file retrieval was intermittently rejected; that inventory remains a prerequisite.
+
+### Protocol decision
+
+Do not implement a SQL row-lock barrier yet. Its basic ordering argument is useful, but client timeout/cancellation semantics are unknown and caller coverage is not complete. The next evidence-gathering step is to inspect the pinned qdrant-client 1.19.0 request timeout/cancellation behavior and complete a repository-wide writer/cleanup call-site inventory. Then design the barrier tests to model server-side completion after client timeout, not only a normally blocked synchronous call.
+
+
+**Verification limitation:** source review only. CI on the current head was observed completed successfully; no local test execution was possible.

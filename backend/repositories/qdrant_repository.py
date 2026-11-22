@@ -443,7 +443,7 @@ class QdrantRepository:
                 for point in points:
                     payload = point.payload or {}
                     chunk_index = payload.get("chunk_index")
-                    if not isinstance(chunk_index, int) or chunk_index < 0:
+                    if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
                         raise ValueError("Invalid generation chunk index payload")
                     indexes.append(chunk_index)
                 if next_offset is None:

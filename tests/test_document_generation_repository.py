@@ -3,6 +3,7 @@ from backend.repositories.document_generation_repository import (
     create_staging_generation,
     get_staging_generation_chunks,
     replace_staging_generation_chunks,
+    promote_staging_generation,
 )
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -145,9 +146,6 @@ def test_staging_chunk_read_is_tenant_scoped(db):
 
 
 def test_promotion_activates_generation_and_clears_attempt_owner(db):
-    from backend.repositories.document_generation_repository import promote_staging_generation
-
-
     document = _document(db, "generation-promotion-success@example.com")
     attempt_id = claim_document_processing_attempt(db, document.id)
     assert attempt_id is not None
@@ -213,9 +211,8 @@ def test_stale_attempt_cannot_promote_generation(db):
     )
     db.commit()
 
-    # Recovery/another owner invalidates the attempt before promotion.
-    from backend.repositories.document_repository import recover_stale_document_processing
-    recover_stale_document_processing(db, stale_after_minutes=0)
+    # A newer owner replaces the token before the stale worker promotes.
+    document.processing_attempt_id = "newer-attempt-token"
     db.commit()
     assert promote_staging_generation(
         db,
@@ -227,8 +224,8 @@ def test_stale_attempt_cannot_promote_generation(db):
     db.rollback()
     db.refresh(document)
     assert document.active_generation_id is None
-    assert document.processing_attempt_id is None
-    assert document.status.value == "pending"
+    assert document.processing_attempt_id == "newer-attempt-token"
+    assert document.status.value == "processing"
 
 
 

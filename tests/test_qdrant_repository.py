@@ -508,13 +508,15 @@ def test_generation_search_with_empty_generation_list_returns_empty(repository):
 def test_generation_chunk_index_listing_is_scoped(repository):
     vector = [1.0] + [0.0] * 1023
     generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    other_document_generation = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    other_organization_generation = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
     repository.upsert_generation_chunks(
         [
             (generation, vector, 41, 401, 0, 1),
             (generation, vector, 41, 401, 1, 1),
             (generation, vector, 41, 401, 2, 1),
-            (generation, vector, 41, 402, 7, 1),
-            (generation, vector, 42, 401, 8, 1),
+            (other_document_generation, vector, 41, 402, 7, 1),
+            (other_organization_generation, vector, 42, 401, 8, 1),
         ]
     )
     assert sorted(
@@ -528,13 +530,15 @@ def test_generation_point_count_is_scoped_to_generation_document_and_tenant(repo
     vector = [1.0] + [0.0] * 1023
     target_generation = "66666666-6666-4666-8666-666666666666"
     other_generation = "77777777-7777-4777-8777-777777777777"
+    other_document_generation = "88888888-8888-4888-8888-888888888888"
+    other_organization_generation = "99999999-9999-4999-8999-999999999999"
     repository.upsert_generation_chunks(
         [
             (target_generation, vector, 21, 201, 0, 1),
             (target_generation, vector, 21, 201, 1, 1),
             (other_generation, vector, 21, 201, 0, 1),
-            (target_generation, vector, 21, 202, 2, 1),
-            (target_generation, vector, 22, 201, 3, 1),
+            (other_document_generation, vector, 21, 202, 2, 1),
+            (other_organization_generation, vector, 22, 201, 3, 1),
         ]
     )
 
@@ -547,9 +551,9 @@ def test_generation_point_count_is_scoped_to_generation_document_and_tenant(repo
         target_generation,
         document_id=202,
         organization_id=21,
-    ) == 1
+    ) == 0
     assert repository.count_generation_chunks(
         target_generation,
         document_id=201,
         organization_id=22,
-    ) == 1
+    ) == 0

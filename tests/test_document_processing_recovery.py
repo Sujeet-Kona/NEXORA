@@ -214,6 +214,11 @@ def test_single_recovery_abandons_only_stale_attempt_staging_generations(db):
     _add_staging_generation(
         db, document, "different-attempt-token", "unrelated-generation-id"
     )
+    _add_staging_generation(
+        db, document, "stale-attempt-token", "active-pointer-generation"
+    )
+    document.active_generation_id = "active-pointer-generation"
+    db.commit()
 
     assert recover_stale_document_processing(db, document.id) is True
     db.expire_all()
@@ -227,8 +232,13 @@ def test_single_recovery_abandons_only_stale_attempt_staging_generations(db):
     recovered = db.get(Document, document.id)
     assert recovered.status == DocumentStatus.PENDING
     assert recovered.processing_attempt_id is None
+    active_pointer_generation = db.get(
+        DocumentProcessingGeneration, "active-pointer-generation"
+    )
     assert stale_generation.status == "abandoned"
     assert unrelated_generation.status == "staging"
+    assert active_pointer_generation.status == "staging"
+    assert recovered.active_generation_id == "active-pointer-generation"
 
 
 def test_bulk_recovery_abandons_staging_generation_for_each_stale_attempt(db):

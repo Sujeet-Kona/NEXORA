@@ -65,7 +65,7 @@ This is an audit/design checkpoint only. No deletion code or schema was changed 
 
 ### Preferred data model
 
-Use a dedicated `document_deletion_intents` table rather than adding `DELETING` to the existing document status enum. Keep one intent per document (unique `document_id`, with organization ownership enforced by a composite foreign key), and persist request actor, creation timestamp, and a small state (`pending_vectors`, `vectors_purged`, `sql_deleted`, `storage_pending`, `complete`) plus retry metadata. The intent is a durable workflow record; it must not contain document text, file contents, or credentials.
+Use a dedicated `document_deletion_intents` table rather than adding `DELETING` to the existing document status enum. Keep one intent per `(organization_id, document_id)` pair. The intent must survive deletion of the document row, so avoid a cascading foreign key to `documents`; instead retain the immutable document ID and organization ID, and enforce uniqueness on the pair. Persist request actor, creation timestamp, and a small state (`pending_vectors`, `vectors_purged`, `sql_deleted`, `storage_pending`, `complete`) plus retry metadata. The intent is a durable workflow record; it must not contain document text, file contents, or credentials.
 
 
 ### Transaction and lock protocol

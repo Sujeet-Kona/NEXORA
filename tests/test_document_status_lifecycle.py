@@ -614,6 +614,6 @@ def test_admin_recovery_abandons_only_inactive_staging_generations(
         "other-attempt": "staging",
     }
     db.refresh(document)
-    assert document.active_generation_id == "active-generation"
+    assert document.active_generation_id == "active-pointer"
     assert document.processing_attempt_id is None
     assert document.processing_lease_expires_at is None

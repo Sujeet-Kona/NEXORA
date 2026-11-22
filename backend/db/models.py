@@ -334,6 +334,17 @@ class Document(Base):
         nullable=True,
     )
 
+    # Token and expiry used to fence stale document-processing workers.
+    processing_attempt_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+    )
+
+    processing_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
     version: Mapped[int] = mapped_column(
         default=1,
         server_default="1",

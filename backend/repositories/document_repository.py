@@ -316,3 +316,95 @@ def claim_document_processing_attempt(
 
     db.commit()
     return attempt_id
+
+
+
+def processing_attempt_is_owner(
+    db: Session,
+    document_id: int,
+    attempt_id: str,
+) -> bool:
+    """Return whether the token still owns the active PROCESSING row."""
+    return (
+        db.query(Document.id)
+        .filter(
+            Document.id == document_id,
+            Document.status == DocumentStatus.PROCESSING,
+            Document.processing_attempt_id == attempt_id,
+        )
+        .first()
+        is not None
+    )
+
+
+def renew_document_processing_lease(
+    db: Session,
+    document_id: int,
+    attempt_id: str,
+    lease_seconds: int = 1800,
+) -> bool:
+    """Extend a lease only when the supplied attempt still owns the row."""
+    from datetime import datetime, timedelta, timezone
+
+    if lease_seconds <= 0:
+        raise ValueError("lease_seconds must be positive")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    updated = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.status == DocumentStatus.PROCESSING,
+            Document.processing_attempt_id == attempt_id,
+        )
+        .update(
+            {
+                Document.processing_lease_expires_at: now
+                + timedelta(seconds=lease_seconds),
+                Document.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+    )
+    if updated != 1:
+        db.rollback()
+        return False
+
+    db.commit()
+    return True
+
+
+def finalize_document_processing_attempt(
+    db: Session,
+    document_id: int,
+    attempt_id: str,
+    status: DocumentStatus,
+    failure_reason: str | None = None,
+) -> bool:
+    """Finalize a processing attempt only if its ownership token is current."""
+    if status not in (DocumentStatus.READY, DocumentStatus.FAILED):
+        raise ValueError("final status must be READY or FAILED")
+
+    updated = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.status == DocumentStatus.PROCESSING,
+            Document.processing_attempt_id == attempt_id,
+        )
+        .update(
+            {
+                Document.status: status,
+                Document.failure_reason: failure_reason,
+                Document.processing_attempt_id: None,
+                Document.processing_lease_expires_at: None,
+            },
+            synchronize_session=False,
+        )
+    )
+    if updated != 1:
+        db.rollback()
+        return False
+
+    db.commit()
+    return True

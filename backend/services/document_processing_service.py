@@ -216,7 +216,7 @@ def process_document(
             invalidate_bm25_index(organization_id)
 
             try:
-                qdrant_repository.delete_document_chunks(
+                qdrant_repository.delete_legacy_document_chunks(
                     document_id=document_id,
                     organization_id=organization_id,
                 )

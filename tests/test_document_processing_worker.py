@@ -116,7 +116,7 @@ def record_worker_errors(monkeypatch):
         logged_messages.append(message)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_worker.logger.exception",
+        "backend.services.document_generation_processing_service.logger.exception",
         fake_logger_exception,
     )
 

@@ -7,6 +7,7 @@ from backend.core.config import settings
 from backend.db.models import (
     Document,
     DocumentChunk,
+    DocumentGenerationChunk,
     DocumentStatus,
     OrganizationMembership,
     OrganizationRole,
@@ -494,9 +495,17 @@ def test_upload_runs_background_processing_without_breaking_response(
         lambda: Mock(),
     )
 
+    qdrant = Mock()
+    indexed_indexes = []
+    qdrant.upsert_generation_chunks.side_effect = (
+        lambda records: indexed_indexes.extend(record[4] for record in records)
+    )
+    qdrant.list_generation_chunk_indexes.side_effect = (
+        lambda **kwargs: sorted(indexed_indexes)
+    )
     monkeypatch.setattr(
         "backend.services.document_processing_worker.get_qdrant_repository",
-        lambda: Mock(),
+        lambda: qdrant,
     )
 
     monkeypatch.setattr(
@@ -660,9 +669,12 @@ def test_upload_persists_extraction_stats(
     assert body["character_count"] > 0
 
     chunks = (
-        db.query(DocumentChunk)
-        .filter(DocumentChunk.document_id == document_id)
-        .order_by(DocumentChunk.chunk_index)
+        db.query(DocumentGenerationChunk)
+        .filter(
+            DocumentGenerationChunk.document_id == document_id,
+            DocumentGenerationChunk.generation_id == body["active_generation_id"],
+        )
+        .order_by(DocumentGenerationChunk.chunk_index)
         .all()
     )
 

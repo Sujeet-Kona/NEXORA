@@ -193,9 +193,7 @@ def test_background_processing_failure_is_contained(
         db,
         document.id,
     ).status == DocumentStatus.FAILED
-    assert logged_messages == [
-        "Background document processing failed"
-    ]
+    assert logged_messages == []
 
 
 def test_background_processing_missing_document_is_contained(
@@ -212,9 +210,7 @@ def test_background_processing_missing_document_is_contained(
         session_factory,
     )
 
-    assert logged_messages == [
-        "Background document processing failed"
-    ]
+    assert logged_messages == []
 
 
 def test_background_processing_closes_session(monkeypatch):

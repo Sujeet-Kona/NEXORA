@@ -462,6 +462,30 @@ def test_generation_upsert_rejects_duplicate_chunk_indices(repository):
     assert repository.count_generation_chunks(generation, 301, 31) == 0
 
 
+def test_generation_upsert_rejects_mixed_document_scope(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "abababab-abab-4bab-8bab-abababababab"
+    with pytest.raises(ValueError, match="must not mix documents or organizations"):
+        repository.upsert_generation_chunks(
+            [
+                (generation, vector, 31, 301, 0, 1),
+                (generation, vector, 31, 302, 1, 1),
+            ]
+        )
+    assert repository.count_generation_chunks(generation, 301, 31) == 0
+    assert repository.count_generation_chunks(generation, 302, 31) == 0
+
+
+def test_generation_upsert_rejects_boolean_chunk_index(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd"
+    with pytest.raises(ValueError, match="Chunk index must be an integer"):
+        repository.upsert_generation_chunks(
+            [(generation, vector, 31, 301, True, 1)]
+        )
+    assert repository.count_generation_chunks(generation, 301, 31) == 0
+
+
 def test_generation_upsert_rejects_negative_chunk_index(repository):
     vector = [1.0] + [0.0] * 1023
     generation = "99999999-9999-4999-8999-999999999999"

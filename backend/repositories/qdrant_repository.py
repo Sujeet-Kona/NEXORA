@@ -393,6 +393,60 @@ class QdrantRepository:
         return _do().count
 
 
+    def list_generation_chunk_indexes(
+        self,
+        generation_id: str,
+        document_id: int,
+        organization_id: int,
+    ) -> list[int]:
+        """Return all chunk indexes for one generation using paginated scroll."""
+        self.ensure_collection()
+        generation_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="organization_id",
+                    match=models.MatchValue(value=organization_id),
+                ),
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchValue(value=document_id),
+                ),
+                models.FieldCondition(
+                    key="generation_id",
+                    match=models.MatchValue(value=generation_id),
+                ),
+            ]
+        )
+
+        @self._wrap("generation chunk-index listing", organization_id=organization_id)
+        def _do():
+            indexes = []
+            offset = None
+            while True:
+                points, next_offset = self.client.scroll(
+                    collection_name=settings.qdrant_collection,
+                    scroll_filter=generation_filter,
+                    limit=256,
+                    offset=offset,
+                    with_payload=["chunk_index"],
+                    with_vectors=False,
+                )
+                for point in points:
+                    payload = point.payload or {}
+                    chunk_index = payload.get("chunk_index")
+                    if not isinstance(chunk_index, int) or chunk_index < 0:
+                        raise ValueError("Invalid generation chunk index payload")
+                    indexes.append(chunk_index)
+                if next_offset is None:
+                    break
+                if next_offset == offset:
+                    raise RuntimeError("Qdrant scroll pagination did not advance")
+                offset = next_offset
+            return indexes
+
+        return _do()
+
+
     def search_generation(
         self,
         query_vector: list[float],

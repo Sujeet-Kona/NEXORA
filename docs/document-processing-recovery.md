@@ -1,36 +1,38 @@
 # Document processing recovery
 
-NEXORA processes uploads with FastAPI background tasks. Because that work is
-in-process, a worker can disappear after the document is marked `processing`.
-The platform therefore treats `processing` as a leased state rather than a
-permanent state.
+NEXORA currently runs document processing through FastAPI background tasks.
+Because this work is in-process, a process restart can leave a document in
+`processing` without a worker continuing it.
 
 ## State machine
 
-- `pending -> processing`: worker claim.
+- `pending -> processing`: the current legacy worker's status transition.
 - `processing -> ready`: successful extraction and indexing.
 - `processing -> failed`: processing error.
 - `failed -> pending`: explicit retry/reset.
-- `processing -> pending`: recovery of a stale worker lease.
-- `ready` has no normal processing transition; a new uploaded version starts a
-  fresh `pending` cycle.
+- `processing -> pending`: startup or document-specific stale recovery.
+- `ready` has no normal processing transition; a new uploaded version starts
+  a fresh `pending` cycle.
 
-A worker never silently treats `failed` as a retry request. Retry intent is
-explicit.
+Retry intent for failed documents remains explicit.
 
-## Stale-worker recovery
+## Stale-worker recovery (timestamp heuristic)
 
-A document whose `updated_at` has been unchanged for more than 30 minutes
-while `processing` is automatically returned to `pending` during application
-startup. The background worker also performs a document-specific stale check
-before claiming work.
+Recovery currently selects documents whose status is `processing` and whose
+`updated_at` is older than 30 minutes. It returns those rows to `pending`,
+clears the processing attempt and lease fields, and records a recovery reason.
+Recovery uses PostgreSQL row locks with `SKIP LOCKED` to avoid multiple
+recovery instances claiming the same row.
 
-The processing pipeline refreshes `updated_at` immediately before the
-potentially expensive embedding/indexing stage. The 30-minute threshold is
-intentionally conservative relative to normal document processing time.
+This is **not a true lease-based recovery implementation**: the recovery
+predicate is timestamp-based and does not compare `processing_lease_expires_at`.
+The legacy processing worker does not claim or renew an attempt token. The
+worker refreshes `updated_at` once before embedding/indexing; that is not a
+periodic heartbeat, so long-running work may still be incorrectly considered
+stale after the threshold.
 
-Each recovery query uses a PostgreSQL row lock with `SKIP LOCKED`, so multiple
-application instances can recover stale jobs without claiming the same row.
+Attempt ownership and lease repository helpers are groundwork only; they are
+not integrated end-to-end into the current worker.
 
 ## Cross-store mutation safety (known gap)
 

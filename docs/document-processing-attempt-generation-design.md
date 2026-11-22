@@ -110,3 +110,11 @@ This checkpoint is an explicit guardrail: **the promotion helper must not be wir
 ## Explicitly deferred
 
 Do not enable attempt ownership in the existing processing worker while it still calls legacy document-wide chunk/vector replacement and cleanup. The token checks alone do not fence Qdrant operations or prevent an old worker from deleting shared points.
+
+## Stale-attempt recovery and orphan-generation audit checkpoint
+
+Stale document recovery now locks the document row, scopes the transition to the stale processing attempt, and changes that attempt's remaining `staging` generations to `abandoned` before clearing the document's owner token. Both single-document and startup/bulk recovery paths use the same scoped transition. Generations from other attempts and non-staging lifecycle states are not changed.
+
+This transition is SQL-only and does not delete generation chunks or Qdrant points. An abandoned generation is cleanup-eligible metadata, not proof that cleanup succeeded. A future reconciliation worker must discover abandoned generations, re-check that the generation is not active, delete vectors with generation/document/tenant filters, verify zero vectors, and then remove SQL chunks. Recovery does not attempt external cleanup while invalidating ownership, because Qdrant operations cannot participate in the SQL transaction and a stale worker may still be completing an external write.
+
+The single-document recovery path now locks its row and rechecks the stale predicate in the query itself, preventing it from resetting a document that became fresh between the initial observation and mutation. This is still conservative groundwork: worker heartbeat/lease renewal, external writes, and the reconciliation scheduler are not integrated end-to-end.

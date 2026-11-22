@@ -273,6 +273,103 @@ class DocumentChunk(Base):
     organization: Mapped[Organization] = relationship(
         back_populates="document_chunks",
     )
+
+class DocumentProcessingGeneration(Base):
+    __tablename__ = "document_processing_generations"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="staging",
+        server_default="staging",
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class DocumentGenerationChunk(Base):
+    __tablename__ = "document_generation_chunks"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "generation_id",
+            "chunk_index",
+            name="uq_document_generation_chunk_index",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    generation_id: Mapped[str] = mapped_column(
+        ForeignKey("document_processing_generations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    chunk_index: Mapped[int] = mapped_column(
+        nullable=False,
+    )
+
+    page_start: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    page_end: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    text: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+    default=lambda: datetime.now(timezone.utc),
+    nullable=False,
+    )
+
 class Document(Base):
     __tablename__ = "documents"
 

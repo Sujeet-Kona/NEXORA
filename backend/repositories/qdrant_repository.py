@@ -202,6 +202,41 @@ class QdrantRepository:
 
         _do()
 
+
+    def delete_legacy_document_chunks(
+        self,
+        document_id: int,
+        organization_id: int,
+    ) -> None:
+        """Delete legacy vectors only; preserve generation-scoped vectors."""
+        self.ensure_collection()
+
+        @self._wrap("legacy delete", organization_id=organization_id)
+        def _do():
+            self.client.delete(
+                collection_name=settings.qdrant_collection,
+                wait=True,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="organization_id",
+                                match=models.MatchValue(value=organization_id),
+                            ),
+                            models.FieldCondition(
+                                key="document_id",
+                                match=models.MatchValue(value=document_id),
+                            ),
+                            models.IsEmptyCondition(
+                                is_empty=models.PayloadField(key="generation_id"),
+                            ),
+                        ]
+                    )
+                ),
+            )
+
+        _do()
+
     def search(
         self,
         query_vector: list[float],

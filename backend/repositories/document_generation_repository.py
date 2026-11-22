@@ -144,7 +144,7 @@ def get_active_generation_chunks(
     organization_id: int,
     document_ids: list[int] | None = None,
 ) -> list[DocumentGenerationChunk]:
-    """Return chunks only from each READY document's active generation.
+    """Return chunks only from each document's active generation.
 
     Tenant, document readiness, active pointer, and generation status are
     validated in SQL so staging/retired generations cannot enter retrieval.
@@ -163,7 +163,6 @@ def get_active_generation_chunks(
         .filter(
             DocumentGenerationChunk.organization_id == organization_id,
             Document.organization_id == organization_id,
-            Document.status == DocumentStatus.READY,
             Document.active_generation_id
             == DocumentGenerationChunk.generation_id,
             DocumentProcessingGeneration.status == "active",

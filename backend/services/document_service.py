@@ -316,7 +316,7 @@ def upload_document_version_service(
         )
 
         try:
-            qdrant_repository.delete_document_chunks(
+            qdrant_repository.delete_legacy_document_chunks(
                 document_id=document.id,
                 organization_id=document.organization_id,
             )

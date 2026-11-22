@@ -44,20 +44,16 @@ def _retrieve_chunks(
             document_ids=document_ids,
             use_active_generations=True,
         )
-        if chunks:
-            return chunks
-
-        # Existing documents indexed before generation ownership have no active
-        # generation pointer. Preserve their retrieval path, but only for those
-        # documents so legacy vectors/chunks from replaced documents cannot leak.
+        # Retrieve legacy documents independently even when active-generation
+        # retrieval has hits. Mixed tenants must not silently lose older files.
         legacy_document_ids = get_legacy_document_ids(
             db=db,
             organization_id=organization_id,
             document_ids=document_ids,
         )
         if not legacy_document_ids:
-            return []
-        return hybrid_retrieve_chunks(
+            return chunks
+        legacy_chunks = hybrid_retrieve_chunks(
             db=db,
             organization_id=organization_id,
             query=query,
@@ -67,6 +63,13 @@ def _retrieve_chunks(
             document_ids=legacy_document_ids,
             use_active_generations=False,
         )
+        merged = {}
+        for chunk in [*chunks, *legacy_chunks]:
+            identity = (chunk.organization_id, chunk.document_id, chunk.chunk_id, chunk.generation_id)
+            current = merged.get(identity)
+            if current is None or chunk.score > current.score:
+                merged[identity] = chunk
+        return sorted(merged.values(), key=lambda chunk: chunk.score, reverse=True)[:limit]
     return retrieve_fn(
         db=db,
         organization_id=organization_id,

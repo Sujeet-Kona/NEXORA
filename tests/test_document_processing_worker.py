@@ -145,11 +145,6 @@ def test_background_processing_marks_document_ready(
         lambda **kwargs: make_extracted_document(),
     )
 
-    monkeypatch.setattr(
-        "backend.services.document_processing_service.index_document_chunks",
-        lambda **kwargs: None,
-    )
-
     process_document_background(
         document.id,
         session_factory,
@@ -181,7 +176,7 @@ def test_background_processing_failure_is_contained(
     stub_rag_services(monkeypatch)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.LocalStorage.read",
+        "backend.services.document_generation_processing_service.LocalStorage.read",
         lambda self, key: (_ for _ in ()).throw(
             FileNotFoundError("Stored file not found")
         ),

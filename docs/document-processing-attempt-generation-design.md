@@ -118,3 +118,10 @@ Stale document recovery now locks the document row, scopes the transition to the
 This transition is SQL-only and does not delete generation chunks or Qdrant points. An abandoned generation is cleanup-eligible metadata, not proof that cleanup succeeded. A future reconciliation worker must discover abandoned generations, re-check that the generation is not active, delete vectors with generation/document/tenant filters, verify zero vectors, and then remove SQL chunks. Recovery does not attempt external cleanup while invalidating ownership, because Qdrant operations cannot participate in the SQL transaction and a stale worker may still be completing an external write.
 
 The single-document recovery path now locks its row and rechecks the stale predicate in the query itself, preventing it from resetting a document that became fresh between the initial observation and mutation. This is still conservative groundwork: worker heartbeat/lease renewal, external writes, and the reconciliation scheduler are not integrated end-to-end.
+
+
+## Abandoned-generation discovery primitive
+
+A repository query now lists abandoned generations that are not referenced by the document's active-generation pointer. It is bounded by a caller-supplied limit, deterministic by creation time and generation ID, and returns generation metadata only. Non-positive limits return an empty list.
+
+This is discovery, not a cleanup claim or lease. It intentionally does not lock or mutate rows and does not perform vector/SQL deletion. Multiple future reconcilers may observe the same candidate. Before cleanup can be scheduled, it still needs a durable claim/lease and external-write fencing: a stale processing attempt must not be able to recreate vectors after the reconciler verifies deletion. Active-pointer exclusion is a guard, not a substitute for transactional claims or cleanup fencing.

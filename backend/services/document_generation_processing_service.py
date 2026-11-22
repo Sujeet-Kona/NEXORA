@@ -19,6 +19,7 @@ from backend.repositories.document_generation_repository import (
     promote_staging_generation_with_vector_readiness,
     replace_staging_generation_chunks,
     retire_failed_staging_generation,
+    abandon_staging_generation,
 )
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -49,6 +50,31 @@ def _owned(db: Session, document_id: int, attempt_id: str) -> bool:
 
 def _renew(db: Session, document_id: int, attempt_id: str) -> bool:
     return renew_document_processing_lease(db, document_id, attempt_id)
+
+
+def _abandon_staging_if_owned_by_attempt(
+    db: Session,
+    generation_id: str | None,
+    document_id: int,
+    organization_id: int | None,
+    attempt_id: str,
+) -> None:
+    """Best-effort SQL retirement of a stale attempt's inactive staging row."""
+    if generation_id is None or organization_id is None:
+        return
+    try:
+        if abandon_staging_generation(
+            db, generation_id, document_id, organization_id, attempt_id
+        ):
+            db.commit()
+        else:
+            db.rollback()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Failed to abandon stale staging generation",
+            extra={"document_id": document_id, "generation_id": generation_id},
+        )
 
 
 def process_document_generation(
@@ -139,6 +165,9 @@ def process_document_generation(
 
         for batch_start in range(0, len(staged), settings.embedding_batch_size):
             if not _renew(db, document_id, attempt_id):
+                _abandon_staging_if_owned_by_attempt(
+                    db, generation_id, document_id, organization_id, attempt_id
+                )
                 return False
             batch = staged[batch_start:batch_start + settings.embedding_batch_size]
             vectors = embedding_service.embed_documents([chunk.text for chunk in batch])
@@ -157,12 +186,18 @@ def process_document_generation(
             ]
             for upsert_start in range(0, len(records), settings.qdrant_upsert_batch_size):
                 if not _renew(db, document_id, attempt_id):
+                    _abandon_staging_if_owned_by_attempt(
+                        db, generation_id, document_id, organization_id, attempt_id
+                    )
                     return False
                 qdrant_repository.upsert_generation_chunks(
                     records[upsert_start:upsert_start + settings.qdrant_upsert_batch_size]
                 )
 
         if not _renew(db, document_id, attempt_id):
+            _abandon_staging_if_owned_by_attempt(
+                db, generation_id, document_id, organization_id, attempt_id
+            )
             return False
 
         promoted = promote_staging_generation_with_vector_readiness(
@@ -177,6 +212,9 @@ def process_document_generation(
             db.rollback()
             if _owned(db, document_id, attempt_id):
                 raise RuntimeError("Staging generation failed readiness or promotion")
+            _abandon_staging_if_owned_by_attempt(
+                db, generation_id, document_id, organization_id, attempt_id
+            )
             return False
         # Promotion performs READY and clears the attempt token in this SQL
         # transaction. Stats are committed atomically with the active pointer.

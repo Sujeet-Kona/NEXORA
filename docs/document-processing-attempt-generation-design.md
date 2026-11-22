@@ -49,6 +49,12 @@ Dense retrieval must constrain organization and active generation. SQL hydration
 
 Generation filters need a Qdrant payload index if the collection/provider configuration requires it; indexing is an optimization, not an authorization boundary. SQL validation remains the final gate.
 
+## Failed candidate retirement
+
+The repository now has a narrowly scoped helper that marks a candidate generation failed only when the current processing owner/lease and generation metadata match. It does not delete chunks or Qdrant vectors and does not alter the active-generation pointer. Cleanup of candidate SQL/vector artifacts remains a separate operation that must be generation-scoped and safe to retry.
+
+A regression test promotes a known-good generation, starts replacement staging, retires the failed replacement, and asserts the original generation remains active while the candidate is marked failed. This test exercises SQL lifecycle preservation only; vector cleanup is still not implemented or worker-integrated.
+
 ## Readiness-gated promotion primitive
 
 A promotion wrapper now runs the fail-closed readiness check and calls the existing conditional SQL promotion only when staged SQL and exact generation-scoped Qdrant point counts match. Tests cover both rejected mismatch (document remains processing, generation remains staging) and accepted parity (document becomes ready and points to the candidate generation).

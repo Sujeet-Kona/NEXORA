@@ -549,7 +549,7 @@ def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
     embedding = Mock()
     embedding.embed_query.return_value = [0.25] * 1024
     qdrant = Mock()
-    qdrant.search_generation.return_value = [
+    qdrant.search_generation.return_value.points = [
         SimpleNamespace(
             id="uuid-point-active",
             score=0.91,

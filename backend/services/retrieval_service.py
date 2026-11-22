@@ -146,13 +146,14 @@ def retrieve_active_generation_chunks(
     }
     generation_ids = sorted({chunk.generation_id for chunk in active_chunks})
     query_vector = embedding_service.embed_query(query)
-    points = qdrant_repository.search_generation(
+    search_result = qdrant_repository.search_generation(
         query_vector=query_vector,
         organization_id=organization_id,
         generation_ids=generation_ids,
         limit=limit,
         document_ids=document_ids,
     )
+    points = search_result.points
     if not points:
         return []
 

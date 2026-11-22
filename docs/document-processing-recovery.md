@@ -32,12 +32,20 @@ intentionally conservative relative to normal document processing time.
 Each recovery query uses a PostgreSQL row lock with `SKIP LOCKED`, so multiple
 application instances can recover stale jobs without claiming the same row.
 
-## Cross-store mutation ordering
+## Cross-store mutation safety (known gap)
 
-Document replacement and deletion acquire the PostgreSQL document row lock
-before mutating Qdrant. This prevents a processing worker from claiming the
-same document between the SQL check and the vector-store mutation.
+Document replacement and deletion lock the PostgreSQL document row while
+checking and applying their SQL state changes. That lock is **not held across
+Qdrant operations performed by the processing worker**, and it does not fence
+late vector writes from a worker that has lost ownership. The current processing
+worker still uses legacy document-scoped chunk replacement, vector deletion,
+and best-effort failure cleanup.
 
-Qdrant operations remain organization-scoped, and failed processing removes
-PostgreSQL chunks plus best-effort Qdrant vectors before the document is left
-in `failed`.
+Therefore, the existing row locks and tenant filters are not sufficient to
+claim cross-store race safety. Attempt ownership and generation-scoped
+repository primitives are groundwork only; they are not wired into the worker.
+Until integration is completed and concurrency tests cover late writes, do not
+run generation cleanup against live processing data or describe the pipeline as
+fully concurrency-safe. The safe integration must keep the prior active
+index available, write/delete only an attempt's generation, reject stale
+promotion, and account for delayed Qdrant writes.

@@ -442,6 +442,12 @@ class Document(Base):
         nullable=True,
     )
 
+    # Active staged-index generation; promotion is guarded by attempt ownership.
+    active_generation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+    )
+
     version: Mapped[int] = mapped_column(
         default=1,
         server_default="1",

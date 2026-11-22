@@ -606,3 +606,27 @@ def test_cleanup_fails_closed_when_vector_delete_verification_fails(db):
     ) is False
     db.rollback()
     assert get_staging_generation_chunks(db, generation_id, document.organization_id)
+
+def test_cleanup_retains_sql_chunks_when_vector_count_is_nonzero(db):
+    document, attempt_id, generation_id = _failed_candidate(
+        db, "generation-cleanup-count-not-zero@example.com"
+    )
+    vector_store = _CleanupVectorStub(initial_count=1, remaining_after_delete=1)
+    assert cleanup_failed_generation_artifacts(
+        db, generation_id, document.id, document.organization_id, attempt_id, vector_store
+    ) is False
+    db.rollback()
+    assert get_staging_generation_chunks(db, generation_id, document.organization_id)
+
+
+def test_cleanup_rejects_stale_attempt_without_vector_deletion(db):
+    document, attempt_id, generation_id = _failed_candidate(
+        db, "generation-cleanup-stale-owner@example.com"
+    )
+    document.processing_attempt_id = "superseding-attempt"
+    db.commit()
+    vector_store = _CleanupVectorStub(initial_count=1)
+    assert cleanup_failed_generation_artifacts(
+        db, generation_id, document.id, document.organization_id, attempt_id, vector_store
+    ) is False
+    assert vector_store.delete_calls == []

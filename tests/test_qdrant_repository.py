@@ -368,8 +368,6 @@ def test_collection_initialization_errors_are_normalized(qdrant, monkeypatch):
 
 
 def test_generation_upsert_isolated_by_generation_and_search(repository):
-    from uuid import UUID
-
     vector = [1.0] + [0.0] * 1023
     generation_a = "11111111-1111-4111-8111-111111111111"
     generation_b = "22222222-2222-4222-8222-222222222222"
@@ -449,3 +447,13 @@ def test_generation_upsert_rejects_invalid_uuid_and_vector_dimension(repository)
         repository.upsert_generation_chunks(
             [("66666666-6666-4666-8666-666666666666", [1.0], 1, 1, 0, 1)]
         )
+
+
+def test_generation_search_with_empty_generation_list_returns_empty(repository):
+    result = repository.search_generation(
+        query_vector=[1.0] + [0.0] * 1023,
+        organization_id=1,
+        generation_ids=[],
+        limit=5,
+    )
+    assert result == []

@@ -655,9 +655,23 @@ def test_abandoned_cleanup_discovery_excludes_active_generation_and_is_bounded(d
     ).update({"status": "abandoned"}, synchronize_session=False)
     db.commit()
 
-    candidates = list_abandoned_generation_cleanup_candidates(db, limit=1)
-    assert len(candidates) == 1
-    assert candidates[0].id in {first_generation, second_generation}
-    assert candidates[0].id != active_generation
+    # Both cleanup candidates have a NULL active-generation pointer. Discovery
+    # must retain them (NULL-safe inequality) while excluding the active ID.
+    db.refresh(first_document)
+    db.refresh(second_document)
+    assert first_document.active_generation_id is None
+    assert second_document.active_generation_id is None
+
+    bounded_candidates = list_abandoned_generation_cleanup_candidates(db, limit=1)
+    assert len(bounded_candidates) == 1
+    assert bounded_candidates[0].id in {first_generation, second_generation}
+    assert bounded_candidates[0].id != active_generation
+
+    all_candidates = list_abandoned_generation_cleanup_candidates(db, limit=10)
+    assert {candidate.id for candidate in all_candidates} == {
+        first_generation,
+        second_generation,
+    }
+    assert active_generation not in {candidate.id for candidate in all_candidates}
     assert list_abandoned_generation_cleanup_candidates(db, limit=0) == []
     assert list_abandoned_generation_cleanup_candidates(db, limit=-1) == []

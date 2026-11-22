@@ -15,8 +15,8 @@ def _utc_now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def recover_stale_processing_documents(db: Session) -> list[int]:
-    """Return IDs of crashed PROCESSING jobs reset to PENDING.
+def recover_stale_processing_documents(db: Session) -> int:
+    """Return crashed PROCESSING jobs to PENDING so they can be retried.
 
     BackgroundTasks are in-process work, so a process crash can otherwise
     leave a document permanently stuck in PROCESSING. The 30-minute lease is
@@ -36,21 +36,19 @@ def recover_stale_processing_documents(db: Session) -> list[int]:
         .all()
     )
 
-    recovered_ids: list[int] = []
+    recovered = 0
 
     for document in documents:
         document.status = DocumentStatus.PENDING
         document.failure_reason = (
             "Previous processing worker expired; document queued for retry"
         )
-        recovered_ids.append(document.id)
+        recovered += 1
 
-
-    if recovered_ids:
+    if recovered:
         db.commit()
 
-
-    return recovered_ids
+    return recovered
 
 
 def recover_stale_document_processing(

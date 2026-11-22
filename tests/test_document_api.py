@@ -413,7 +413,7 @@ def test_admin_can_update_document_status(
     response = client.patch(
         f"/api/v1/organizations/{organization_id}/documents/{document_id}",
         json={
-            "status": "processing",
+            "status": "failed",
         },
         headers={
             "Authorization": f"Bearer {admin_token}",
@@ -421,7 +421,7 @@ def test_admin_can_update_document_status(
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "processing"
+    assert response.json()["status"] == "failed"
 
 
 def test_member_cannot_delete_document(

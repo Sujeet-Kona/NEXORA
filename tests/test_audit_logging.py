@@ -246,7 +246,7 @@ def test_document_status_change_records_audit(client, db):
 
     patch_response = client.patch(
         f"/api/v1/organizations/{organization_id}/documents/{document_id}",
-        json={"status": "processing"},
+        json={"status": "failed"},
         headers=auth_header(token),
     )
 
@@ -257,7 +257,7 @@ def test_document_status_change_records_audit(client, db):
     assert entry is not None
     assert entry.organization_id == organization_id
     assert entry.resource_id == document_id
-    assert entry.details == {"status": "processing"}
+    assert entry.details == {"status": "failed"}
 
 
 def test_document_delete_records_audit(client, db):

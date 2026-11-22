@@ -11,6 +11,8 @@ from backend.repositories.qdrant_repository import QdrantRepository
 from backend.services.embedding_service import EmbeddingService
 from backend.services.retrieval_service import RetrievedChunk
 from backend.services.retrievers import (
+    ActiveGenerationDenseRetriever,
+    ActiveGenerationLexicalRetriever,
     DenseRetriever,
     LexicalRetriever,
     Retriever,
@@ -147,19 +149,30 @@ def hybrid_retrieve_chunks(
     final_limit: int | None = None,
     limit: int | None = None,
     document_ids: list[int] | None = None,
+    use_active_generations: bool = False,
 ) -> list[RetrievedChunk]:
     if not query.strip():
         raise ValueError("Query cannot be empty")
 
     if retrievers is None:
-        retrievers = [
-            DenseRetriever(
-                embedding_service,
-                qdrant_repository,
-                limit=dense_limit,
-            ),
-            LexicalRetriever(limit=lexical_limit),
-        ]
+        if use_active_generations:
+            retrievers = [
+                ActiveGenerationDenseRetriever(
+                    embedding_service,
+                    qdrant_repository,
+                    limit=dense_limit,
+                ),
+                ActiveGenerationLexicalRetriever(limit=lexical_limit),
+            ]
+        else:
+            retrievers = [
+                DenseRetriever(
+                    embedding_service,
+                    qdrant_repository,
+                    limit=dense_limit,
+                ),
+                LexicalRetriever(limit=lexical_limit),
+            ]
     elif dense_limit is not None or lexical_limit is not None:
         raise ValueError(
             "dense_limit and lexical_limit only apply to "

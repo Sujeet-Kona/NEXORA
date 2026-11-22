@@ -536,3 +536,45 @@ def test_rrf_fusion_keeps_generation_chunk_identity_separate():
     assert {result.chunk.generation_id for result in results} == {
         None, "generation-a", "generation-b",
     }
+
+
+def test_hybrid_defaults_to_active_generation_retrievers_when_enabled(
+    monkeypatch,
+):
+    captured = []
+
+    class StubActiveDense:
+        def __init__(self, embedding, qdrant, limit=None):
+            captured.append(("dense", limit))
+        def retrieve(self, **kwargs):
+            return []
+
+    class StubActiveLexical:
+        def __init__(self, limit=None):
+            captured.append(("lexical", limit))
+        def retrieve(self, **kwargs):
+            return []
+
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.ActiveGenerationDenseRetriever",
+        StubActiveDense,
+    )
+    monkeypatch.setattr(
+        "backend.services.hybrid_retrieval_service.ActiveGenerationLexicalRetriever",
+        StubActiveLexical,
+    )
+
+    results = hybrid_retrieve_chunks(
+        db=None,
+        organization_id=2,
+        query="active generation",
+        embedding_service=object(),
+        qdrant_repository=object(),
+        use_active_generations=True,
+    )
+
+    assert results == []
+    assert captured == [
+        ("dense", None),
+        ("lexical", None),
+    ]

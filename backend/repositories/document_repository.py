@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 
 from backend.core.exceptions import (
@@ -325,12 +327,14 @@ def processing_attempt_is_owner(
     attempt_id: str,
 ) -> bool:
     """Return whether the token still owns the active PROCESSING row."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     return (
         db.query(Document.id)
         .filter(
             Document.id == document_id,
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
         )
         .first()
         is not None
@@ -356,6 +360,7 @@ def renew_document_processing_lease(
             Document.id == document_id,
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
         )
         .update(
             {
@@ -385,12 +390,14 @@ def finalize_document_processing_attempt(
     if status not in (DocumentStatus.READY, DocumentStatus.FAILED):
         raise ValueError("final status must be READY or FAILED")
 
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     updated = (
         db.query(Document)
         .filter(
             Document.id == document_id,
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
         )
         .update(
             {

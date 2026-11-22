@@ -489,3 +489,43 @@ def test_member_is_denied_before_transition_validation(
     assert response.json() == {
         "detail": "Organization admin access required"
     }
+
+
+def test_processing_recovery_clears_attempt_ownership(client, db):
+    token = register_and_login(
+        client,
+        "lifecycle-recovery-ownership@example.com",
+    )
+    organization_id = create_organization(
+        client,
+        token,
+        "Lifecycle Recovery Ownership Company",
+    )
+    document_id = create_document(
+        client,
+        token,
+        organization_id,
+    )
+
+    from datetime import datetime, timedelta
+    from backend.db.models import Document, DocumentStatus
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.PROCESSING
+    document.processing_attempt_id = "manual-test-attempt"
+    document.processing_lease_expires_at = datetime.utcnow() + timedelta(minutes=5)
+    db.commit()
+
+    response = patch_status(
+        client,
+        token,
+        organization_id,
+        document_id,
+        "pending",
+    )
+    assert response.status_code == 200
+    db.refresh(document)
+    assert document.status == DocumentStatus.PENDING
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None

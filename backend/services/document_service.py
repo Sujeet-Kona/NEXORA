@@ -541,7 +541,17 @@ def delete_document_service(
     invalidate_bm25_index(organization_id)
 
     if storage_key:
-        storage.delete(storage_key)
+        try:
+            storage.delete(storage_key)
+        except Exception:
+            # SQL deletion and vector purge are already committed. A local
+            # file-cleanup failure must not turn a successful delete into an
+            # API error; report it for later operational cleanup instead.
+            logger.warning(
+                "Deleted document file could not be removed",
+                extra={"document_id": document_id},
+                exc_info=True,
+            )
 
     record_audit_event(
         db,

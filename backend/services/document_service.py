@@ -57,11 +57,9 @@ ALLOWED_CONTENT_TYPES = {
 
 ALLOWED_STATUS_TRANSITIONS = {
     DocumentStatus.PENDING: {
-        DocumentStatus.PROCESSING,
         DocumentStatus.FAILED,
     },
     DocumentStatus.PROCESSING: {
-        DocumentStatus.READY,
         DocumentStatus.FAILED,
         # Explicit recovery path for a crashed BackgroundTask. The startup
         # recovery service uses the same transition after a stale lease.
@@ -469,6 +467,14 @@ def update_document_status_service(
         current_status=document.status,
         new_status=status,
     )
+
+    # PROCESSING and READY are worker-owned states. The admin API cannot
+    # manufacture PROCESSING without an attempt token/lease or mark READY
+    # without generation promotion. Admin recovery out of PROCESSING must
+    # invalidate the old worker's ownership metadata.
+    if document.status == DocumentStatus.PROCESSING:
+        document.processing_attempt_id = None
+        document.processing_lease_expires_at = None
 
     updated_document = update_document_status(
         db=db,

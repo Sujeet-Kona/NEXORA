@@ -467,8 +467,9 @@ def list_abandoned_generation_cleanup_candidates(
             DocumentProcessingGeneration.status == "abandoned",
             Document.organization_id
             == DocumentProcessingGeneration.organization_id,
-            Document.active_generation_id
-            != DocumentProcessingGeneration.id,
+            Document.active_generation_id.is_distinct_from(
+                DocumentProcessingGeneration.id
+            ),
         )
         .order_by(
             DocumentProcessingGeneration.created_at.asc(),

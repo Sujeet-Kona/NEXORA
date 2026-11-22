@@ -566,10 +566,16 @@ def test_generation_chunk_index_listing_rejects_pagination_offset_cycle(
 
     monkeypatch.setattr(qdrant, "scroll", cycling_scroll)
 
-    with pytest.raises(RuntimeError, match="Qdrant scroll pagination did not advance"):
+    with pytest.raises(
+        VectorStoreError,
+        match="Qdrant generation chunk-index listing failed for organization 41",
+    ) as exc_info:
         repository.list_generation_chunk_indexes(
             generation, document_id=401, organization_id=41
         )
+
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert "Qdrant scroll pagination did not advance" in str(exc_info.value.__cause__)
 
     assert calls == [None, "page-a", "page-b"]
 

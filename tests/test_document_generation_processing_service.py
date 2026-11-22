@@ -3,6 +3,13 @@ import pytest
 
 from backend.core.config import settings
 from backend.db.models import DocumentProcessingGeneration, DocumentStatus
+from backend.repositories.document_generation_repository import (
+    create_staging_generation,
+    get_active_generation_chunks,
+    promote_staging_generation,
+    replace_staging_generation_chunks,
+)
+from backend.repositories.document_repository import claim_document_processing_attempt
 from backend.repositories.document_repository import create_document
 from backend.services.document_generation_processing_service import (
     process_document_generation,
@@ -154,3 +161,69 @@ def test_generation_processing_does_not_claim_ready_document(db):
     assert result is False
     assert document.status == DocumentStatus.READY
     assert vectors.records == []
+
+
+def test_failed_replacement_keeps_previous_active_generation_retrievable(
+    db,
+    monkeypatch,
+):
+    document = _pending_document(
+        db,
+        "generation-worker-replacement-failure@example.com",
+    )
+    previous_attempt = claim_document_processing_attempt(db, document.id)
+    assert previous_attempt is not None
+    previous_generation = create_staging_generation(
+        db,
+        document.id,
+        document.organization_id,
+        previous_attempt,
+    )
+    assert previous_generation is not None
+    replace_staging_generation_chunks(
+        db,
+        previous_generation,
+        document.id,
+        document.organization_id,
+        previous_attempt,
+        [("previous active policy content", 1, 1)],
+    )
+    assert promote_staging_generation(
+        db,
+        previous_generation,
+        document.id,
+        document.organization_id,
+        previous_attempt,
+    )
+    db.commit()
+
+    document.storage_key = "organizations/replacement.pdf"
+    document.version = 2
+    document.status = DocumentStatus.PENDING
+    db.commit()
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service.LocalStorage.read",
+        lambda self, key: (_ for _ in ()).throw(
+            FileNotFoundError("Replacement file unavailable")
+        ),
+    )
+
+    result = process_document_generation(
+        db,
+        document.id,
+        _Embeddings(),
+        _VectorRepository(),
+    )
+
+    db.refresh(document)
+    active_chunks = get_active_generation_chunks(
+        db,
+        organization_id=document.organization_id,
+        document_ids=[document.id],
+    )
+    assert result is False
+    assert document.status == DocumentStatus.FAILED
+    assert document.active_generation_id == previous_generation
+    assert [(chunk.text, chunk.generation_id) for chunk in active_chunks] == [
+        ("previous active policy content", previous_generation),
+    ]

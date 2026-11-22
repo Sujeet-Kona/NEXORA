@@ -269,3 +269,56 @@ def get_document_by_id_unscoped(
         .with_for_update()
         .first()
     )
+
+
+
+def claim_document_processing_attempt(
+    db: Session,
+    document_id: int,
+    lease_seconds: int = 1800,
+) -> str | None:
+    """Atomically claim a PENDING document for one processing attempt.
+
+
+    Returns the attempt token when this call owns the claim, or None when
+    another worker or a state transition already claimed the document.
+    """
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+
+
+    if lease_seconds <= 0:
+        raise ValueError("lease_seconds must be positive")
+
+
+
+    attempt_id = str(uuid4())
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    lease_expires_at = now + timedelta(seconds=lease_seconds)
+
+    claimed_attempt = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.status == DocumentStatus.PENDING,
+        )
+        .update(
+            {                Document.status: DocumentStatus.PROCESSING,
+                Document.failure_reason: None,
+                Document.processing_attempt_id: attempt_id,
+                Document.processing_lease_expires_at: lease_expires_at,
+                Document.updated_at: now,
+            },
+            synchronize_session=False,
+        )
+    )
+
+
+    if claimed_attempt != 1:
+        db.rollback()
+        return None
+
+
+
+    db.commit()
+    return attempt_id

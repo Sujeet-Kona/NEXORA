@@ -204,6 +204,9 @@ def _add_staging_generation(db, document, attempt_id, generation_id):
 
 
 def test_single_recovery_abandons_only_stale_attempt_staging_generations(db):
+    # An unrelated document with a NULL active pointer must not satisfy the
+    # active-generation exclusion predicate for this document.
+    create_processing_document(db, "recovery-active-pointer-unrelated@example.com")
     document = create_processing_document(
         db,
         "recovery-abandon-single@example.com",

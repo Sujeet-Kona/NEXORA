@@ -467,8 +467,8 @@ def test_generation_point_count_is_scoped_to_generation_document_and_tenant(repo
             (target_generation, vector, 21, 201, 0, 1),
             (target_generation, vector, 21, 201, 1, 1),
             (other_generation, vector, 21, 201, 0, 1),
-            (target_generation, vector, 21, 202, 0, 1),
-            (target_generation, vector, 22, 201, 0, 1),
+            (target_generation, vector, 21, 202, 2, 1),
+            (target_generation, vector, 22, 201, 3, 1),
         ]
     )
 

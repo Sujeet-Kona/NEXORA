@@ -2,6 +2,9 @@
 
 from sqlalchemy.orm import Session
 
+from backend.repositories.document_generation_repository import (
+    get_active_generation_chunks,
+)
 from backend.repositories.document_chunk_repository import (
     get_chunks_by_ids_for_organization,
 )

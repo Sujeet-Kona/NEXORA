@@ -565,7 +565,7 @@ def test_admin_recovery_abandons_only_inactive_staging_generations(
     document.processing_lease_expires_at = datetime.utcnow() + timedelta(
         minutes=5
     )
-    document.active_generation_id = "active-generation"
+    document.active_generation_id = "active-pointer"
     db.add_all(
         [
             DocumentProcessingGeneration(

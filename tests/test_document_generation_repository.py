@@ -714,7 +714,7 @@ def test_abandoned_cleanup_discovery_excludes_active_generation_and_is_bounded(d
     assert list_abandoned_generation_cleanup_candidates(db, limit=-1) == []
 
 
-def test_abandoned_cleanup_discovery_rejects_generation_tenant_mismatch(db):
+def test_generation_database_constraint_prevents_tenant_mismatch(db):
     document, attempt_id, generation_id = _staged_generation_for_readiness(
         db, "generation-discovery-tenant-mismatch@example.com"
     )
@@ -724,16 +724,23 @@ def test_abandoned_cleanup_discovery_rejects_generation_tenant_mismatch(db):
         name="Generation Discovery Other Org",
         user_id=other_user.id,
     )
-    db.query(DocumentProcessingGeneration).filter(
-        DocumentProcessingGeneration.id == generation_id
-    ).update(
-        {
-            DocumentProcessingGeneration.status: "abandoned",
-            DocumentProcessingGeneration.organization_id: other_organization.id,
-        },
-        synchronize_session=False,
-    )
-    db.commit()
 
-    candidates = list_abandoned_generation_cleanup_candidates(db, limit=100)
-    assert generation_id not in {candidate.id for candidate in candidates}
+    with pytest.raises(IntegrityError):
+        db.query(DocumentProcessingGeneration).filter(
+            DocumentProcessingGeneration.id == generation_id
+        ).update(
+            {
+                DocumentProcessingGeneration.status: "abandoned",
+                DocumentProcessingGeneration.organization_id: other_organization.id,
+            },
+            synchronize_session=False,
+        )
+    db.rollback()
+
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.id == generation_id)
+        .one()
+    )
+    assert generation.organization_id == document.organization_id
+    assert generation.status == "staging"

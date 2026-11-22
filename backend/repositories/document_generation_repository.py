@@ -289,3 +289,35 @@ def validate_staging_generation_vector_readiness(
         return False
 
     return vector_count == staged_count
+
+def promote_staging_generation_with_vector_readiness(
+    db: Session,
+    generation_id: str,
+    document_id: int,
+    organization_id: int,
+    attempt_id: str,
+    vector_repository,
+) -> bool:
+    """Gate SQL promotion on exact staged SQL/vector count parity.
+
+    This does not create a cross-store transaction. The caller must ensure
+    generation-scoped vector writes/cleanup are serialized with this operation,
+    and commit the SQL transaction only when True is returned.
+    """
+    if not validate_staging_generation_vector_readiness(
+        db,
+        generation_id,
+        document_id,
+        organization_id,
+        attempt_id,
+        vector_repository,
+    ):
+        return False
+
+    return promote_staging_generation(
+        db,
+        generation_id,
+        document_id,
+        organization_id,
+        attempt_id,
+    )

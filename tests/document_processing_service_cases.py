@@ -548,7 +548,7 @@ def test_qdrant_failure_marks_document_failed(
         == 0
     )
 
-    qdrant.delete_document_chunks.assert_called_once_with(
+    qdrant.delete_legacy_document_chunks.assert_called_once_with(
         document_id=document.id,
         organization_id=organization.id,
     )
@@ -727,7 +727,7 @@ def test_cleanup_failure_does_not_mask_original_processing_error(
     )
 
     qdrant = Mock()
-    qdrant.delete_document_chunks.side_effect = RuntimeError(
+    qdrant.delete_legacy_document_chunks.side_effect = RuntimeError(
         "cleanup Qdrant failure"
     )
 
@@ -754,7 +754,7 @@ def test_cleanup_failure_does_not_mask_original_processing_error(
         == 0
     )
 
-    qdrant.delete_document_chunks.assert_called_once_with(
+    qdrant.delete_legacy_document_chunks.assert_called_once_with(
         document_id=document.id,
         organization_id=organization.id,
     )

@@ -7,6 +7,7 @@ from backend.db.models import Document, DocumentProcessingGeneration, DocumentSt
 from backend.repositories.document_generation_repository import (
     create_staging_generation,
     get_staging_generation_chunks,
+    get_active_generation_chunks,
     replace_staging_generation_chunks,
     promote_staging_generation,
     promote_staging_generation_with_vector_readiness,
@@ -744,3 +745,74 @@ def test_generation_database_constraint_prevents_tenant_mismatch(db):
     )
     assert generation.organization_id == document.organization_id
     assert generation.status == "staging"
+
+
+def test_active_generation_chunk_reader_excludes_staging_and_wrong_tenant(db):
+    active_document = _document(db, "active-generation-reader@example.com")
+    active_attempt = claim_document_processing_attempt(db, active_document.id)
+    assert active_attempt is not None
+    active_generation_id = create_staging_generation(
+        db,
+        active_document.id,
+        active_document.organization_id,
+        active_attempt,
+    )
+    assert active_generation_id is not None
+    replace_staging_generation_chunks(
+        db,
+        active_generation_id,
+        active_document.id,
+        active_document.organization_id,
+        active_attempt,
+        [("active generation content", 2, 2), ("second active chunk", 3, 4)],
+    )
+    assert promote_staging_generation(
+        db,
+        active_generation_id,
+        active_document.id,
+        active_document.organization_id,
+        active_attempt,
+    )
+
+    staging_document = _document(db, "staging-generation-reader@example.com")
+    staging_attempt = claim_document_processing_attempt(db, staging_document.id)
+    assert staging_attempt is not None
+    staging_generation_id = create_staging_generation(
+        db,
+        staging_document.id,
+        staging_document.organization_id,
+        staging_attempt,
+    )
+    assert staging_generation_id is not None
+    replace_staging_generation_chunks(
+        db,
+        staging_generation_id,
+        staging_document.id,
+        staging_document.organization_id,
+        staging_attempt,
+        [("must not be visible while staging", 1, 1)],
+    )
+    db.commit()
+
+    active_chunks = get_active_generation_chunks(
+        db,
+        active_document.organization_id,
+    )
+    assert [(chunk.chunk_index, chunk.text) for chunk in active_chunks] == [
+        (0, "active generation content"),
+        (1, "second active chunk"),
+    ]
+    assert get_active_generation_chunks(
+        db,
+        organization_id=active_document.organization_id + 999,
+    ) == []
+    assert get_active_generation_chunks(
+        db,
+        organization_id=active_document.organization_id,
+        document_ids=[staging_document.id],
+    ) == []
+    assert get_active_generation_chunks(
+        db,
+        organization_id=active_document.organization_id,
+        document_ids=[],
+    ) == []

@@ -137,6 +137,48 @@ def get_staging_generation_chunks(
     )
 
 
+
+
+def get_active_generation_chunks(
+    db: Session,
+    organization_id: int,
+    document_ids: list[int] | None = None,
+) -> list[DocumentGenerationChunk]:
+    """Return chunks only from each READY document's active generation.
+
+    Tenant, document readiness, active pointer, and generation status are
+    validated in SQL so staging/retired generations cannot enter retrieval.
+    """
+    query = (
+        db.query(DocumentGenerationChunk)
+        .join(
+            Document,
+            Document.id == DocumentGenerationChunk.document_id,
+        )
+        .join(
+            DocumentProcessingGeneration,
+            DocumentProcessingGeneration.id
+            == DocumentGenerationChunk.generation_id,
+        )
+        .filter(
+            DocumentGenerationChunk.organization_id == organization_id,
+            Document.organization_id == organization_id,
+            Document.status == DocumentStatus.READY,
+            Document.active_generation_id
+            == DocumentGenerationChunk.generation_id,
+            DocumentProcessingGeneration.status == "active",
+        )
+    )
+    if document_ids is not None:
+        if not document_ids:
+            return []
+        query = query.filter(DocumentGenerationChunk.document_id.in_(document_ids))
+    return query.order_by(
+        DocumentGenerationChunk.document_id,
+        DocumentGenerationChunk.chunk_index,
+    ).all()
+
+
 def promote_staging_generation(
     db: Session,
     generation_id: str,

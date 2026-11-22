@@ -227,3 +227,39 @@ def test_failed_replacement_keeps_previous_active_generation_retrievable(
     assert [(chunk.text, chunk.generation_id) for chunk in active_chunks] == [
         ("previous active policy content", previous_generation),
     ]
+
+
+def test_generation_index_parity_failure_finalizes_owned_attempt(
+    db,
+    monkeypatch,
+):
+    document = _pending_document(
+        db,
+        "generation-worker-parity-failure@example.com",
+    )
+    _stub_extraction(monkeypatch)
+
+    class MissingVectorIndex(_VectorRepository):
+        def list_generation_chunk_indexes(self, **scope):
+            return []
+
+    vectors = MissingVectorIndex()
+    result = process_document_generation(
+        db,
+        document.id,
+        _Embeddings(),
+        vectors,
+    )
+
+    db.refresh(document)
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.document_id == document.id)
+        .one()
+    )
+    assert result is False
+    assert document.status == DocumentStatus.FAILED
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None
+    assert generation.status == "failed"
+    assert len(vectors.records) == 2

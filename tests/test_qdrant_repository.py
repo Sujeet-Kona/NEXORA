@@ -449,6 +449,29 @@ def test_generation_upsert_rejects_invalid_uuid_and_vector_dimension(repository)
         )
 
 
+def test_generation_upsert_rejects_duplicate_chunk_indices(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "88888888-8888-4888-8888-888888888888"
+    with pytest.raises(ValueError, match="Duplicate generation chunk index"):
+        repository.upsert_generation_chunks(
+            [
+                (generation, vector, 31, 301, 0, 1),
+                (generation, vector, 31, 301, 0, 1),
+            ]
+        )
+    assert repository.count_generation_chunks(generation, 301, 31) == 0
+
+
+def test_generation_upsert_rejects_negative_chunk_index(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "99999999-9999-4999-8999-999999999999"
+    with pytest.raises(ValueError, match="Chunk index must be non-negative"):
+        repository.upsert_generation_chunks(
+            [(generation, vector, 31, 301, -1, 1)]
+        )
+    assert repository.count_generation_chunks(generation, 301, 31) == 0
+
+
 def test_generation_search_with_empty_generation_list_returns_empty(repository):
     result = repository.search_generation(
         query_vector=[1.0] + [0.0] * 1023,

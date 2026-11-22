@@ -193,7 +193,9 @@ def test_background_processing_failure_is_contained(
         db,
         document.id,
     ).status == DocumentStatus.FAILED
-    assert logged_messages == []
+    assert logged_messages == [
+        "Generation-based document processing failed",
+    ]
 
 
 def test_background_processing_missing_document_is_contained(
@@ -219,7 +221,7 @@ def test_background_processing_closes_session(monkeypatch):
     stub_rag_services(monkeypatch)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_worker.process_document",
+        "backend.services.document_processing_worker.process_document_generation",
         lambda **kwargs: (_ for _ in ()).throw(
             RuntimeError("boom")
         ),

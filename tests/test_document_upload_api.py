@@ -613,9 +613,17 @@ def test_upload_persists_extraction_stats(
         lambda: embedding,
     )
 
+    qdrant = Mock()
+    indexes = []
+    qdrant.upsert_generation_chunks.side_effect = lambda records: indexes.extend(
+        record[4] for record in records
+    )
+    qdrant.list_generation_chunk_indexes.side_effect = lambda **kwargs: sorted(
+        indexes
+    )
     monkeypatch.setattr(
         "backend.services.document_processing_worker.get_qdrant_repository",
-        lambda: Mock(),
+        lambda: qdrant,
     )
 
     monkeypatch.setattr(

@@ -655,3 +655,32 @@ def test_generation_point_count_is_scoped_to_generation_document_and_tenant(repo
         document_id=201,
         organization_id=22,
     ) == 0
+
+
+
+@pytest.mark.parametrize(
+    "malformed_payload",
+    ["not-a-dict", ["chunk_index", 0], 17],
+)
+def test_generation_chunk_index_listing_rejects_non_mapping_payload(
+    repository, qdrant, monkeypatch, malformed_payload
+):
+    generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+    class MalformedPoint:
+        payload = malformed_payload
+
+    def malformed_payload_scroll(**kwargs):
+        return [MalformedPoint()], None
+
+    monkeypatch.setattr(qdrant, "scroll", malformed_payload_scroll)
+
+    with pytest.raises(
+        VectorStoreError,
+        match="Qdrant generation chunk-index listing failed for organization 41",
+    ) as exc_info:
+        repository.list_generation_chunk_indexes(
+            generation, document_id=401, organization_id=41
+        )
+
+    assert isinstance(exc_info.value.__cause__, AttributeError)

@@ -552,6 +552,28 @@ def test_generation_chunk_index_listing_rejects_duplicate_payload_indexes(
         )
 
 
+def test_generation_chunk_index_listing_rejects_pagination_offset_cycle(
+    repository, qdrant, monkeypatch
+):
+    generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    offsets = ["page-a", "page-b", "page-a"]
+    calls = []
+
+    def cycling_scroll(**kwargs):
+        calls.append(kwargs["offset"])
+        next_offset = offsets[len(calls) - 1]
+        return [], next_offset
+
+    monkeypatch.setattr(qdrant, "scroll", cycling_scroll)
+
+    with pytest.raises(RuntimeError, match="Qdrant scroll pagination did not advance"):
+        repository.list_generation_chunk_indexes(
+            generation, document_id=401, organization_id=41
+        )
+
+    assert calls == [None, "page-a", "page-b"]
+
+
 def test_generation_chunk_index_listing_is_scoped(repository):
     vector = [1.0] + [0.0] * 1023
     generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

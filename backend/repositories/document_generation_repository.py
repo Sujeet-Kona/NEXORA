@@ -1,5 +1,6 @@
 """Repository primitives for isolated document-processing generations."""
 
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ def create_staging_generation(
 
     This helper does not commit. The caller controls the transaction boundary.
     """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     document = (
         db.query(Document)
         .filter(
@@ -30,6 +32,7 @@ def create_staging_generation(
             Document.organization_id == organization_id,
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
         )
         .with_for_update()
         .first()
@@ -64,6 +67,7 @@ def replace_staging_generation_chunks(
     Returns None for a stale/mismatched owner without mutating staged chunks.
     Caller must commit or roll back to release the document lock.
     """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     document = (
         db.query(Document)
         .filter(
@@ -71,6 +75,7 @@ def replace_staging_generation_chunks(
             Document.organization_id == organization_id,
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
         )
         .with_for_update()
         .first()
@@ -145,6 +150,7 @@ def promote_staging_generation(
     The caller owns the transaction and must commit on success. A stale or
     invalid attempt returns False without changing document/generation state.
     """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     document = (
         db.query(Document)
         .filter(
@@ -152,6 +158,7 @@ def promote_staging_generation(
             Document.organization_id == organization_id,
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
         )
         .with_for_update()
         .first()

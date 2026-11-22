@@ -709,3 +709,28 @@ def test_abandoned_cleanup_discovery_excludes_active_generation_and_is_bounded(d
     assert active_generation not in {candidate.id for candidate in all_candidates}
     assert list_abandoned_generation_cleanup_candidates(db, limit=0) == []
     assert list_abandoned_generation_cleanup_candidates(db, limit=-1) == []
+
+
+def test_abandoned_cleanup_discovery_rejects_generation_tenant_mismatch(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-discovery-tenant-mismatch@example.com"
+    )
+    other_user = create_user(db, "generation-discovery-other-tenant@example.com", "Other Org")
+    other_organization = create_organization_service(
+        db=db,
+        name="Generation Discovery Other Org",
+        user_id=other_user.id,
+    )
+    db.query(DocumentProcessingGeneration).filter(
+        DocumentProcessingGeneration.id == generation_id
+    ).update(
+        {
+            DocumentProcessingGeneration.status: "abandoned",
+            DocumentProcessingGeneration.organization_id: other_organization.id,
+        },
+        synchronize_session=False,
+    )
+    db.commit()
+
+    candidates = list_abandoned_generation_cleanup_candidates(db, limit=100)
+    assert generation_id not in {candidate.id for candidate in candidates}

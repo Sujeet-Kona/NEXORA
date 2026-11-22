@@ -113,6 +113,8 @@ def process_document_generation(
         )
         if generation_id is None:
             db.rollback()
+            if _owned(db, document_id, attempt_id):
+                raise RuntimeError("Could not create staging generation")
             return False
         db.commit()
 
@@ -130,6 +132,8 @@ def process_document_generation(
         )
         if staged is None:
             db.rollback()
+            if _owned(db, document_id, attempt_id):
+                raise RuntimeError("Could not stage generation chunks")
             return False
         db.commit()
 
@@ -171,6 +175,8 @@ def process_document_generation(
         )
         if not promoted:
             db.rollback()
+            if _owned(db, document_id, attempt_id):
+                raise RuntimeError("Staging generation failed readiness or promotion")
             return False
         # Promotion performs READY and clears the attempt token in this SQL
         # transaction. Stats are committed atomically with the active pointer.

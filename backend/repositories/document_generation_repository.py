@@ -160,7 +160,8 @@ def promote_staging_generation(
         return False
 
 
-    generation = (\n        db.query(DocumentProcessingGeneration)
+    generation = (
+        db.query(DocumentProcessingGeneration)
         .filter(
             DocumentProcessingGeneration.id == generation_id,
             DocumentProcessingGeneration.document_id == document_id,

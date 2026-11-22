@@ -457,3 +457,33 @@ def test_generation_search_with_empty_generation_list_returns_empty(repository):
         limit=5,
     )
     assert result == []
+
+def test_generation_point_count_is_scoped_to_generation_document_and_tenant(repository):
+    vector = [1.0] + [0.0] * 1023
+    target_generation = "66666666-6666-4666-8666-666666666666"
+    other_generation = "77777777-7777-4777-8777-777777777777"
+    repository.upsert_generation_chunks(
+        [
+            (target_generation, vector, 21, 201, 0, 1),
+            (target_generation, vector, 21, 201, 1, 1),
+            (other_generation, vector, 21, 201, 0, 1),
+            (target_generation, vector, 21, 202, 0, 1),
+            (target_generation, vector, 22, 201, 0, 1),
+        ]
+    )
+
+    assert repository.count_generation_chunks(
+        target_generation,
+        document_id=201,
+        organization_id=21,
+    ) == 2
+    assert repository.count_generation_chunks(
+        target_generation,
+        document_id=202,
+        organization_id=21,
+    ) == 1
+    assert repository.count_generation_chunks(
+        target_generation,
+        document_id=201,
+        organization_id=22,
+    ) == 1

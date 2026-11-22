@@ -97,6 +97,18 @@ class QdrantRepository:
                     # never prevent startup.
                     pass
 
+            try:
+                self.client.create_payload_index(
+                    collection_name=settings.qdrant_collection,
+                    field_name="generation_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+            except Exception:
+                # Generation filtering remains enforced by the query filter;
+                # the payload index only improves filtering performance.
+                pass
+
+
         self._collection_ready = True
 
     def upsert_chunks(
@@ -350,7 +362,7 @@ class QdrantRepository:
                 "Embedding dimension does not match Qdrant configuration"
             )
         if not generation_ids:
-            return None
+            return []
         self.ensure_collection()
         must_conditions = [
             models.FieldCondition(

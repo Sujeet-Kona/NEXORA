@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from backend.db.models import DocumentProcessingGeneration
 from backend.repositories.document_generation_repository import (
     create_staging_generation,
@@ -256,3 +258,58 @@ def test_empty_staging_generation_cannot_be_promoted(db):
     db.refresh(document)
     assert document.active_generation_id is None
     assert document.status == "processing"
+
+
+def test_expired_lease_cannot_replace_or_promote_staging_generation(db):
+    document = _document(db, "generation-expired-lease@example.com")
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    )
+    assert generation_id is not None
+    replace_staging_generation_chunks(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        [("original staged content", 1, 1)],
+    )
+    db.commit()
+
+    document.processing_lease_expires_at = (
+        datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    )
+    db.commit()
+
+    assert replace_staging_generation_chunks(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        [("expired worker overwrite", 1, 1)],
+    ) is None
+    assert promote_staging_generation(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    ) is False
+    db.rollback()
+    db.refresh(document)
+
+    staged = get_staging_generation_chunks(
+        db,
+        generation_id,
+        document.organization_id,
+    )
+    assert [row.text for row in staged] == ["original staged content"]
+    assert document.active_generation_id is None
+    assert document.status == "processing"
+    assert document.processing_attempt_id == attempt_id

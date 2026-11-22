@@ -46,6 +46,7 @@ def _abandon_staging_generations(
             {DocumentProcessingGeneration.status: "abandoned"},
             synchronize_session=False,
         )
+    )
 
 
 def recover_stale_processing_documents(db: Session) -> int:

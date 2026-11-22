@@ -142,3 +142,120 @@ def test_staging_chunk_read_is_tenant_scoped(db):
         generation_id,
         organization_id=document.organization_id + 10000,
     ) == []
+
+
+def test_promotion_activates_generation_and_clears_attempt_owner(db):
+    from backend.repositories.document_generation_repository import promote_staging_generation
+
+
+    document = _document(db, "generation-promotion-success@example.com")
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    )
+    assert generation_id is not None
+    replace_staging_generation_chunks(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        [("promotable staged chunk", 1, 1)],
+    )
+    assert promote_staging_generation(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    ) is True
+    db.commit()
+    db.refresh(document)
+    assert document.active_generation_id == generation_id
+    assert document.status.value == "ready"
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None
+
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.id == generation_id)
+        .one()
+    )
+    assert generation.status == "active"
+
+
+
+def test_stale_attempt_cannot_promote_generation(db):
+    from backend.repositories.document_generation_repository import promote_staging_generation
+
+
+    document = _document(db, "generation-promotion-stale@example.com")
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    )
+    assert generation_id is not None
+    replace_staging_generation_chunks(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        [("stale candidate", 1, 1)],
+    )
+    db.commit()
+
+    # Recovery/another owner invalidates the attempt before promotion.
+    from backend.repositories.document_repository import recover_stale_document_processing
+    recover_stale_document_processing(db, stale_after_minutes=0)
+    db.commit()
+    assert promote_staging_generation(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    ) is False
+    db.rollback()
+    db.refresh(document)
+    assert document.active_generation_id is None
+    assert document.processing_attempt_id is None
+    assert document.status.value == "pending"
+
+
+
+def test_empty_staging_generation_cannot_be_promoted(db):
+    from backend.repositories.document_generation_repository import promote_staging_generation
+
+
+    document = _document(db, "generation-promotion-empty@example.com")
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    )
+    assert generation_id is not None
+    db.commit()
+
+    assert promote_staging_generation(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+    ) is False
+    db.rollback()
+    db.refresh(document)
+    assert document.active_generation_id is None
+    assert document.status.value == "processing"

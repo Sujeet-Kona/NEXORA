@@ -265,6 +265,7 @@ class QdrantRepository:
         """
         points = []
         seen_point_ids = set()
+        generation_scope = {}
         for (
             generation_id,
             vector,
@@ -273,8 +274,16 @@ class QdrantRepository:
             chunk_index,
             document_version,
         ) in chunks:
+            if isinstance(chunk_index, bool) or not isinstance(chunk_index, int):
+                raise ValueError("Chunk index must be an integer")
             if chunk_index < 0:
                 raise ValueError("Chunk index must be non-negative")
+            scope = (organization_id, document_id)
+            previous_scope = generation_scope.setdefault(generation_id, scope)
+            if previous_scope != scope:
+                raise ValueError(
+                    "Generation batch must not mix documents or organizations"
+                )
             try:
                 namespace = UUID(generation_id)
             except (ValueError, AttributeError) as exc:

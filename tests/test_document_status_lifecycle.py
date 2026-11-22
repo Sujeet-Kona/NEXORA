@@ -295,7 +295,7 @@ def test_pending_to_ready_is_rejected(client):
     }
 
 
-def test_ready_to_pending_is_rejected(client):
+def test_ready_to_pending_is_rejected(client, db):
     token = register_and_login(
         client,
         "lifecycle-ready-pending@example.com",
@@ -337,7 +337,7 @@ def test_ready_to_pending_is_rejected(client):
     }
 
 
-def test_ready_to_processing_is_rejected(client):
+def test_ready_to_processing_is_rejected(client, db):
     token = register_and_login(
         client,
         "lifecycle-ready-processing@example.com",

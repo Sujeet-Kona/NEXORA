@@ -188,3 +188,30 @@ The five-second client timeout bounds how long the client waits, not necessarily
 3. Consider using explicit Qdrant operation timeout and ordering only after semantics are understood; neither should be treated as cross-store fencing on its own.
 
 **Verification:** source inspection of the upstream `qdrant-client v1.19.0` code and the project's pinned dependency only; no tests executed.
+
+
+## Vector writer and cleanup call-site inventory (checkpoint)
+
+**Reviewed:** 2026-11-22 at branch head `fae87f6c4191382803f406f93fb15462b4a07b6a`. This inventory is based on remote source reads of the Qdrant repository and processing/indexing/service modules; it is a source-call-site inventory, not runtime tracing.
+
+
+### Vector mutation entry points
+
+- `QdrantRepository.upsert_generation_chunks`: generation UUID point IDs; generation payload; called from `document_generation_processing_service.process_document_generation` in batches after a lease-renewal preflight. This is the intended attempt-owned staging write path.
+- `QdrantRepository.upsert_chunks`: legacy integer-ID point writes; called by `document_indexing_service.index_document_chunks`. That legacy indexer remains referenced by `document_processing_service.process_document`, so it is still a code path to account for rather than assume removed.
+- `QdrantRepository.delete_document_chunks`: broad document vector cleanup; observed in document-processing failure cleanup and document deletion service.
+- `QdrantRepository.delete_legacy_document_chunks`: intentionally filters out generation-tagged points, called from document version replacement service.
+- `QdrantRepository.delete_generation_chunks`: generation-scoped cleanup API; separate from legacy document purge.
+
+### Lifecycle interaction observations
+
+- Generation processing uses staged generation SQL chunks and generation-scoped vectors before promotion; active generation selection is SQL-pointer based. Its lease renewals are preflight updates, not a lock held over vector writes.
+- The legacy processing service/indexer still performs shared-vector deletion and legacy upserts. The worker's generation processing path does not by itself prove legacy processing is unreachable from all entry points.
+- Document deletion currently performs a document-wide vector purge while the SQL document row is locked, then deletes the SQL document. A late external write can still be a concern where the writer was not serialized by that same row lock.
+- Version replacement's legacy vector deletion is deliberately scoped to legacy vectors, so generation-tagged vectors are preserved by that path.
+
+### Coverage boundary and next gate
+
+This inventory identifies the mutation methods and source call sites found in the reviewed modules. It does **not** establish runtime reachability, complete background-task scheduling coverage, or that every mutation is serialized against deletion/recovery. Before any row-lock barrier implementation, map API/task entry points to both processing services and add an assertion/test that legacy processing cannot be scheduled for a document once generation ownership is claimed (or deliberately fence both paths).
+
+**Verification:** remote GitHub source reads and static call-site inspection only; no local test or runtime execution.

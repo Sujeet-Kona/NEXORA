@@ -235,3 +235,145 @@ class QdrantRepository:
         return _do()
 
 
+
+
+    def upsert_generation_chunks(
+        self,
+        chunks: list[tuple[str, list[float], int, int, int, int]],
+    ) -> None:
+        """Upsert generation-scoped vectors without touching active document vectors.
+
+
+        Each record is (generation_id, vector, organization_id, document_id,
+        chunk_index, document_version). Point IDs are deterministic UUIDs derived
+        from generation UUID and chunk index, so separate generations never
+        overwrite each other.
+        """
+        points = []
+        for (
+            generation_id,
+            vector,
+            organization_id,
+            document_id,
+            chunk_index,
+            document_version,
+        ) in chunks:
+            try:
+                namespace = __import__("uuid").UUID(generation_id)
+            except (ValueError, AttributeError) as exc:
+                raise ValueError("Generation ID must be a valid UUID") from exc
+            if len(vector) != settings.embedding_dimension:
+                raise ValueError(
+                    "Embedding dimension does not match Qdrant configuration"
+                )
+            point_id = str(__import__("uuid").uuid5(namespace, str(chunk_index)))
+            points.append(
+                models.PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "organization_id": organization_id,
+                        "document_id": document_id,
+                        "generation_id": generation_id,
+                        "chunk_index": chunk_index,
+                        "version": int(document_version),
+                    },
+                )
+            )
+        if not points:
+            return
+        self.ensure_collection()
+
+        @self._wrap("generation upsert")
+        def _do():
+            self.client.upsert(
+                collection_name=settings.qdrant_collection,
+                wait=True,
+                points=points,
+            )
+        _do()
+
+
+
+    def delete_generation_chunks(
+        self,
+        generation_id: str,
+        document_id: int,
+        organization_id: int,
+    ) -> None:
+        """Delete only points belonging to one generation and tenant."""
+        self.ensure_collection()
+
+
+
+        @self._wrap("generation delete", organization_id=organization_id)
+        def _do():
+            self.client.delete(
+                collection_name=settings.qdrant_collection,
+                wait=True,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="organization_id",
+                                match=models.MatchValue(value=organization_id),
+                            ),
+                            models.FieldCondition(
+                                key="document_id",
+                                match=models.MatchValue(value=document_id),
+                            ),
+                            models.FieldCondition(
+                                key="generation_id",
+                                match=models.MatchValue(value=generation_id),
+                            ),
+                        ]
+                    )
+                ),
+            )
+        _do()
+
+
+
+    def search_generation(
+        self,
+        query_vector: list[float],
+        organization_id: int,
+        generation_ids: list[str],
+        limit: int = 5,
+        document_ids: list[int] | None = None,
+    ):
+        """Search staged generations with mandatory tenant/generation filters."""
+        if len(query_vector) != settings.embedding_dimension:
+            raise ValueError(
+                "Embedding dimension does not match Qdrant configuration"
+            )
+        if not generation_ids:
+            return None
+        self.ensure_collection()
+        must_conditions = [
+            models.FieldCondition(
+                key="organization_id",
+                match=models.MatchValue(value=organization_id),
+            ),
+            models.FieldCondition(
+                key="generation_id",
+                match=models.MatchAny(any=generation_ids),
+            ),
+        ]
+        if document_ids is not None:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchAny(any=document_ids),
+                )
+            )
+        @self._wrap("generation search", organization_id=organization_id)
+        def _do():
+            return self.client.query_points(
+                collection_name=settings.qdrant_collection,
+                query=query_vector,
+                query_filter=models.Filter(must=must_conditions),
+                limit=limit,
+                with_payload=True,
+            )
+        return _do()

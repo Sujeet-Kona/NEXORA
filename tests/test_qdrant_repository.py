@@ -423,6 +423,33 @@ def test_generation_delete_only_removes_target_generation(repository):
     assert remaining.points[0].payload["generation_id"] == generation_b
 
 
+def test_legacy_search_excludes_generation_vectors(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+    _seed(
+        repository,
+        chunk_id=301,
+        vector=vector,
+        organization_id=31,
+        document_id=301,
+        chunk_index=0,
+    )
+    repository.upsert_generation_chunks(
+        [(generation, vector, 31, 301, 0, 1)]
+    )
+
+    result = repository.search(
+        query_vector=vector,
+        organization_id=31,
+        limit=10,
+    )
+
+    # Legacy hydration expects integer DocumentChunk IDs. Generation points
+    # have UUID IDs and must only be returned by generation-aware search.
+    assert {point.id for point in result.points} == {301}
+
+
 def test_generation_search_is_tenant_scoped(repository):
     vector = [1.0] + [0.0] * 1023
     generation = "55555555-5555-4555-8555-555555555555"

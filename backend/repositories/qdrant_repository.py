@@ -222,7 +222,13 @@ class QdrantRepository:
                 match=models.MatchValue(
                     value=organization_id,
                 ),
-            )
+            ),
+            # Legacy search resolves integer chunk IDs from DocumentChunk.
+            # Generation-scoped vectors use UUID IDs and must not leak into
+            # this path until retrieval is wired to active generations.
+            models.IsEmptyCondition(
+                is_empty=models.PayloadField(key="generation_id"),
+            ),
         ]
 
         if document_ids is not None:

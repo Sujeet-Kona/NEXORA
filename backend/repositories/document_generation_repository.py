@@ -369,3 +369,77 @@ def retire_failed_staging_generation(
     generation.status = "failed"
     db.flush()
     return True
+
+def cleanup_failed_generation_artifacts(
+    db: Session,
+    generation_id: str,
+    document_id: int,
+    organization_id: int,
+    attempt_id: str,
+    vector_repository,
+) -> bool:
+    """Idempotently clean artifacts for a failed, non-active candidate.
+
+    The current processing owner and lease are required. Vector deletion is
+    generation/document/tenant scoped and is verified by an exact count before
+    SQL chunks are removed. Caller owns SQL commit/rollback.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    document = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.organization_id == organization_id,
+            Document.status == DocumentStatus.PROCESSING,
+            Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
+            Document.active_generation_id != generation_id,
+        )
+        .with_for_update()
+        .first()
+    )
+    if document is None:
+        return False
+
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(
+            DocumentProcessingGeneration.id == generation_id,
+            DocumentProcessingGeneration.document_id == document_id,
+            DocumentProcessingGeneration.organization_id == organization_id,
+            DocumentProcessingGeneration.attempt_id == attempt_id,
+            DocumentProcessingGeneration.status == "failed",
+        )
+        .with_for_update()
+        .first()
+    )
+    if generation is None:
+        return False
+
+    try:
+        vector_repository.delete_generation_chunks(
+            generation_id=generation_id,
+            document_id=document_id,
+            organization_id=organization_id,
+        )
+        remaining_vectors = vector_repository.count_generation_chunks(
+            generation_id=generation_id,
+            document_id=document_id,
+            organization_id=organization_id,
+        )
+    except Exception:
+        return False
+    if remaining_vectors != 0:
+        return False
+
+    (
+        db.query(DocumentGenerationChunk)
+        .filter(
+            DocumentGenerationChunk.generation_id == generation_id,
+            DocumentGenerationChunk.document_id == document_id,
+            DocumentGenerationChunk.organization_id == organization_id,
+        )
+        .delete(synchronize_session=False)
+    )
+    db.flush()
+    return True

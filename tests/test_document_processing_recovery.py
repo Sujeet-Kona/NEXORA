@@ -143,3 +143,30 @@ def test_startup_recovery_resolves_overridden_session_factory(
 
     assert recovered is not None
     assert recovered.status == DocumentStatus.PENDING
+
+
+def test_document_processing_attempt_fields_round_trip(db):
+    document = create_processing_document(
+        db,
+        "recovery-attempt-schema@example.com",
+    )
+
+    attempt_id = "12345678-1234-1234-1234-123456789abc"
+    lease_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=30)
+
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_attempt_id=attempt_id,
+            processing_lease_expires_at=lease_expiry,
+        )
+    )
+    db.commit()
+
+    db.expire_all()
+    persisted = db.get(Document, document.id)
+
+    assert persisted is not None
+    assert persisted.processing_attempt_id == attempt_id
+    assert persisted.processing_lease_expires_at == lease_expiry

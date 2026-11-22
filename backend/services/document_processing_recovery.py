@@ -42,6 +42,11 @@ def _abandon_staging_generations(
             DocumentProcessingGeneration.organization_id == organization_id,
             DocumentProcessingGeneration.attempt_id == attempt_id,
             DocumentProcessingGeneration.status == "staging",
+            # A recovery sweep must never make the active generation
+            # cleanup-eligible, even if its status is inconsistent.
+            Document.active_generation_id.is_distinct_from(
+                DocumentProcessingGeneration.id
+            ),
         )
         .update(
             {DocumentProcessingGeneration.status: "abandoned"},

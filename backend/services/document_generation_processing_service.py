@@ -160,6 +160,9 @@ def process_document_generation(
             db.rollback()
             if _owned(db, document_id, attempt_id):
                 raise RuntimeError("Could not stage generation chunks")
+            _abandon_staging_if_owned_by_attempt(
+                db, generation_id, document_id, organization_id, attempt_id
+            )
             return False
         db.commit()
 

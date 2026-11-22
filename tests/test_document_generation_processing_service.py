@@ -304,3 +304,31 @@ def test_lease_loss_after_staging_abandons_inactive_generation(db, monkeypatch):
     assert generation.status == "abandoned"
     assert document.active_generation_id is None
     assert vectors.records == []
+
+
+
+def test_chunk_staging_ownership_loss_abandons_created_generation(
+    db, monkeypatch,
+):
+    document = _pending_document(db, "generation-worker-stage-owner-loss@example.com")
+    _stub_extraction(monkeypatch)
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service.replace_staging_generation_chunks",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service._owned",
+        lambda *args, **kwargs: False,
+    )
+
+    result = process_document_generation(
+        db, document.id, _Embeddings(), _VectorRepository()
+    )
+
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.document_id == document.id)
+        .one()
+    )
+    assert result is False
+    assert generation.status == "abandoned"

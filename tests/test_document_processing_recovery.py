@@ -2,7 +2,12 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update
 
-from backend.db.models import (\n    Document,\n    DocumentProcessingGeneration,\n    DocumentStatus,\n    User,\n)
+from backend.db.models import (
+    Document,
+    DocumentProcessingGeneration,
+    DocumentStatus,
+    User,
+)
 from backend.dependencies.database import get_session_factory
 from backend.main import app, recover_stale_processing_jobs
 from backend.repositories.document_repository import create_document

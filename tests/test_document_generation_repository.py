@@ -8,6 +8,7 @@ from backend.repositories.document_generation_repository import (
     promote_staging_generation,
     promote_staging_generation_with_vector_readiness,
     validate_staging_generation_vector_readiness,
+    retire_failed_staging_generation,
 )
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -461,3 +462,51 @@ def test_readiness_gated_promotion_fails_closed_on_vector_store_error(db):
     assert document.active_generation_id is None
     assert document.status == "processing"
     assert generation.status == "staging"
+
+def test_failed_candidate_retirement_preserves_active_generation(db):
+    document = _document(db, "generation-failed-candidate-preserves-active@example.com")
+    first_attempt = claim_document_processing_attempt(db, document.id)
+    assert first_attempt is not None
+    active_candidate = create_staging_generation(
+        db, document.id, document.organization_id, first_attempt
+    )
+    assert active_candidate is not None
+    replace_staging_generation_chunks(
+        db, active_candidate, document.id, document.organization_id,
+        first_attempt, [("known good generation", 1, 1)]
+    )
+    assert promote_staging_generation(
+        db, active_candidate, document.id, document.organization_id, first_attempt
+    ) is True
+    db.commit()
+
+    # A new attempt starts for replacement processing; the previous generation
+    # remains active while this candidate is being built.
+    replacement_attempt = claim_document_processing_attempt(db, document.id)
+    assert replacement_attempt is not None
+    failed_candidate = create_staging_generation(
+        db, document.id, document.organization_id, replacement_attempt
+    )
+    assert failed_candidate is not None
+    replace_staging_generation_chunks(
+        db, failed_candidate, document.id, document.organization_id,
+        replacement_attempt, [("replacement partial content", 1, 1)]
+    )
+    db.commit()
+
+    assert retire_failed_staging_generation(
+        db, failed_candidate, document.id, document.organization_id,
+        replacement_attempt
+    ) is True
+    db.commit()
+    db.refresh(document)
+    generations = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.document_id == document.id)
+        .all()
+    )
+    statuses = {generation.id: generation.status for generation in generations}
+    assert document.active_generation_id == active_candidate
+    assert statuses[active_candidate] == "active"
+    assert statuses[failed_candidate] == "failed"
+    assert document.status == "processing"

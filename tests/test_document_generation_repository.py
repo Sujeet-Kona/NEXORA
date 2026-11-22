@@ -320,9 +320,10 @@ def test_expired_lease_cannot_replace_or_promote_staging_generation(db):
     assert document.processing_attempt_id == attempt_id
 
 class _VectorCountStub:
-    def __init__(self, count=None, error=None):
+    def __init__(self, count=None, error=None, indexes=None):
         self.count = count
         self.error = error
+        self.indexes = indexes
         self.calls = []
 
     def count_generation_chunks(self, **kwargs):
@@ -330,6 +331,14 @@ class _VectorCountStub:
         if self.error is not None:
             raise self.error
         return self.count
+
+    def list_generation_chunk_indexes(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        if self.indexes is not None:
+            return self.indexes
+        return list(range(self.count or 0))
 
 
 def _staged_generation_for_readiness(db, email):
@@ -386,6 +395,22 @@ def test_vector_readiness_rejects_incomplete_or_extra_vectors(db):
             attempt_id,
             _VectorCountStub(count=vector_count),
         ) is False
+
+
+def test_vector_readiness_rejects_same_count_with_wrong_chunk_indexes(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-readiness-index-mismatch@example.com"
+    )
+    vector_repository = _VectorCountStub(count=2, indexes=[0, 2])
+
+    assert validate_staging_generation_vector_readiness(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        vector_repository,
+    ) is False
 
 
 def test_vector_readiness_fails_closed_on_vector_store_error(db):

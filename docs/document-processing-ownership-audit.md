@@ -394,3 +394,27 @@ Do not ship a cleanup reconciler or claim hard deletion based on any current can
 - Existing active generation stays queryable and undeleted throughout failed candidate cleanup.
 
 This is a static design comparison; no experiment was performed. It narrows the safe immediate goal to retrieval invisibility and durable cleanup bookkeeping, while retaining the no-hard-delete/no-automatic-cleanup decision.
+
+
+## Admin status mutation ownership review (checkpoint)
+
+**Reviewed:** 2026-11-22 at head `339765dee028a89181a34f5bd0a962654c6b1a7b`.
+
+### Confirmed implementation gap
+
+The admin/owner PATCH status flow (`update_document_status_service`) reads the tenant-scoped document through `get_document_by_id` (no row lock), validates the transition against that ORM object's status, then calls `update_document_status`, which assigns the status and commits. This mutation path does not re-lock/re-read the document at the mutation point and does not manage `processing_attempt_id` or `processing_lease_expires_at`.
+
+The transition table explicitly permits `PROCESSING -> PENDING` and `PROCESSING -> FAILED`. Therefore a status PATCH can race with an attempt claim/renewal/finalization and can change the status without clearing the attempt ownership fields. Existing `test_document_status_lifecycle.py` exercises sequential transitions (including processing->ready), but the reviewed tests do not demonstrate concurrent status-PATCH versus worker-claim/lease behavior.
+
+### Scope and consequence
+
+This is a confirmed lock/ownership inconsistency in the administrative status mutation path; a specific stale-vector disclosure or late-write event was not demonstrated. The processing worker's ownership predicates also require `PROCESSING`, matching token, and unexpired lease, so a status mutation away from PROCESSING invalidates its subsequent SQL-owned operations. The external-write race described earlier still means an already-submitted Qdrant request may outlive that change.
+
+### Safe next-step requirements
+
+- Re-read and lock the organization-scoped document row at the status mutation point; validate the transition against the locked current state, not a stale ORM instance.
+- Define explicit semantics for administrative transitions away from PROCESSING: invalidate the attempt token/lease and transactionally retire or abandon its staging generation, without pretending this fences an already accepted Qdrant write.
+- Keep the status PATCH API from creating PROCESSING without an ownership claim, or document/test the intended manual-processing behavior. The current public transition to PROCESSING does not create an attempt token or lease.
+- Add concurrency tests for PATCH-vs-claim, PATCH-vs-renewal/finalization, and transition-to-PENDING/FAILED while an attempt owns the row. Verify that no status transition silently preserves stale ownership metadata and that active generation remains intact.
+
+**Verification limitation:** source and test review only. No code changed, no local tests run, and no CI run was started for this audit checkpoint.

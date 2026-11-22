@@ -431,6 +431,7 @@ class QdrantRepository:
         def _do():
             indexes = []
             offset = None
+            seen_offsets = []
             while True:
                 points, next_offset = self.client.scroll(
                     collection_name=settings.qdrant_collection,
@@ -450,8 +451,9 @@ class QdrantRepository:
                     indexes.append(chunk_index)
                 if next_offset is None:
                     break
-                if next_offset == offset:
+                if next_offset == offset or next_offset in seen_offsets:
                     raise RuntimeError("Qdrant scroll pagination did not advance")
+                seen_offsets.append(next_offset)
                 offset = next_offset
             return indexes
 

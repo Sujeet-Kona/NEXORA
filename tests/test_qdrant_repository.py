@@ -527,6 +527,31 @@ def test_generation_chunk_index_listing_rejects_boolean_payload(repository, qdra
 
 
 
+def test_generation_chunk_index_listing_rejects_duplicate_payload_indexes(
+    repository, qdrant
+):
+    vector = [1.0] + [0.0] * 1023
+    generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    repository.upsert_generation_chunks(
+        [
+            (generation, vector, 41, 401, 0, 1),
+            (generation, vector, 41, 401, 1, 1),
+        ]
+    )
+    point_id = str(uuid5(UUID(generation), "1"))
+    qdrant.set_payload(
+        collection_name=settings.qdrant_collection,
+        payload={"chunk_index": 0},
+        points=[point_id],
+        wait=True,
+    )
+
+    with pytest.raises(ValueError, match="Duplicate generation chunk index payload"):
+        repository.list_generation_chunk_indexes(
+            generation, document_id=401, organization_id=41
+        )
+
+
 def test_generation_chunk_index_listing_is_scoped(repository):
     vector = [1.0] + [0.0] * 1023
     generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"

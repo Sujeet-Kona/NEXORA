@@ -418,3 +418,26 @@ This is a confirmed lock/ownership inconsistency in the administrative status mu
 - Add concurrency tests for PATCH-vs-claim, PATCH-vs-renewal/finalization, and transition-to-PENDING/FAILED while an attempt owns the row. Verify that no status transition silently preserves stale ownership metadata and that active generation remains intact.
 
 **Verification limitation:** source and test review only. No code changed, no local tests run, and no CI run was started for this audit checkpoint.
+
+
+## Manual PROCESSING transition policy (checkpoint)
+
+Review of the status API and worker claim flow confirms that the API currently permits a caller with admin/owner privileges to set a document to `PROCESSING` without minting a `processing_attempt_id` or lease. The generation worker's claim routine only claims `PENDING` documents and creates ownership metadata itself. Thus the API can create a status value that resembles worker-owned processing but has no worker claim; the reviewed flow does not establish that a manual transition schedules a worker.
+
+
+This is a lifecycle-policy decision as well as a race fix. Three options were considered:
+
+- **Disallow manual PROCESSING:** status API only controls non-worker states; processing is entered exclusively through a claim routine. Simplest invariant, but requires confirming API consumers do not rely on manual processing state.
+- **Make manual PROCESSING a real claim:** status endpoint routes through the same atomic claim operation and schedules/starts processing, with ownership metadata. Avoids ownerless status but API semantics and background scheduling must be changed together.
+- **Keep a distinct administrative override state:** would require a new explicit status and defined retrieval/listing semantics; heavier schema/API change and not justified yet.
+
+**Recommendation:** prefer the first option if API contract inspection confirms manual `PROCESSING` is not a required external workflow; otherwise implement the second, not a bare status update. Regardless, status changes should lock and re-read the tenant-scoped row, validate transitions under that lock, and clear/invalidate attempt metadata when leaving worker-owned processing. Do not let manual status mutation claim worker ownership implicitly.
+
+### Required regression tests
+
+- Manual PENDING->PROCESSING must either be rejected with a stable conflict (option 1) or atomically establish an attempt and schedule processing (option 2); assert token and lease behavior, not just status.
+- Race two concurrent status changes and verify the transition is validated against the locked latest status.
+- Attempt admin PROCESSING->PENDING/FAILED during an active attempt; ensure token/lease invalidation and generation staging behavior are explicit and tested.
+- Verify worker claim remains the only unowned-to-owned transition and that status patch does not leave a PROCESSING row without ownership metadata.
+
+**Verification:** design/source review only; no application code changed and tests/CI were not run.

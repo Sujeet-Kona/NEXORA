@@ -56,3 +56,31 @@ def test_generation_chunk_rejects_cross_document_generation_reference(db):
     with pytest.raises(IntegrityError):
         db.flush()
     db.rollback()
+
+
+def test_generation_chunk_rejects_organization_mismatch(db):
+    _enable_sqlite_foreign_keys(db)
+    document = _document(db, "generation-chunk-org-owner-document@example.com")
+    other_document = _document(db, "generation-chunk-org-owner-other@example.com")
+
+    generation = DocumentProcessingGeneration(
+        id="generation-chunk-org-owner-valid",
+        document_id=document.id,
+        organization_id=document.organization_id,
+        attempt_id="attempt-chunk-org-owner",
+        status="staging",
+    )
+    db.add(generation)
+    db.flush()
+
+    chunk = DocumentGenerationChunk(
+        generation_id=generation.id,
+        document_id=document.id,
+        organization_id=other_document.organization_id,
+        chunk_index=0,
+        text="must not be assigned to another organization",
+    )
+    db.add(chunk)
+    with pytest.raises(IntegrityError):
+        db.flush()
+    db.rollback()

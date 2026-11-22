@@ -17,6 +17,7 @@ from backend.core.logging import LOGGER_NAME
 from backend.db.models import (
     AuditAction,
     Document,
+    DocumentProcessingGeneration,
     DocumentStatus,
     OrganizationRole,
     User,
@@ -473,6 +474,28 @@ def update_document_status_service(
     # without generation promotion. Admin recovery out of PROCESSING must
     # invalidate the old worker's ownership metadata.
     if document.status == DocumentStatus.PROCESSING:
+        # Admin recovery invalidates the current attempt. Abandon only that
+        # attempt's inactive staging generations in this same SQL transaction,
+        # before update_document_status commits the status/token change.
+        old_attempt_id = document.processing_attempt_id
+        if old_attempt_id is not None:
+            (
+                db.query(DocumentProcessingGeneration)
+                .filter(
+                    DocumentProcessingGeneration.document_id == document.id,
+                    DocumentProcessingGeneration.organization_id
+                    == document.organization_id,
+                    DocumentProcessingGeneration.attempt_id == old_attempt_id,
+                    DocumentProcessingGeneration.status == "staging",
+                    DocumentProcessingGeneration.id.is_distinct_from(
+                        document.active_generation_id
+                    ),
+                )
+                .update(
+                    {DocumentProcessingGeneration.status: "abandoned"},
+                    synchronize_session=False,
+                )
+            )
         document.processing_attempt_id = None
         document.processing_lease_expires_at = None
 

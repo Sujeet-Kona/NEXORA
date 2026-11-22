@@ -139,6 +139,24 @@ def get_staging_generation_chunks(
 
 
 
+def get_legacy_document_ids(
+    db: Session,
+    organization_id: int,
+    document_ids: list[int] | None = None,
+) -> list[int]:
+    """Return tenant-owned documents that have not been generation-migrated."""
+    query = db.query(Document.id).filter(
+        Document.organization_id == organization_id,
+        Document.active_generation_id.is_(None),
+    )
+    if document_ids is not None:
+        if not document_ids:
+            return []
+        query = query.filter(Document.id.in_(document_ids))
+    return [row.id for row in query.order_by(Document.id).all()]
+
+
+
 def get_active_generation_chunks(
     db: Session,
     organization_id: int,

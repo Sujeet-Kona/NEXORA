@@ -127,6 +127,32 @@ def test_stream_tokens_never_expose_out_of_range_markers():
     assert events[-1]["answer"] == "Leave is 20 days [1] and a bonus."
     assert streamed == events[-1]["answer"]
 
+def test_default_rag_retrieval_falls_back_to_legacy_only_documents(monkeypatch):
+    import backend.services.rag_service as rag_service
+
+    captured = []
+    monkeypatch.setattr(rag_service, "get_legacy_document_ids", lambda **kwargs: [7, 8])
+
+    def retrieve(**kwargs):
+        captured.append(kwargs)
+        return [make_chunk()] if kwargs["use_active_generations"] is False else []
+
+    monkeypatch.setattr(rag_service, "hybrid_retrieve_chunks", retrieve)
+    response = answer_question(
+        db=None,
+        organization_id=2,
+        question="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeLLM(),
+    )
+    assert response.sources
+    assert captured[0]["use_active_generations"] is True
+    assert captured[1]["use_active_generations"] is False
+    assert captured[1]["document_ids"] == [7, 8]
+
+
+
 def test_default_rag_retrieval_uses_active_generations(monkeypatch):
     import backend.services.rag_service as rag_service
 

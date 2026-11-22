@@ -16,6 +16,7 @@ from backend.services.generation_service import (
     usable_chunks,
 )
 from backend.services.hybrid_retrieval_service import hybrid_retrieve_chunks
+from backend.repositories.document_generation_repository import get_legacy_document_ids
 from backend.services.llm.base import LLMClient, LLMUsage
 from backend.services.retrieval_service import RetrievedChunk
 
@@ -33,7 +34,7 @@ def _retrieve_chunks(
     # Production RAG must use the generation-based pipeline. Custom injected
     # retrieval functions retain their existing signature for tests/extensions.
     if retrieve_fn is None:
-        return hybrid_retrieve_chunks(
+        chunks = hybrid_retrieve_chunks(
             db=db,
             organization_id=organization_id,
             query=query,
@@ -42,6 +43,29 @@ def _retrieve_chunks(
             limit=limit,
             document_ids=document_ids,
             use_active_generations=True,
+        )
+        if chunks:
+            return chunks
+
+        # Existing documents indexed before generation ownership have no active
+        # generation pointer. Preserve their retrieval path, but only for those
+        # documents so legacy vectors/chunks from replaced documents cannot leak.
+        legacy_document_ids = get_legacy_document_ids(
+            db=db,
+            organization_id=organization_id,
+            document_ids=document_ids,
+        )
+        if not legacy_document_ids:
+            return []
+        return hybrid_retrieve_chunks(
+            db=db,
+            organization_id=organization_id,
+            query=query,
+            embedding_service=embedding_service,
+            qdrant_repository=qdrant_repository,
+            limit=limit,
+            document_ids=legacy_document_ids,
+            use_active_generations=False,
         )
     return retrieve_fn(
         db=db,

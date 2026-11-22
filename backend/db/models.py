@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     UniqueConstraint,
@@ -277,6 +278,21 @@ class DocumentChunk(Base):
 class DocumentProcessingGeneration(Base):
     __tablename__ = "document_processing_generations"
 
+    __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "document_id",
+            "organization_id",
+            name="uq_document_generation_ownership",
+        ),
+        ForeignKeyConstraint(
+            ["document_id", "organization_id"],
+            ["documents.id", "documents.organization_id"],
+            name="fk_generation_document_organization",
+            ondelete="CASCADE",
+        ),
+    )
+
     id: Mapped[str] = mapped_column(
         String(36),
         primary_key=True,
@@ -322,6 +338,16 @@ class DocumentGenerationChunk(Base):
             "generation_id",
             "chunk_index",
             name="uq_document_generation_chunk_index",
+        ),
+        ForeignKeyConstraint(
+            ["generation_id", "document_id", "organization_id"],
+            [
+                "document_processing_generations.id",
+                "document_processing_generations.document_id",
+                "document_processing_generations.organization_id",
+            ],
+            name="fk_generation_chunk_generation_ownership",
+            ondelete="CASCADE",
         ),
     )
 
@@ -372,6 +398,14 @@ class DocumentGenerationChunk(Base):
 
 class Document(Base):
     __tablename__ = "documents"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "organization_id",
+            name="uq_document_id_organization",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,

@@ -12,6 +12,7 @@ from backend.services.embedding_service import EmbeddingService
 from backend.services.retrieval_service import (
     RetrievedChunk,
     retrieve_chunks,
+    retrieve_active_generation_chunks,
 )
 
 
@@ -115,3 +116,41 @@ class LexicalRetriever:
             )
             for chunk, score in results
         ]
+
+
+class ActiveGenerationDenseRetriever:
+    """Dense retriever restricted to SQL-confirmed active generations."""
+
+
+    def __init__(
+        self,
+        embedding_service: EmbeddingService,
+        qdrant_repository: QdrantRepository,
+        limit: int | None = None,
+    ):
+        self.embedding_service = embedding_service
+        self.qdrant_repository = qdrant_repository
+        self.limit = (
+            limit
+            if limit is not None
+            else settings.retrieval_dense_top_k
+        )
+
+
+    def retrieve(
+        self,
+        *,
+        db: Session,
+        organization_id: int,
+        query: str,
+        document_ids: list[int] | None = None,
+    ) -> list[RetrievedChunk]:
+        return retrieve_active_generation_chunks(
+            db=db,
+            organization_id=organization_id,
+            query=query,
+            embedding_service=self.embedding_service,
+            qdrant_repository=self.qdrant_repository,
+            limit=self.limit,
+            document_ids=document_ids,
+        )

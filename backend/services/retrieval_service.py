@@ -112,3 +112,75 @@ def retrieve_chunks(
         )
 
     return results
+
+
+def retrieve_active_generation_chunks(
+    db: Session,
+    organization_id: int,
+    query: str,
+    embedding_service: EmbeddingService,
+    qdrant_repository: QdrantRepository,
+    limit: int = 5,
+    document_ids: list[int] | None = None,
+) -> list[RetrievedChunk]:
+    """Retrieve dense hits only from SQL-verified active generations."""
+    if not query.strip():
+        raise ValueError("Query cannot be empty")
+    if limit <= 0:
+        raise ValueError("Limit must be greater than zero")
+
+    active_chunks = get_active_generation_chunks(
+        db=db,
+        organization_id=organization_id,
+        document_ids=document_ids,
+    )
+    if not active_chunks:
+        return []
+
+    active_keys = {
+        (chunk.generation_id, chunk.chunk_index): chunk
+        for chunk in active_chunks
+    }
+    generation_ids = sorted({chunk.generation_id for chunk in active_chunks})
+    query_vector = embedding_service.embed_query(query)
+    points = qdrant_repository.search_generation(
+        query_vector=query_vector,
+        organization_id=organization_id,
+        generation_ids=generation_ids,
+        limit=limit,
+        document_ids=document_ids,
+    )
+    if not points:
+        return []
+
+    hydrated = []
+    for point in points:
+        payload = point.payload or {}
+        key = (payload.get("generation_id"), payload.get("chunk_index"))
+        chunk = active_keys.get(key)
+        if chunk is None:
+            continue
+        hydrated.append((chunk, float(point.score)))
+
+    if not hydrated:
+        return []
+    document_names = get_document_names(
+        db=db,
+        document_ids=[chunk.document_id for chunk, _ in hydrated],
+        organization_id=organization_id,
+    )
+    return [
+        RetrievedChunk(
+            chunk_id=chunk.id,
+            document_id=chunk.document_id,
+            organization_id=chunk.organization_id,
+            chunk_index=chunk.chunk_index,
+            text=chunk.text,
+            score=score,
+            page_start=chunk.page_start,
+            page_end=chunk.page_end,
+            document_name=document_names.get(chunk.document_id),
+            generation_id=chunk.generation_id,
+        )
+        for chunk, score in hydrated
+    ]

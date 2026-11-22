@@ -604,3 +604,66 @@ def test_active_generation_dense_retrieval_skips_embedding_without_active_chunks
     ) == []
     embedding.embed_query.assert_not_called()
     qdrant.search_generation.assert_not_called()
+
+
+def test_active_generation_lexical_retriever_hydrates_generation_provenance(
+    monkeypatch,
+):
+    chunks = [
+        __import__("types").SimpleNamespace(
+            id=101,
+            document_id=7,
+            organization_id=2,
+            chunk_index=0,
+            text="annual leave policy details",
+            page_start=2,
+            page_end=4,
+            generation_id="active-gen",
+        ),
+        __import__("types").SimpleNamespace(
+            id=102,
+            document_id=7,
+            organization_id=2,
+            chunk_index=1,
+            text="password security controls",
+            page_start=5,
+            page_end=6,
+            generation_id="active-gen",
+        ),
+    ]
+    monkeypatch.setattr(
+        "backend.services.retrievers.get_active_generation_chunks",
+        lambda **kwargs: chunks,
+    )
+    monkeypatch.setattr(
+        "backend.services.retrievers.get_document_names",
+        lambda **kwargs: {7: "policy.pdf"},
+    )
+
+    results = ActiveGenerationLexicalRetriever(limit=3).retrieve(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+    )
+
+    assert len(results) == 1
+    assert results[0].chunk_id == 101
+    assert results[0].generation_id == "active-gen"
+    assert results[0].document_name == "policy.pdf"
+    assert results[0].page_start == 2
+    assert results[0].page_end == 4
+
+
+def test_active_generation_lexical_retriever_returns_empty_without_chunks(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.services.retrievers.get_active_generation_chunks",
+        lambda **kwargs: [],
+    )
+    result = ActiveGenerationLexicalRetriever().retrieve(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+    )
+    assert result == []

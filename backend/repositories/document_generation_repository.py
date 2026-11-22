@@ -570,7 +570,13 @@ def abandon_staging_generation(
             DocumentProcessingGeneration.organization_id == organization_id,
             DocumentProcessingGeneration.attempt_id == attempt_id,
             DocumentProcessingGeneration.status == "staging",
-            Document.active_generation_id.is_distinct(generation_id),
+            ~db.query(Document.id)
+            .filter(
+                Document.id == document_id,
+                Document.organization_id == organization_id,
+                Document.active_generation_id == generation_id,
+            )
+            .exists(),
         )
         .update(
             {DocumentProcessingGeneration.status: "abandoned"},

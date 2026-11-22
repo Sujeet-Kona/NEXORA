@@ -1,4 +1,4 @@
-from backend.db.models import DocumentGenerationChunk, DocumentProcessingGeneration
+from backend.db.models import DocumentProcessingGeneration
 from backend.repositories.document_generation_repository import (
     create_staging_generation,
     get_staging_generation_chunks,

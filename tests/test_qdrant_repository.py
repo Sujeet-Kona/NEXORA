@@ -365,3 +365,87 @@ def test_collection_initialization_errors_are_normalized(qdrant, monkeypatch):
 
     assert "raw Qdrant transport details" not in str(exc_info.value)
     assert repository._collection_ready is False
+
+
+def test_generation_upsert_isolated_by_generation_and_search(repository):
+    from uuid import UUID
+
+    vector = [1.0] + [0.0] * 1023
+    generation_a = "11111111-1111-4111-8111-111111111111"
+    generation_b = "22222222-2222-4222-8222-222222222222"
+    repository.upsert_generation_chunks(
+        [
+            (generation_a, vector, 10, 100, 0, 1),
+            (generation_b, vector, 10, 100, 0, 1),
+        ]
+    )
+
+    result_a = repository.search_generation(
+        query_vector=vector,
+        organization_id=10,
+        generation_ids=[generation_a],
+        limit=5,
+    )
+    result_b = repository.search_generation(
+        query_vector=vector,
+        organization_id=10,
+        generation_ids=[generation_b],
+        limit=5,
+    )
+    assert len(result_a.points) == 1
+    assert len(result_b.points) == 1
+    assert result_a.points[0].id != result_b.points[0].id
+    assert result_a.points[0].payload["generation_id"] == generation_a
+    assert result_b.points[0].payload["generation_id"] == generation_b
+
+
+def test_generation_delete_only_removes_target_generation(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation_a = "33333333-3333-4333-8333-333333333333"
+    generation_b = "44444444-4444-4444-8444-444444444444"
+    repository.upsert_generation_chunks(
+        [
+            (generation_a, vector, 11, 101, 0, 1),
+            (generation_b, vector, 11, 101, 0, 1),
+        ]
+    )
+    repository.delete_generation_chunks(
+        generation_id=generation_a,
+        document_id=101,
+        organization_id=11,
+    )
+    remaining = repository.search_generation(
+        query_vector=vector,
+        organization_id=11,
+        generation_ids=[generation_a, generation_b],
+        limit=5,
+    )
+    assert len(remaining.points) == 1
+    assert remaining.points[0].payload["generation_id"] == generation_b
+
+
+def test_generation_search_is_tenant_scoped(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "55555555-5555-4555-8555-555555555555"
+    repository.upsert_generation_chunks(
+        [(generation, vector, 12, 102, 0, 1)]
+    )
+    foreign = repository.search_generation(
+        query_vector=vector,
+        organization_id=99,
+        generation_ids=[generation],
+        limit=5,
+    )
+    assert foreign.points == []
+
+
+def test_generation_upsert_rejects_invalid_uuid_and_vector_dimension(repository):
+    vector = [1.0] + [0.0] * 1023
+    with pytest.raises(ValueError, match="valid UUID"):
+        repository.upsert_generation_chunks(
+            [("not-a-uuid", vector, 1, 1, 0, 1)]
+        )
+    with pytest.raises(ValueError, match="Embedding dimension"):
+        repository.upsert_generation_chunks(
+            [("66666666-6666-4666-8666-666666666666", [1.0], 1, 1, 0, 1)]
+        )

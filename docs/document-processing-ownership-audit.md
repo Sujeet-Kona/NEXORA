@@ -289,3 +289,24 @@ This protocol alone does **not** prevent a delayed generation upsert from arrivi
 Before enabling worker behavior, add deterministic tests for: post-failure finalized attempts discoverable; abandoned candidates discoverable; active generation excluded; cross-tenant mismatch excluded; two concurrent claims cannot own one generation; expired claim recovery; vector-delete exception/nonzero count retains SQL chunks; successful count-zero cleanup deletes only scoped chunks; stale claimant cannot finalize; delayed upsert after purge is fenced; document deletion and cleanup interaction. Migration must be exercised against the current Alembic chain and representative preexisting rows.
 
 **Verification:** static inspection of model and repository/service source via GitHub only. This is a design checkpoint; no source code or migrations changed and no local tests were run.
+
+
+## External-write barrier review checkpoint (no code changes)
+
+Re-reviewed the generation upsert and cleanup methods alongside lease renewal and promotion readiness.
+
+### Findings
+
+- The generation writer is a synchronous `QdrantClient.upsert(..., wait=True)
+ call with no explicit per-operation timeout passed by this repository. The Qdrant client was previously confirmed to default to a 5-second client timeout when no timeout is configured.
+- `wait=True` requests server-side completion before a normal successful response, but this does not prove that a client timeout, transport interruption, or process termination cancels an already accepted remote operation. No cancellation/fencing guarantee was found in the reviewed NEXORA code.
+- The generation readiness check obtains a SQL document-row lock while comparing SQL chunk indexes with Qdrant indexes, but the service does not hold a shared SQL lock across every upsert. Readiness is a point-in-time check; it cannot itself prevent later stale writes.
+- Generation cleanup uses scoped delete and exact count verification, but those calls are not serialized against every generation writer. A count of zero is only a snapshot if concurrent/delayed upserts are not fenced.
+
+### Barrier assessment
+
+A SQL row-lock barrier is conditionally useful: if every writer/recovery/deletion path participates, and the external request is guaranteed quiescent before the lock is released, it can order writes against purge. The second condition is not established. In particular, a client-side timeout cannot be treated as proof that Qdrant did not accept or later apply the write. Thus SQL locking alone is **not yet accepted as a sufficient external fence**.
+
+No safe implementation was made in this checkpoint. The next investigation should examine server-side write semantics/version-specific behavior and whether a verified Qdrant-native fence (or an architectural indirection such as generation-scoped namespace/collection lifecycle with a safe retirement rule) can guarantee late writes cannot become visible or survive final cleanup. Any option must be tested against timeout, retry, process crash, and delayed write scenarios; do not assume cancellation semantics.
+
+**Verification:** source-level review only; no local tests or Qdrant experiments were executed.

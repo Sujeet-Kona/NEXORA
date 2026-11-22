@@ -1,6 +1,4 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
-
 import pytest
 
 from backend.core.config import settings
@@ -60,7 +58,7 @@ def _stub_extraction(monkeypatch):
         text="extractable document text",
         page_count=1,
         word_count=3,
-        character_count=24,
+        character_count=len("extractable document text"),
     )
     spans = [
         SimpleNamespace(text="first chunk", page_start=1, page_end=1),
@@ -106,7 +104,7 @@ def test_attempt_owned_generation_processing_promotes_ready_document(
     assert len(vectors.records) == 2
     assert document.page_count == 1
     assert document.word_count == 3
-    assert document.character_count == 24
+    assert document.character_count == len("extractable document text")
 
 
 def test_generation_processing_failure_preserves_no_active_generation(

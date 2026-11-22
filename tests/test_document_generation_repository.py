@@ -6,6 +6,7 @@ from backend.repositories.document_generation_repository import (
     get_staging_generation_chunks,
     replace_staging_generation_chunks,
     promote_staging_generation,
+    promote_staging_generation_with_vector_readiness,
     validate_staging_generation_vector_readiness,
 )
 from backend.repositories.document_repository import (
@@ -396,3 +397,45 @@ def test_vector_readiness_fails_closed_on_vector_store_error(db):
         attempt_id,
         _VectorCountStub(error=RuntimeError("vector store unavailable")),
     ) is False
+
+def test_readiness_gated_promotion_rejects_vector_count_mismatch(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-gated-promotion-reject@example.com"
+    )
+    assert promote_staging_generation_with_vector_readiness(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        _VectorCountStub(count=1),
+    ) is False
+    db.refresh(document)
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.id == generation_id)
+        .one()
+    )
+    assert document.active_generation_id is None
+    assert document.status == "processing"
+    assert generation.status == "staging"
+
+
+def test_readiness_gated_promotion_activates_when_counts_match(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-gated-promotion-accept@example.com"
+    )
+    assert promote_staging_generation_with_vector_readiness(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        _VectorCountStub(count=2),
+    ) is True
+    db.commit()
+    db.refresh(document)
+    assert document.active_generation_id == generation_id
+    assert document.status == "ready"
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None

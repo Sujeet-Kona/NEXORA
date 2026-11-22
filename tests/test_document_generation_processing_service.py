@@ -263,3 +263,44 @@ def test_generation_index_parity_failure_finalizes_owned_attempt(
     assert document.processing_lease_expires_at is None
     assert generation.status == "failed"
     assert len(vectors.records) == 2
+
+
+
+def test_lease_loss_after_staging_abandons_inactive_generation(db, monkeypatch):
+    document = _pending_document(db, "generation-worker-lease-loss@example.com")
+    _stub_extraction(monkeypatch)
+    vectors = _VectorRepository()
+    renew_calls = 0
+
+
+    def lose_lease_after_staging(*args, **kwargs):
+        nonlocal renew_calls
+        renew_calls += 1
+        # First two renewals precede generation creation; third is before
+        # embedding, after SQL staging has committed.
+        return renew_calls < 3
+
+
+
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service._renew",
+        lose_lease_after_staging,
+    )
+
+
+
+    result = process_document_generation(
+        db, document.id, _Embeddings(), vectors
+    )
+
+
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.document_id == document.id)
+        .one()
+    )
+    assert result is False
+    assert renew_calls == 3
+    assert generation.status == "abandoned"
+    assert document.active_generation_id is None
+    assert vectors.records == []

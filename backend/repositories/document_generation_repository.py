@@ -546,3 +546,35 @@ def list_abandoned_generation_cleanup_candidates(
         .limit(limit)
         .all()
     )
+
+
+
+def abandon_staging_generation(
+    db: Session,
+    generation_id: str,
+    document_id: int,
+    organization_id: int,
+    attempt_id: str,
+) -> bool:
+    """Abandon only this attempt's inactive staging generation.
+
+    Ownership may already have expired, so the document lease is deliberately
+    not required. Exact attempt and generation scope plus the active-pointer
+    guard make this transition safe for stale workers. Caller owns commit.
+    """
+    updated = (
+        db.query(DocumentProcessingGeneration)
+        .filter(
+            DocumentProcessingGeneration.id == generation_id,
+            DocumentProcessingGeneration.document_id == document_id,
+            DocumentProcessingGeneration.organization_id == organization_id,
+            DocumentProcessingGeneration.attempt_id == attempt_id,
+            DocumentProcessingGeneration.status == "staging",
+            Document.active_generation_id.is_distinct(generation_id),
+        )
+        .update(
+            {DocumentProcessingGeneration.status: "abandoned"},
+            synchronize_session=False,
+        )
+    )
+    return updated == 1

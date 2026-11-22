@@ -264,6 +264,7 @@ class QdrantRepository:
         overwrite each other.
         """
         points = []
+        seen_point_ids = set()
         for (
             generation_id,
             vector,
@@ -272,6 +273,8 @@ class QdrantRepository:
             chunk_index,
             document_version,
         ) in chunks:
+            if chunk_index < 0:
+                raise ValueError("Chunk index must be non-negative")
             try:
                 namespace = UUID(generation_id)
             except (ValueError, AttributeError) as exc:
@@ -281,6 +284,11 @@ class QdrantRepository:
                     "Embedding dimension does not match Qdrant configuration"
                 )
             point_id = str(uuid5(namespace, str(chunk_index)))
+            if point_id in seen_point_ids:
+                raise ValueError(
+                    "Duplicate generation chunk index in upsert batch"
+                )
+            seen_point_ids.add(point_id)
             points.append(
                 models.PointStruct(
                     id=point_id,

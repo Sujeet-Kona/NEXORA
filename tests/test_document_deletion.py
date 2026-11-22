@@ -284,6 +284,40 @@ def test_delete_purges_vectors_before_removing_document_row(
     ).exists()
 
 
+def test_delete_succeeds_when_storage_cleanup_fails(
+    client,
+    db,
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "storage_path", str(tmp_path))
+    token = register_and_login(client, "delete-storage-cleanup-fails@example.com")
+    organization_id = create_organization(client, token, "Storage Cleanup Failure Company")
+    document = upload_document(client, token, organization_id, "cleanup-fail.pdf")
+
+    qdrant = Mock()
+    app.dependency_overrides[get_qdrant_repository] = lambda: qdrant
+
+    def fail_file_cleanup(self, storage_key):
+        raise OSError("simulated filesystem failure")
+
+    monkeypatch.setattr("backend.services.document_service.LocalStorage.delete", fail_file_cleanup)
+
+    response = client.delete(
+        f"/api/v1/organizations/{organization_id}/documents/{document['id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 204
+    qdrant.delete_document_chunks.assert_called_once_with(
+        document_id=document["id"],
+        organization_id=organization_id,
+    )
+    db.expire_all()
+    assert db.query(Document).filter(Document.id == document["id"]).first() is None
+
+
+
 def test_delete_fails_when_vectors_cannot_be_purged(
     client,
     db,

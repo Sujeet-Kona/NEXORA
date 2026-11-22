@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from backend.db.models import DocumentStatus, User
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -127,6 +129,43 @@ def test_finalization_rejects_non_terminal_status(db):
         assert str(exc) == "final status must be READY or FAILED"
     else:
         raise AssertionError("Expected invalid final status to be rejected")
+
+    db.refresh(document)
+    assert document.status == DocumentStatus.PROCESSING
+    assert document.processing_attempt_id == attempt_id
+
+
+def test_expired_attempt_cannot_renew_or_finalize(db):
+    document = _create_pending_document(
+        db,
+        "fencing-expired@example.com",
+    )
+    attempt_id = claim_document_processing_attempt(
+        db,
+        document.id,
+        lease_seconds=30,
+    )
+    assert attempt_id is not None
+
+    document.processing_lease_expires_at = (
+        datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    )
+    db.commit()
+
+    assert not processing_attempt_is_owner(db, document.id, attempt_id)
+    assert not renew_document_processing_lease(
+        db,
+        document.id,
+        attempt_id,
+        lease_seconds=60,
+    )
+    assert not finalize_document_processing_attempt(
+        db,
+        document.id,
+        attempt_id,
+        DocumentStatus.FAILED,
+        failure_reason="expired attempt",
+    )
 
     db.refresh(document)
     assert document.status == DocumentStatus.PROCESSING

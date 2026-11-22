@@ -439,3 +439,25 @@ def test_readiness_gated_promotion_activates_when_counts_match(db):
     assert document.status == "ready"
     assert document.processing_attempt_id is None
     assert document.processing_lease_expires_at is None
+
+def test_readiness_gated_promotion_fails_closed_on_vector_store_error(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-gated-promotion-error@example.com"
+    )
+    assert promote_staging_generation_with_vector_readiness(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        _VectorCountStub(error=RuntimeError("qdrant unavailable")),
+    ) is False
+    db.refresh(document)
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.id == generation_id)
+        .one()
+    )
+    assert document.active_generation_id is None
+    assert document.status == "processing"
+    assert generation.status == "staging"

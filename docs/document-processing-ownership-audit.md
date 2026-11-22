@@ -310,3 +310,33 @@ A SQL row-lock barrier is conditionally useful: if every writer/recovery/deletio
 No safe implementation was made in this checkpoint. The next investigation should examine server-side write semantics/version-specific behavior and whether a verified Qdrant-native fence (or an architectural indirection such as generation-scoped namespace/collection lifecycle with a safe retirement rule) can guarantee late writes cannot become visible or survive final cleanup. Any option must be tested against timeout, retry, process crash, and delayed write scenarios; do not assume cancellation semantics.
 
 **Verification:** source-level review only; no local tests or Qdrant experiments were executed.
+
+
+## Qdrant write timeout semantics and namespace-fence candidate (checkpoint)
+
+**Reviewed:** 2026-11-22; Qdrant official points API and optimizer documentation.
+
+### New source-confirmed facts
+
+- Qdrant upsert API exposes `wait`, write `ordering` (`weak`, `medium`, `strong`), and an operation `timeout`. The presence of ordering options is not itself a cross-request cancellation or deletion fence.
+- Official optimizer documentation states that Qdrant writes are persisted to the write-ahead log and update workers apply updates sequentially in order. It also explicitly documents a `wait=true` timeout scenario in which Qdrant still stores the update durably and eventually indexes it, while the client does not receive confirmation. This confirms that treating client timeout as cancellation is unsafe.
+- `wait=true` returns only after the operation is applied under normal conditions; this is a completion acknowledgement for that response path, not evidence that a timed-out accepted operation was cancelled.
+
+### Candidate assessment: immutable, per-generation collection name
+
+An isolated collection name per generation (never re-used) is a stronger namespace candidate than generation payload filters alone: retrieval would only query the collection(s) referenced by the SQL active pointer, and retirement would remove the old generation's collection. A stale worker targeting an already deleted generation collection cannot write into a newly reused collection name if names are immutable and never recreated. However, the reviewed docs do not establish whether a request accepted before collection deletion can finish after deletion, nor whether deletion fully fences already-dispatched requests. Collection-per-generation also has significant collection-count/optimizer/operational overhead. Therefore this is **not approved as a fence yet**.
+
+A less expensive single-collection design with generation UUIDs and SQL active-pointer filtering makes late inactive writes non-visible, but does not guarantee orphan-vector removal after deletion. It is an availability/retention isolation measure, not a deletion fence.
+
+### Required next proof
+
+1. Review Qdrant server-side delete-collection and write-request lifecycle in the exact server version used by deployment; verify accepted operations and collection deletion ordering, including timeout/crash/disconnect.
+2. If immutable collection names are considered, determine whether deletion followed by never-reuse guarantees late writes fail or can recreate state; test this against the supported server version, not only mocked clients.
+3. Measure collection-per-generation overhead and define cleanup/retry retention before recommending it. Consider an external namespace mapping only if it still prevents late writes from recreating retired namespace data.
+4. Keep cleanup automation disabled until delayed-upsert-after-retirement is proven safe and tests cover timeout and process interruption.
+
+### Documentation consistency check
+
+The PR summary still describes worker lifecycle as not fully wired, while the audit's opening status paragraph describes generation processing, promotion, and retrieval as integrated. These statements are inconsistent and need source-level reconciliation before the audit is used as a status document. This checkpoint intentionally does not resolve that discrepancy without re-reviewing the exact worker/service files.
+
+**Verification:** official Qdrant documentation review only; no source changes to application code, no local test run, and no live Qdrant experiment.

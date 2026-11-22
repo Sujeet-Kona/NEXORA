@@ -233,9 +233,11 @@ def validate_staging_generation_vector_readiness(
 ) -> bool:
     """Fail closed unless staged SQL chunks and generation vectors match.
 
-    This is a readiness primitive only. Promotion remains a separate SQL
-    transaction, and callers must not treat this check as a cross-store
-    transaction or bypass the current-owner checks during promotion.
+    This is a readiness primitive only. The document row is locked while
+    validating so same-document SQL staging mutations serialize until the caller
+    commits or rolls back. Promotion remains a separate SQL transaction, and
+    callers must not treat this check as a cross-store transaction: the lock
+    cannot fence Qdrant writes. Caller must commit or roll back to release it.
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     document = (
@@ -303,9 +305,10 @@ def promote_staging_generation_with_vector_readiness(
 ) -> bool:
     """Gate SQL promotion on exact staged SQL/vector count parity.
 
-    This does not create a cross-store transaction. The caller must ensure
-    generation-scoped vector writes/cleanup are serialized with this operation,
-    and commit the SQL transaction only when True is returned.
+    Readiness validation locks the SQL document row through the caller's
+    transaction. This still does not create a cross-store transaction: the
+    caller must serialize generation-scoped vector writes/cleanup with this
+    operation, and commit the SQL transaction only when True is returned.
     """
     if not validate_staging_generation_vector_readiness(
         db,

@@ -55,18 +55,12 @@ ALLOWED_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
+# The public/admin status endpoint is intentionally limited to retrying
+# FAILED documents. Worker lifecycle transitions and stale-job recovery are
+# internal operations and must not be simulated by manual API status updates.
 ALLOWED_STATUS_TRANSITIONS = {
-    DocumentStatus.PENDING: {
-        DocumentStatus.PROCESSING,
-        DocumentStatus.FAILED,
-    },
-    DocumentStatus.PROCESSING: {
-        DocumentStatus.READY,
-        DocumentStatus.FAILED,
-        # Explicit recovery path for a crashed BackgroundTask. The startup
-        # recovery service uses the same transition after a stale lease.
-        DocumentStatus.PENDING,
-    },
+    DocumentStatus.PENDING: set(),
+    DocumentStatus.PROCESSING: set(),
     DocumentStatus.READY: set(),
     DocumentStatus.FAILED: {
         DocumentStatus.PENDING,

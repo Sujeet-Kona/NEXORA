@@ -49,6 +49,18 @@ Dense retrieval must constrain organization and active generation. SQL hydration
 
 Generation filters need a Qdrant payload index if the collection/provider configuration requires it; indexing is an optimization, not an authorization boundary. SQL validation remains the final gate.
 
+## Promotion safety audit checkpoint
+
+The repository primitives have been reviewed, but **promotion is not yet safe to use in the live worker**:
+
+- `promote_staging_generation` verifies current attempt ownership (including lease expiry) and a non-empty SQL staging chunk set.
+- It does **not** verify that the corresponding Qdrant generation points were fully written, or that the vector count matches the staged SQL chunk count.
+- `upsert_generation_chunks` uses generation-scoped point IDs and `wait=True`, which avoids legacy point-ID collisions; however, a successful write call alone is not a durable readiness contract for promotion, and partial/failed external writes require scoped cleanup.
+- SQL promotion updates the active-generation pointer in a transaction. Qdrant writes are external and cannot participate in that SQL transaction. A future integration must therefore stage vectors first, validate vector readiness, then perform conditional SQL promotion; on promotion failure, delete only the failed staging generation. If readiness cannot be established, do not promote.
+- Existing generation repository tests exercise SQL ownership, staged chunks, stale promotion, and empty-generation rejection. They do not yet test vector-write failure/readiness against promotion, or preservation of a previously active generation during a failed replacement.
+
+This checkpoint is an explicit guardrail: **the promotion helper must not be wired into the production processing path until vector readiness and failure-cleanup coordination are implemented and tested.**
+
 ## Failure and recovery
 
 - Extraction or embedding failure: mark only the attempt/generation failed; retain active generation.

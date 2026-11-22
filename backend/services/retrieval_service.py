@@ -27,6 +27,7 @@ class RetrievedChunk:
     page_start: int | None
     page_end: int | None
     document_name: str | None
+    generation_id: str | None = None
 
 
 def retrieve_chunks(

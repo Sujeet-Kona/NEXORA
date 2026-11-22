@@ -100,21 +100,27 @@ def _rrf_fuse(
             "RRF constant k must be strictly positive"
         )
 
-    scores: dict[int, float] = {}
-    chunks: dict[int, RetrievedChunk] = {}
+    scores: dict[tuple[int, int, int, str | None], float] = {}
+    chunks: dict[tuple[int, int, int, str | None], RetrievedChunk] = {}
 
     for ranking in rankings:
         # Each retriever is weighted equally; we sum their rank scores.
         for rank, chunk in enumerate(ranking, start=1):
-            scores[chunk.chunk_id] = (
-                scores.get(chunk.chunk_id, 0.0)
+            identity = (
+                chunk.organization_id,
+                chunk.document_id,
+                chunk.chunk_id,
+                chunk.generation_id,
+            )
+            scores[identity] = (
+                scores.get(identity, 0.0)
                 + 1.0 / (k + rank)
             )
-            chunks.setdefault(chunk.chunk_id, chunk)
+            chunks.setdefault(identity, chunk)
 
     ranked_ids = sorted(
         chunks,
-        key=lambda chunk_id: scores[chunk_id],
+        key=lambda identity: scores[identity],
         reverse=True,
     )
 

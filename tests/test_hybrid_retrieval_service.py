@@ -519,3 +519,20 @@ def test_empty_merged_candidates_short_circuits_rerank(monkeypatch):
     assert results == []
     # Short-circuit must happen: rerank method must not be invoked at all.
     assert call_counter["count"] == 0
+
+def test_rrf_fusion_keeps_generation_chunk_identity_separate():
+    legacy = make_chunk(7, "legacy content")
+    staged = make_chunk(7, "generation content")
+    active = make_chunk(7, "other generation content")
+    from dataclasses import replace
+    staged = replace(staged, generation_id="generation-a")
+    active = replace(active, generation_id="generation-b")
+
+    results = _rrf_fuse([[legacy, staged, active], [legacy]])
+
+    assert len(results) == 3
+    assert results[0].chunk.text == "legacy content"
+    assert results[0].chunk.generation_id is None
+    assert {result.chunk.generation_id for result in results} == {
+        None, "generation-a", "generation-b",
+    }

@@ -145,7 +145,7 @@ def promote_staging_generation(
     The caller owns the transaction and must commit on success. A stale or
     invalid attempt returns False without changing document/generation state.
     """
-    document = (        db.query(Document)
+    document = (\n        db.query(Document)
         .filter(
             Document.id == document_id,
             Document.organization_id == organization_id,
@@ -159,7 +159,7 @@ def promote_staging_generation(
         return False
 
 
-    generation = (        db.query(DocumentProcessingGeneration)
+    generation = (\n        db.query(DocumentProcessingGeneration)
         .filter(
             DocumentProcessingGeneration.id == generation_id,
             DocumentProcessingGeneration.document_id == document_id,

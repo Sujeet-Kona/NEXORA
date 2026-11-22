@@ -481,6 +481,25 @@ def test_generation_search_with_empty_generation_list_returns_empty(repository):
     )
     assert result == []
 
+def test_generation_chunk_index_listing_is_scoped(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    repository.upsert_generation_chunks(
+        [
+            (generation, vector, 41, 401, 0, 1),
+            (generation, vector, 41, 401, 1, 1),
+            (generation, vector, 41, 401, 2, 1),
+            (generation, vector, 41, 402, 7, 1),
+            (generation, vector, 42, 401, 8, 1),
+        ]
+    )
+    assert sorted(
+        repository.list_generation_chunk_indexes(
+            generation, document_id=401, organization_id=41
+        )
+    ) == [0, 1, 2]
+
+
 def test_generation_point_count_is_scoped_to_generation_document_and_tenant(repository):
     vector = [1.0] + [0.0] * 1023
     target_generation = "66666666-6666-4666-8666-666666666666"

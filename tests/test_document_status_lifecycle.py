@@ -529,3 +529,91 @@ def test_processing_recovery_clears_attempt_ownership(client, db):
     assert document.status == DocumentStatus.PENDING
     assert document.processing_attempt_id is None
     assert document.processing_lease_expires_at is None
+
+
+
+def test_admin_recovery_abandons_only_inactive_staging_generations(
+    client,
+    db,
+):
+    token = register_and_login(
+        client,
+        "lifecycle-recovery-generations@example.com",
+    )
+    organization_id = create_organization(
+        client,
+        token,
+        "Lifecycle Recovery Generations Company",
+    )
+    document_id = create_document(
+        client,
+        token,
+        organization_id,
+    )
+
+    from datetime import datetime, timedelta
+    from backend.db.models import (
+        Document,
+        DocumentProcessingGeneration,
+        DocumentStatus,
+    )
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.PROCESSING
+    document.processing_attempt_id = "recovery-generation-attempt"
+    document.processing_lease_expires_at = datetime.utcnow() + timedelta(
+        minutes=5
+    )
+    document.active_generation_id = "active-generation"
+    db.add_all(
+        [
+            DocumentProcessingGeneration(
+                id="inactive-staging",
+                document_id=document_id,
+                organization_id=organization_id,
+                attempt_id="recovery-generation-attempt",
+                status="staging",
+            ),
+            DocumentProcessingGeneration(
+                id="active-pointer",
+                document_id=document_id,
+                organization_id=organization_id,
+                attempt_id="recovery-generation-attempt",
+                status="staging",
+            ),
+            DocumentProcessingGeneration(
+                id="other-attempt",
+                document_id=document_id,
+                organization_id=organization_id,
+                attempt_id="different-attempt",
+                status="staging",
+            ),
+        ]
+    )
+    db.commit()
+
+    response = patch_status(
+        client,
+        token,
+        organization_id,
+        document_id,
+        "pending",
+    )
+    assert response.status_code == 200
+
+    generations = {
+        generation.id: generation.status
+        for generation in db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.document_id == document_id)
+        .all()
+    }
+    assert generations == {
+        "inactive-staging": "abandoned",
+        "active-pointer": "staging",
+        "other-attempt": "staging",
+    }
+    db.refresh(document)
+    assert document.active_generation_id == "active-generation"
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None

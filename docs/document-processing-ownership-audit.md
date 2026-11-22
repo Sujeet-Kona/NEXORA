@@ -165,3 +165,26 @@ Do not implement a SQL row-lock barrier yet. Its basic ordering argument is usef
 
 
 **Verification limitation:** source review only. CI on the current head was observed completed successfully; no local test execution was possible.
+
+
+## Pinned Qdrant HTTP client timeout review
+
+**Reviewed:** 2026-11-22; source tag `qdrant-client v1.19.0` (the project's pinned version).
+
+### Source-confirmed details
+
+- `QdrantClient` documents a default timeout of **5 seconds** for REST and gRPC when `timeout=None`; this repository constructs the client without a timeout override.
+- The synchronous REST API client is backed by `httpx.Client`. Its request path calls `Client.send` and wraps transport exceptions in `ResponseHandlingException`; no automatic retry loop is visible in the reviewed `ApiClient.send` implementation.
+- Point upsert API supports an explicit Qdrant operation timeout parameter, but the repository's `upsert_generation_chunks` call supplies only `collection_name`, `wait=True`, and `points`; no operation timeout is set.
+
+### What these facts do **not** prove
+
+The five-second client timeout bounds how long the client waits, not necessarily the server-side lifetime of a write that Qdrant already accepted. The source review cannot prove that a request which times out/disconnects is canceled server-side or cannot be applied later. Consequently, a SQL row-lock barrier held only until the client call returns remains an insufficiently proven fence against delayed writes. This is a protocol uncertainty, not a confirmed observed late-write incident.
+
+### Next required test/design work
+
+1. Build a controlled test around the transport boundary where the client request times out while a simulated server-side write remains pending, then completes after deletion/purge; assert the proposed protocol prevents or detects resurrection.
+2. Complete the full writer inventory for both generation and legacy vector upsert paths and their deletion/cleanup paths. Remote source retrieval was intermittent during this audit, so coverage is not yet claimed.
+3. Consider using explicit Qdrant operation timeout and ordering only after semantics are understood; neither should be treated as cross-store fencing on its own.
+
+**Verification:** source inspection of the upstream `qdrant-client v1.19.0` code and the project's pinned dependency only; no tests executed.

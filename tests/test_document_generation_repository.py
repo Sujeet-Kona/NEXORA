@@ -9,6 +9,7 @@ from backend.repositories.document_generation_repository import (
     promote_staging_generation_with_vector_readiness,
     validate_staging_generation_vector_readiness,
     retire_failed_staging_generation,
+    cleanup_failed_generation_artifacts,
 )
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -510,3 +511,98 @@ def test_failed_candidate_retirement_preserves_active_generation(db):
     assert statuses[active_candidate] == "active"
     assert statuses[failed_candidate] == "failed"
     assert document.status == "processing"
+
+class _CleanupVectorStub:
+    def __init__(self, initial_count=0, remaining_after_delete=0, error=None):
+        self.count = initial_count
+        self.remaining_after_delete = remaining_after_delete
+        self.error = error
+        self.delete_calls = []
+        self.count_calls = []
+
+    def delete_generation_chunks(self, **kwargs):
+        self.delete_calls.append(kwargs)
+        if self.error:
+            raise self.error
+        self.count = self.remaining_after_delete
+
+    def count_generation_chunks(self, **kwargs):
+        self.count_calls.append(kwargs)
+        if self.error:
+            raise self.error
+        return self.count
+
+
+def _failed_candidate(db, email):
+    document = _document(db, email)
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db, document.id, document.organization_id, attempt_id
+    )
+    assert generation_id is not None
+    replace_staging_generation_chunks(
+        db, generation_id, document.id, document.organization_id, attempt_id,
+        [("failed candidate chunk", 1, 1)]
+    )
+    assert retire_failed_staging_generation(
+        db, generation_id, document.id, document.organization_id, attempt_id
+    )
+    db.commit()
+    return document, attempt_id, generation_id
+
+
+def test_cleanup_failed_candidate_is_scoped_and_retry_safe(db):
+    document, attempt_id, generation_id = _failed_candidate(
+        db, "generation-cleanup-retry-safe@example.com"
+    )
+    vector_store = _CleanupVectorStub(initial_count=1, remaining_after_delete=0)
+    args = (db, generation_id, document.id, document.organization_id, attempt_id, vector_store)
+
+    assert cleanup_failed_generation_artifacts(*args) is True
+    db.commit()
+    assert cleanup_failed_generation_artifacts(*args) is True
+    db.commit()
+    assert len(vector_store.delete_calls) == 2
+    assert len(vector_store.count_calls) == 2
+    assert all(call == {
+        "generation_id": generation_id,
+        "document_id": document.id,
+        "organization_id": document.organization_id,
+    } for call in vector_store.delete_calls)
+    assert get_staging_generation_chunks(db, generation_id, document.organization_id) == []
+
+
+def test_cleanup_rejects_active_generation(db):
+    document = _document(db, "generation-cleanup-active-protection@example.com")
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db, document.id, document.organization_id, attempt_id
+    )
+    assert generation_id is not None
+    replace_staging_generation_chunks(
+        db, generation_id, document.id, document.organization_id, attempt_id,
+        [("active content", 1, 1)]
+    )
+    assert promote_staging_generation(
+        db, generation_id, document.id, document.organization_id, attempt_id
+    )
+    db.commit()
+    vector_store = _CleanupVectorStub(initial_count=1)
+    assert cleanup_failed_generation_artifacts(
+        db, generation_id, document.id, document.organization_id, attempt_id, vector_store
+    ) is False
+    assert vector_store.delete_calls == []
+
+
+def test_cleanup_fails_closed_when_vector_delete_verification_fails(db):
+    document, attempt_id, generation_id = _failed_candidate(
+        db, "generation-cleanup-vector-error@example.com"
+    )
+    vector_store = _CleanupVectorStub(error=RuntimeError("qdrant unavailable"))
+    assert cleanup_failed_generation_artifacts(
+        db, generation_id, document.id, document.organization_id, attempt_id, vector_store
+    ) is False
+    db.rollback()
+    assert get_staging_generation_chunks(db, generation_id, document.organization_id)

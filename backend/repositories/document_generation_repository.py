@@ -266,20 +266,22 @@ def validate_staging_generation_vector_readiness(
     if generation is None:
         return False
 
-    staged_count = (
-        db.query(DocumentGenerationChunk.id)
+    staged_indexes = (
+        db.query(DocumentGenerationChunk.chunk_index)
         .filter(
             DocumentGenerationChunk.generation_id == generation_id,
             DocumentGenerationChunk.document_id == document_id,
             DocumentGenerationChunk.organization_id == organization_id,
         )
-        .count()
+        .order_by(DocumentGenerationChunk.chunk_index.asc())
+        .all()
     )
-    if staged_count <= 0:
+    staged_chunk_indexes = [row.chunk_index for row in staged_indexes]
+    if not staged_chunk_indexes:
         return False
 
     try:
-        vector_count = vector_repository.count_generation_chunks(
+        vector_chunk_indexes = vector_repository.list_generation_chunk_indexes(
             generation_id=generation_id,
             document_id=document_id,
             organization_id=organization_id,
@@ -288,7 +290,7 @@ def validate_staging_generation_vector_readiness(
         # Vector-store failures must never allow promotion readiness.
         return False
 
-    return vector_count == staged_count
+    return sorted(vector_chunk_indexes) == staged_chunk_indexes
 
 def promote_staging_generation_with_vector_readiness(
     db: Session,

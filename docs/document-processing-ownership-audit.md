@@ -363,3 +363,34 @@ The evidence **rejects client timeout as cancellation** and does not prove colle
 The next useful engineering process is a safe design comparison of fences: (A) external writer quiescence and SQL barrier, (B) unique generation collection names plus retirement, (C) a retrieval-only visibility boundary with durable namespace registry and delayed cleanup. Specify safety, failure modes, operational costs, and tests for each. No cleanup automation should be enabled before a candidate passes a delayed accepted-write test.
 
 **Verification:** source/docs review only; no live Qdrant experiment, application tests, or local CI execution.
+
+
+## Fence architecture comparison (checkpoint; recommendation not implementation)
+
+The Qdrant WAL and collection deletion review makes it unsafe to rely on client timeout as cancellation. Qdrant's documented update pipeline persists requests in WAL and applies them through a pending update queue; a wait timeout can leave the update durable and eventually indexed. The reviewed server delete-collection path removes the collection from the in-memory map, stops it, waits only boundedly to unwrap it, and then schedules directory removal. The reviewed docs/source do not prove that a late accepted upsert is cancelled or cannot be applied after retirement.
+
+
+| Candidate | Safety argument | Remaining hard failure | Operational cost | Status |
+|---|---|---|---|---|
+| A. SQL write barrier across Qdrant call | Serialize every vector mutation with recovery/deletion by same document lock and revalidate ownership under lock | Client timeout may release lock while accepted server write remains pending; source says accepted update can persist past wait timeout | Long DB locks; requires all writers to participate | Not proven safe |
+| B. Unique generation collection per attempt | Retrieval only resolves SQL active pointer to exact immutable generation collection; never reuse names | Delete/recreate race and accepted writes against retired collection remain unproven; high collection count and optimizer overhead | High operational complexity | Candidate only |
+| C. SQL active-pointer visibility + durable cleanup registry | Late inactive generation writes remain non-retrievable; registry preserves cleanup identity after document deletion | Orphan vectors may remain indefinitely; visibility safety does not prove deletion or storage cleanup | Moderate schema/reconciler cost | Strongest immediate containment, but cleanup finality not solved |
+| D. External writer quiescence/fencing service | A durable fence rejects new writes and waits for all prior writers before cleanup | Needs trustworthy fence semantics and all mutation paths integrated; cannot be a lease check alone | Additional coordination/latency | Unproven, likely strongest if protocol can be implemented |
+
+
+### Recommendation
+
+Do not ship a cleanup reconciler or claim hard deletion based on any current candidate. Prioritize (C) as a retrieval/visibility safety layer and a durable cleanup registry, but label vector deletion as best-effort/pending until (A), (B), or (D) has a demonstrated late-write fence. If a durable deletion intent is introduced, APIs/retrieval must honor it immediately after commit and it must survive document-row deletion. The registry must never authorize deletion of an active generation, and cleanup verification must be followed by a fence that prevents later writes.
+
+### Minimum fault-injection matrix for any candidate
+
+- Qdrant accepts upsert, response times out, server applies later.
+- Process dies after request acceptance and before ownership/finalization commit.
+- Delete intent/purge starts while a stale upsert is queued.
+- Delete collection then delayed accepted upsert resumes; collection name is not reused.
+- If collection is recreated (test negative case), delayed request behavior is observed.
+- Cleanup count-zero snapshot followed by late upsert must not be treated as final.
+- Two retries and two cleanup claimants; token expiry/reclaim; stale claimant finalization rejected.
+- Existing active generation stays queryable and undeleted throughout failed candidate cleanup.
+
+This is a static design comparison; no experiment was performed. It narrows the safe immediate goal to retrieval invisibility and durable cleanup bookkeeping, while retaining the no-hard-delete/no-automatic-cleanup decision.

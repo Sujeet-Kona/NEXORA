@@ -247,6 +247,7 @@ def validate_staging_generation_vector_readiness(
             Document.processing_attempt_id == attempt_id,
             Document.processing_lease_expires_at > now,
         )
+        .with_for_update()
         .first()
     )
     if document is None:

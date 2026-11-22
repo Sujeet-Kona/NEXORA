@@ -443,3 +443,37 @@ def cleanup_failed_generation_artifacts(
     )
     db.flush()
     return True
+
+def list_abandoned_generation_cleanup_candidates(
+    db: Session,
+    limit: int = 100,
+) -> list[DocumentProcessingGeneration]:
+    """List inactive abandoned generations for a future cleanup reconciler.
+
+    This is discovery only: it does not lock rows, delete artifacts, or
+    claim cleanup ownership. A cleanup worker must introduce a durable claim
+    and stale-worker write fencing before performing external deletion.
+    """
+    if limit <= 0:
+        return []
+
+    return (
+        db.query(DocumentProcessingGeneration)
+        .join(
+            Document,
+            Document.id == DocumentProcessingGeneration.document_id,
+        )
+        .filter(
+            DocumentProcessingGeneration.status == "abandoned",
+            Document.organization_id
+            == DocumentProcessingGeneration.organization_id,
+            Document.active_generation_id
+            != DocumentProcessingGeneration.id,
+        )
+        .order_by(
+            DocumentProcessingGeneration.created_at.asc(),
+            DocumentProcessingGeneration.id.asc(),
+        )
+        .limit(limit)
+        .all()
+    )

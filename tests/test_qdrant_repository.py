@@ -552,6 +552,29 @@ def test_generation_chunk_index_listing_rejects_duplicate_payload_indexes(
         )
 
 
+def test_generation_chunk_index_listing_rejects_malformed_scroll_points(
+    repository, qdrant, monkeypatch
+):
+    generation = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+    def malformed_scroll(**kwargs):
+        return None, None
+
+
+    monkeypatch.setattr(qdrant, "scroll", malformed_scroll)
+
+    with pytest.raises(
+        VectorStoreError,
+        match="Qdrant generation chunk-index listing failed for organization 41",
+    ) as exc_info:
+        repository.list_generation_chunk_indexes(
+            generation, document_id=401, organization_id=41
+        )
+
+    assert isinstance(exc_info.value.__cause__, TypeError)
+
+
+
 def test_generation_chunk_index_listing_rejects_pagination_offset_cycle(
     repository, qdrant, monkeypatch
 ):

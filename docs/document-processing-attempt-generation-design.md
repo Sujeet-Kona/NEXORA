@@ -49,6 +49,12 @@ Dense retrieval must constrain organization and active generation. SQL hydration
 
 Generation filters need a Qdrant payload index if the collection/provider configuration requires it; indexing is an optimization, not an authorization boundary. SQL validation remains the final gate.
 
+## Vector readiness validation checkpoint
+
+A fail-closed repository helper now compares the count of tenant/document/generation-scoped SQL staging chunks against the exact Qdrant point count for the same scope. It rejects empty SQL staging, invalid/stale ownership or generation metadata, mismatched counts (including extra vectors), and vector-store errors.
+
+The helper is intentionally **not called by promotion or the live worker**. Count equality is a readiness signal, not a cross-store atomic guarantee: vectors could change after validation and before SQL promotion. The eventual worker integration must control generation writes/cleanup for the duration of staging and promotion, and revalidate current attempt ownership in the promotion transaction. Qdrant and SQL cannot share one transaction, so failure recovery must retain the prior active generation and clean only the failed candidate.
+
 ## Promotion safety audit checkpoint
 
 The repository primitives have been reviewed, but **promotion is not yet safe to use in the live worker**:

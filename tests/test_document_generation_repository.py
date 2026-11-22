@@ -10,6 +10,7 @@ from backend.repositories.document_generation_repository import (
     validate_staging_generation_vector_readiness,
     retire_failed_staging_generation,
     cleanup_failed_generation_artifacts,
+    list_abandoned_generation_cleanup_candidates,
 )
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -630,3 +631,33 @@ def test_cleanup_rejects_stale_attempt_without_vector_deletion(db):
         db, generation_id, document.id, document.organization_id, attempt_id, vector_store
     ) is False
     assert vector_store.delete_calls == []
+
+def test_abandoned_cleanup_discovery_excludes_active_generation_and_is_bounded(db):
+    active_document, active_attempt, active_generation = _staged_generation_for_readiness(
+        db, "generation-discovery-active-exclusion@example.com"
+    )
+    # Mark the staged generation abandoned and point the document at it to
+    # simulate an inconsistent state; discovery must still exclude active IDs.
+    active_document.active_generation_id = active_generation
+    db.query(DocumentProcessingGeneration).filter(
+        DocumentProcessingGeneration.id == active_generation
+    ).update({"status": "abandoned"})
+    db.commit()
+
+    first_document, first_attempt, first_generation = _failed_candidate(
+        db, "generation-discovery-first@example.com"
+    )
+    second_document, second_attempt, second_generation = _failed_candidate(
+        db, "generation-discovery-second@example.com"
+    )
+    db.query(DocumentProcessingGeneration).filter(
+        DocumentProcessingGeneration.id.in_([first_generation, second_generation])
+    ).update({"status": "abandoned"}, synchronize_session=False)
+    db.commit()
+
+    candidates = list_abandoned_generation_cleanup_candidates(db, limit=1)
+    assert len(candidates) == 1
+    assert candidates[0].id in {first_generation, second_generation}
+    assert candidates[0].id != active_generation
+    assert list_abandoned_generation_cleanup_candidates(db, limit=0) == []
+    assert list_abandoned_generation_cleanup_candidates(db, limit=-1) == []

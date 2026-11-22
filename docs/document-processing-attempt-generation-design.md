@@ -10,7 +10,7 @@ This primitive is not wired into the processing worker; stale-owner cleanup and 
 
 ## Status
 
-Design checkpoint for PR #23. The ownership primitives and attempt-fenced SQL chunk replacement are groundwork only; the processing worker is not yet integrated. This document records the concurrency contract required before that integration.
+Current implementation checkpoint for PR #23. The live background worker is integrated with attempt-owned generation processing, lease renewal, generation-scoped SQL chunks and Qdrant vectors, vector-index parity readiness, conditional promotion, and active-generation retrieval. This is not a cross-store transaction; automatic abandoned-generation cleanup remains intentionally disabled pending external-write fencing. The historical checkpoints below record the evolution of the design and should not be read as current status.
 
 ## Current behavior and failure modes
 

@@ -222,3 +222,70 @@ def promote_staging_generation(
     document.processing_lease_expires_at = None
     db.flush()
     return True
+
+def validate_staging_generation_vector_readiness(
+    db: Session,
+    generation_id: str,
+    document_id: int,
+    organization_id: int,
+    attempt_id: str,
+    vector_repository,
+) -> bool:
+    """Fail closed unless staged SQL chunks and generation vectors match.
+
+    This is a readiness primitive only. Promotion remains a separate SQL
+    transaction, and callers must not treat this check as a cross-store
+    transaction or bypass the current-owner checks during promotion.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    document = (
+        db.query(Document.id)
+        .filter(
+            Document.id == document_id,
+            Document.organization_id == organization_id,
+            Document.status == DocumentStatus.PROCESSING,
+            Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
+        )
+        .first()
+    )
+    if document is None:
+        return False
+
+    generation = (
+        db.query(DocumentProcessingGeneration.id)
+        .filter(
+            DocumentProcessingGeneration.id == generation_id,
+            DocumentProcessingGeneration.document_id == document_id,
+            DocumentProcessingGeneration.organization_id == organization_id,
+            DocumentProcessingGeneration.attempt_id == attempt_id,
+            DocumentProcessingGeneration.status == "staging",
+        )
+        .first()
+    )
+    if generation is None:
+        return False
+
+    staged_count = (
+        db.query(DocumentGenerationChunk.id)
+        .filter(
+            DocumentGenerationChunk.generation_id == generation_id,
+            DocumentGenerationChunk.document_id == document_id,
+            DocumentGenerationChunk.organization_id == organization_id,
+        )
+        .count()
+    )
+    if staged_count <= 0:
+        return False
+
+    try:
+        vector_count = vector_repository.count_generation_chunks(
+            generation_id=generation_id,
+            document_id=document_id,
+            organization_id=organization_id,
+        )
+    except Exception:
+        # Vector-store failures must never allow promotion readiness.
+        return False
+
+    return vector_count == staged_count

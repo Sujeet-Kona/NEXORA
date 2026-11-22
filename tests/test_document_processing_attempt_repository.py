@@ -53,6 +53,7 @@ def test_lease_renewal_only_succeeds_for_current_unexpired_owner(db):
     token = claim_document_processing_attempt(db, document.id)
     assert token is not None
 
+    db.refresh(document)
     before = document.processing_lease_expires_at
     assert renew_document_processing_lease(db, document.id, token, lease_seconds=600)
     db.refresh(document)

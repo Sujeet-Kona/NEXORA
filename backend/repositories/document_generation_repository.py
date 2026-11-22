@@ -321,3 +321,51 @@ def promote_staging_generation_with_vector_readiness(
         organization_id,
         attempt_id,
     )
+
+def retire_failed_staging_generation(
+    db: Session,
+    generation_id: str,
+    document_id: int,
+    organization_id: int,
+    attempt_id: str,
+) -> bool:
+    """Mark a failed candidate generation as failed without affecting active data.
+
+    SQL changes are transaction-controlled by the caller. This function never
+    deletes or retires the document's active generation and only targets a
+    staging generation owned by the given attempt.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    document = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.organization_id == organization_id,
+            Document.status == DocumentStatus.PROCESSING,
+            Document.processing_attempt_id == attempt_id,
+            Document.processing_lease_expires_at > now,
+        )
+        .with_for_update()
+        .first()
+    )
+    if document is None:
+        return False
+
+    generation = (
+        db.query(DocumentProcessingGeneration)
+        .filter(
+            DocumentProcessingGeneration.id == generation_id,
+            DocumentProcessingGeneration.document_id == document_id,
+            DocumentProcessingGeneration.organization_id == organization_id,
+            DocumentProcessingGeneration.attempt_id == attempt_id,
+            DocumentProcessingGeneration.status == "staging",
+        )
+        .with_for_update()
+        .first()
+    )
+    if generation is None:
+        return False
+
+    generation.status = "failed"
+    db.flush()
+    return True

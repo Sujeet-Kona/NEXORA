@@ -676,11 +676,17 @@ def test_upload_persists_extraction_stats(
     assert body["word_count"] == 6
     assert body["character_count"] > 0
 
+    active_generation_id = (
+        db.query(Document)
+        .filter(Document.id == document_id)
+        .one()
+        .active_generation_id
+    )
     chunks = (
         db.query(DocumentGenerationChunk)
         .filter(
             DocumentGenerationChunk.document_id == document_id,
-            DocumentGenerationChunk.generation_id == body["active_generation_id"],
+            DocumentGenerationChunk.generation_id == active_generation_id,
         )
         .order_by(DocumentGenerationChunk.chunk_index)
         .all()

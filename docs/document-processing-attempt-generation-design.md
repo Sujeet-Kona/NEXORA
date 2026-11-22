@@ -1,3 +1,11 @@
+## Retry-safe failed generation cleanup
+
+Cleanup now targets only a generation already marked failed and still owned by the current processing attempt. It rejects the active generation pointer, deletes Qdrant points using generation + document + tenant filters, verifies the exact remaining point count is zero, and only then deletes SQL generation chunks. The generation row remains as a failed audit record.
+
+The cleanup operation is idempotent: repeating vector deletion and zero-count verification after SQL chunks have already been removed is safe. If vector deletion or verification fails, SQL chunk deletion is not performed. Caller still owns SQL transaction commit/rollback.
+
+This primitive is not wired into the processing worker; stale-owner cleanup and recovery scheduling remain separate work.
+
 # Document Processing Attempt Ownership: Safe Index Generation Design
 
 ## Status

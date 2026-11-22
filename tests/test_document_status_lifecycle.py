@@ -117,7 +117,7 @@ def patch_status(
     )
 
 
-def test_pending_to_processing_is_allowed(client):
+def test_pending_to_processing_is_rejected_for_worker_ownership(client):
     token = register_and_login(
         client,
         "lifecycle-pending-processing@example.com",
@@ -143,11 +143,14 @@ def test_pending_to_processing_is_allowed(client):
         "processing",
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "processing"
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Cannot change document status from 'pending' to 'processing'"
+    }
 
 
-def test_processing_to_ready_is_allowed(client):
+
+def test_processing_to_ready_is_rejected_without_worker_promotion(client, db):
     token = register_and_login(
         client,
         "lifecycle-processing-ready@example.com",
@@ -165,13 +168,14 @@ def test_processing_to_ready_is_allowed(client):
         organization_id,
     )
 
-    assert patch_status(
-        client,
-        token,
-        organization_id,
-        document_id,
-        "processing",
-    ).status_code == 200
+    # Simulate a worker-owned PROCESSING state; the admin API cannot
+    # create this state because it must be paired with an attempt token/lease.
+    from backend.db.models import Document, DocumentStatus
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.PROCESSING
+    db.commit()
 
     response = patch_status(
         client,
@@ -181,8 +185,10 @@ def test_processing_to_ready_is_allowed(client):
         "ready",
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Cannot change document status from 'processing' to 'ready'"
+    }"
 
 
 def test_pending_to_failed_is_allowed(client):

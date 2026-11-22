@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from backend.db.models import DocumentProcessingGeneration
+from backend.db.models import Document, DocumentProcessingGeneration, DocumentStatus
 from backend.repositories.document_generation_repository import (
     create_staging_generation,
     get_staging_generation_chunks,
@@ -481,6 +481,15 @@ def test_failed_candidate_retirement_preserves_active_generation(db):
         db, active_candidate, document.id, document.organization_id, first_attempt
     ) is True
     db.commit()
+
+    # Simulate the document-version upload transition before a replacement
+    # processing attempt: READY -> PENDING, preserving the active generation.
+    db.query(Document).filter(Document.id == document.id).update(
+        {Document.status: DocumentStatus.PENDING},
+        synchronize_session=False,
+    )
+    db.commit()
+
 
     # A new attempt starts for replacement processing; the previous generation
     # remains active while this candidate is being built.

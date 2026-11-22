@@ -279,11 +279,11 @@ def test_admin_can_update_document_status(db):
         db=db,
         organization_id=organization.id,
         document_id=document.id,
-        status=DocumentStatus.PROCESSING,
+        status=DocumentStatus.FAILED,
         current_user=admin,
     )
 
-    assert updated.status == DocumentStatus.PROCESSING
+    assert updated.status == DocumentStatus.FAILED
 
 
 def test_member_cannot_delete_document(db):

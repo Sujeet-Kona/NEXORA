@@ -348,6 +348,43 @@ class QdrantRepository:
 
 
 
+    def count_generation_chunks(
+        self,
+        generation_id: str,
+        document_id: int,
+        organization_id: int,
+    ) -> int:
+        """Count points for one generation, scoped to its document and tenant."""
+        self.ensure_collection()
+
+        generation_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="organization_id",
+                    match=models.MatchValue(value=organization_id),
+                ),
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchValue(value=document_id),
+                ),
+                models.FieldCondition(
+                    key="generation_id",
+                    match=models.MatchValue(value=generation_id),
+                ),
+            ]
+        )
+
+        @self._wrap("generation count", organization_id=organization_id)
+        def _do():
+            return self.client.count(
+                collection_name=settings.qdrant_collection,
+                count_filter=generation_filter,
+                exact=True,
+            )
+
+        return _do().count
+
+
     def search_generation(
         self,
         query_vector: list[float],

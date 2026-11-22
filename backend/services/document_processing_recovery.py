@@ -106,9 +106,9 @@ def recover_stale_document_processing(
             Document.status == DocumentStatus.PROCESSING,
             or_(
                 Document.processing_lease_expires_at <= _utc_now_naive(),
-                (
-                    Document.processing_attempt_id.is_(None)
-                    & (Document.updated_at < cutoff)
+                and_(
+                    Document.processing_lease_expires_at.is_(None),
+                    Document.updated_at < cutoff,
                 ),
             ),
         )

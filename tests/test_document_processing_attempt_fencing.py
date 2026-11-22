@@ -1,6 +1,4 @@
-from datetime import datetime, timezone
-
-from backend.db.models import Document, DocumentStatus, User
+from backend.db.models import DocumentStatus, User
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
     create_document,

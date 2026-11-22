@@ -304,3 +304,30 @@ def test_unexpired_lease_is_not_recovered_when_updated_at_is_old(db):
     assert recover_stale_document_processing(db, document.id) is False
     db.expire_all()
     assert db.get(Document, document.id).status == DocumentStatus.PROCESSING
+
+
+def test_missing_lease_with_attempt_token_uses_stale_timestamp_fallback(db):
+    document = create_processing_document(
+        db,
+        "recovery-missing-lease-attempt@example.com",
+    )
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_attempt_id="malformed-attempt-without-lease",
+            processing_lease_expires_at=None,
+            updated_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - STALE_PROCESSING_AFTER
+                - timedelta(minutes=1)
+            ),
+        )
+    )
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is True
+    db.expire_all()
+    recovered = db.get(Document, document.id)
+    assert recovered.status == DocumentStatus.PENDING
+    assert recovered.processing_attempt_id is None

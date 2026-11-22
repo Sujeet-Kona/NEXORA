@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from backend.db.models import (
@@ -65,9 +65,9 @@ def recover_stale_processing_documents(db: Session) -> int:
             Document.status == DocumentStatus.PROCESSING,
             or_(
                 Document.processing_lease_expires_at <= _utc_now_naive(),
-                (
-                    Document.processing_attempt_id.is_(None)
-                    & (Document.updated_at < cutoff)
+                and_(
+                    Document.processing_lease_expires_at.is_(None),
+                    Document.updated_at < cutoff,
                 ),
             ),
         )

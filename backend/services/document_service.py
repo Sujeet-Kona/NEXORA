@@ -453,7 +453,10 @@ def update_document_status_service(
     )
     _require_admin_or_owner(membership)
 
-    document = get_document_by_id(
+    # Validate against the current status while holding the same row lock
+    # used by processing claims and other lifecycle mutations. A plain read here
+    # could authorize a transition based on a stale status under concurrency.
+    document = get_document_by_id_for_update(
         db=db,
         document_id=document_id,
         organization_id=organization_id,

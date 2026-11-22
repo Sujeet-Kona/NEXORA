@@ -18,6 +18,8 @@ from backend.services.retrieval_service import (
     retrieve_active_generation_chunks,
 )
 
+from backend.services.retrievers import ActiveGenerationLexicalRetriever
+
 
 def create_user(db, email, name):
     user = User(

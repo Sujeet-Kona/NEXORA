@@ -59,3 +59,41 @@ Do **not** introduce a new document status solely for deletion in this checkpoin
 5. Separately address late vector writes from processing attempts: a purge-and-verify sequence is not a sufficient fence if a delayed Qdrant upsert can complete afterward. Deletion must serialize against/fence processing and external writes before claiming vector cleanup is final.
 
 This is an audit/design checkpoint only. No deletion code or schema was changed in this commit, and CI was not run locally.
+
+
+## Durable deletion-intent design (proposal, not implemented)
+
+### Preferred data model
+
+Use a dedicated `document_deletion_intents` table rather than adding `DELETING` to the existing document status enum. Keep one intent per document (unique `document_id`, with organization ownership enforced by a composite foreign key), and persist request actor, creation timestamp, and a small state (`pending_vectors`, `vectors_purged`, `sql_deleted`, `storage_pending`, `complete`) plus retry metadata. The intent is a durable workflow record; it must not contain document text, file contents, or credentials.
+
+
+### Transaction and lock protocol
+
+1. Begin SQL transaction and lock the document row with tenant scope.
+2. Reject if the row is currently processing. Insert/ensure the deletion intent while holding the same row lock; commit. This commit is the durable deletion-request boundary.
+3. Every document-processing claim and version-replacement mutation must lock the same document row and check for an intent before proceeding. A claim must be conditional so it cannot bypass the intent check.
+4. Deletion reconciler claims intents using row locks/`SKIP LOCKED`, with bounded retry and observability. It must never rely on an in-memory queue as the source of truth.
+5. Purge Qdrant by tenant + document + generation/legacy scope, then record the purge checkpoint transactionally. If that checkpoint fails, repeat the idempotent purge.
+6. Delete the SQL document in a transaction and preserve intent state so retry can distinguish the missing document from an unrelated missing ID. File cleanup is retried from the durable intent's saved storage key; key must be treated as opaque and tenant-scoped. Only after storage cleanup and audit policy are satisfied is the intent marked complete or retained as a tombstone.
+
+### Visibility contract
+
+While an intent exists, retrieval hydration must exclude the document, lexical retrieval must exclude it, document detail/list APIs must not accidentally advertise it as normal, and processing/version replacement must refuse it. These checks should be SQL-backed; vector deletion is not the security boundary. Decide API behavior (404 vs explicit deleting state) before implementation and apply it consistently.
+
+### Fencing limitation
+
+The row-lock protocol fences database claims but cannot cancel an already-running Qdrant upsert. Before purge is considered final, external writes need a real fence: either a processing design that ensures every upsert is completed/acknowledged and ownership revalidated under a durable per-document write barrier that cleanup can acquire, or a point namespace/collection strategy where stale attempt writes are never visible and can be deterministically retired. Do not ship deletion reconciler as “safe” until a delayed-upsert-after-purge test demonstrates the fence.
+
+### Retry semantics and failure matrix
+
+- Intent commit fails: no external side effects; return failure.
+- Qdrant purge fails: intent stays pending, document is hidden, worker/version changes blocked, retry continues.
+- Qdrant purge succeeds but checkpoint commit fails: retry purge (idempotent).
+- SQL document delete fails: intent persists; repeat purge and SQL delete.
+- SQL delete succeeds but file delete fails: intent retains storage key and cleanup retries; no document resurrection.
+- Audit fails: deletion workflow must not roll back an already committed external purge or SQL delete; define durable audit/outbox semantics explicitly before implementation.
+
+### Exit criteria
+
+The design is not implementation-ready until migrations and ownership constraints are reviewed, all read/claim/update paths are enumerated, and concurrency tests cover claim-vs-intent, replacement-vs-intent, retrieval during deletion, retry idempotency, and delayed vector writes after cleanup.

@@ -125,3 +125,19 @@ The single-document recovery path now locks its row and rechecks the stale predi
 A repository query now lists abandoned generations that are not referenced by the document's active-generation pointer. It is bounded by a caller-supplied limit, deterministic by creation time and generation ID, and returns generation metadata only. Non-positive limits return an empty list.
 
 This is discovery, not a cleanup claim or lease. It intentionally does not lock or mutate rows and does not perform vector/SQL deletion. Multiple future reconcilers may observe the same candidate. Before cleanup can be scheduled, it still needs a durable claim/lease and external-write fencing: a stale processing attempt must not be able to recreate vectors after the reconciler verifies deletion. Active-pointer exclusion is a guard, not a substitute for transactional claims or cleanup fencing.
+
+
+## Cleanup concurrency and external-write fencing checkpoint
+
+A durable cleanup claim is necessary but insufficient on its own. A lease can prevent two reconcilers from intentionally processing the same generation at once, but it cannot stop an expired processing worker from completing a delayed Qdrant upsert after cleanup has verified zero points. Deleting again on a retry is not a fencing guarantee if a late write can occur after the final retry.
+
+Before automated abandoned-generation deletion is enabled, the worker/repository boundary must establish all of the following:
+
+- generation-scoped vector writes are authorized only for the current attempt and staging generation;
+- write authorization and cleanup are coordinated so an already-authorized external write cannot outlive the cleanup fence (a check immediately before an upsert is not sufficient by itself);
+- cleanup claims are durable, bounded, conditional, and recoverable after lease expiry, and never target the active pointer;
+- vector deletion is generation + document + organization scoped and followed by an exact zero-count check;
+- SQL staged chunks are deleted only after vector verification succeeds, while lifecycle/audit metadata is retained;
+- retries and claim expiry cannot permit two cleanup owners to mutate the same generation concurrently.
+
+Until the external-write fencing design is proven and tested, this branch keeps abandoned-generation discovery read-only. Adding claim columns or a claim API now would create a misleading sense of safety without making vector deletion safe. The next implementation step is to design and test the fencing boundary around generation-scoped Qdrant writes, then add durable cleanup claims and reconciliation as a separate change.

@@ -215,3 +215,15 @@ The five-second client timeout bounds how long the client waits, not necessarily
 This inventory identifies the mutation methods and source call sites found in the reviewed modules. It does **not** establish runtime reachability, complete background-task scheduling coverage, or that every mutation is serialized against deletion/recovery. Before any row-lock barrier implementation, map API/task entry points to both processing services and add an assertion/test that legacy processing cannot be scheduled for a document once generation ownership is claimed (or deliberately fence both paths).
 
 **Verification:** remote GitHub source reads and static call-site inspection only; no local test or runtime execution.
+
+
+## Upload scheduling path review (checkpoint)
+
+Reviewed `backend/api/v1/documents.py`, `backend/services/document_processing_worker.py`, and both processing services at the current audit branch.
+
+- New document upload and version upload routes both schedule `process_document_background` through FastAPI `BackgroundTasks`.
+- That background function invokes stale-processing recovery, then calls `process_document_generation`; it does not call the legacy `process_document` service.
+- The legacy processor/indexer remain present as Python modules and reachable through their direct function imports, but no route call to the legacy processor was observed in the reviewed document API module. This is limited evidence; repository-wide runtime reachability was not established.
+- Consequently, generation attempt fencing is the visible upload scheduling path, while legacy indexing remains a mutation API requiring its own caller-coverage assessment before being treated as safely unreachable.
+
+**Verification:** static source review of the API and worker files only; no runtime/test execution.

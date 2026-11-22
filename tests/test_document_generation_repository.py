@@ -6,6 +6,7 @@ from backend.repositories.document_generation_repository import (
     get_staging_generation_chunks,
     replace_staging_generation_chunks,
     promote_staging_generation,
+    validate_staging_generation_vector_readiness,
 )
 from backend.repositories.document_repository import (
     claim_document_processing_attempt,
@@ -313,3 +314,85 @@ def test_expired_lease_cannot_replace_or_promote_staging_generation(db):
     assert document.active_generation_id is None
     assert document.status == "processing"
     assert document.processing_attempt_id == attempt_id
+
+class _VectorCountStub:
+    def __init__(self, count=None, error=None):
+        self.count = count
+        self.error = error
+        self.calls = []
+
+    def count_generation_chunks(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error is not None:
+            raise self.error
+        return self.count
+
+
+def _staged_generation_for_readiness(db, email):
+    document = _document(db, email)
+    attempt_id = claim_document_processing_attempt(db, document.id)
+    assert attempt_id is not None
+    generation_id = create_staging_generation(
+        db, document.id, document.organization_id, attempt_id
+    )
+    assert generation_id is not None
+    replace_staging_generation_chunks(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        [("chunk one", 1, 1), ("chunk two", 2, 2)],
+    )
+    db.commit()
+    return document, attempt_id, generation_id
+
+
+def test_vector_readiness_requires_exact_staged_chunk_count(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-readiness-match@example.com"
+    )
+    vector_repository = _VectorCountStub(count=2)
+
+    assert validate_staging_generation_vector_readiness(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        vector_repository,
+    ) is True
+    assert vector_repository.calls == [{
+        "generation_id": generation_id,
+        "document_id": document.id,
+        "organization_id": document.organization_id,
+    }]
+
+
+def test_vector_readiness_rejects_incomplete_or_extra_vectors(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-readiness-mismatch@example.com"
+    )
+    for vector_count in (1, 3, 0):
+        assert validate_staging_generation_vector_readiness(
+            db,
+            generation_id,
+            document.id,
+            document.organization_id,
+            attempt_id,
+            _VectorCountStub(count=vector_count),
+        ) is False
+
+
+def test_vector_readiness_fails_closed_on_vector_store_error(db):
+    document, attempt_id, generation_id = _staged_generation_for_readiness(
+        db, "generation-readiness-error@example.com"
+    )
+    assert validate_staging_generation_vector_readiness(
+        db,
+        generation_id,
+        document.id,
+        document.organization_id,
+        attempt_id,
+        _VectorCountStub(error=RuntimeError("vector store unavailable")),
+    ) is False

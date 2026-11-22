@@ -40,6 +40,8 @@ def recover_stale_processing_documents(db: Session) -> int:
 
     for document in documents:
         document.status = DocumentStatus.PENDING
+        document.processing_attempt_id = None
+        document.processing_lease_expires_at = None
         document.failure_reason = (
             "Previous processing worker expired; document queued for retry"
         )
@@ -70,6 +72,8 @@ def recover_stale_document_processing(
         return False
 
     document.status = DocumentStatus.PENDING
+    document.processing_attempt_id = None
+    document.processing_lease_expires_at = None
     document.failure_reason = (
         "Previous processing worker expired; document queued for retry"
     )

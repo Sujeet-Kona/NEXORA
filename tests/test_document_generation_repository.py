@@ -174,7 +174,7 @@ def test_promotion_activates_generation_and_clears_attempt_owner(db):
     db.commit()
     db.refresh(document)
     assert document.active_generation_id == generation_id
-    assert document.status.value == "ready"
+    assert document.status == "ready"
     assert document.processing_attempt_id is None
     assert document.processing_lease_expires_at is None
 
@@ -225,7 +225,7 @@ def test_stale_attempt_cannot_promote_generation(db):
     db.refresh(document)
     assert document.active_generation_id is None
     assert document.processing_attempt_id == "newer-attempt-token"
-    assert document.status.value == "processing"
+    assert document.status == "processing"
 
 
 
@@ -255,4 +255,4 @@ def test_empty_staging_generation_cannot_be_promoted(db):
     db.rollback()
     db.refresh(document)
     assert document.active_generation_id is None
-    assert document.status.value == "processing"
+    assert document.status == "processing"

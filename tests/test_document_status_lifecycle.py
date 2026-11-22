@@ -140,3 +140,18 @@ def test_member_is_denied_before_transition_validation(client, db):
     )
     assert response.status_code == 403
     assert response.json() == {"detail": "Organization admin access required"}
+
+def test_unknown_status_value_is_rejected_by_schema(client):
+    token = register_and_login(client, "lifecycle-unknown-status@example.com")
+    organization_id = create_organization(client, token, "Lifecycle Unknown Status")
+    document_id = create_document(client, token, organization_id)
+
+    response = patch_status(
+        client,
+        token,
+        organization_id,
+        document_id,
+        "not-a-status",
+    )
+
+    assert response.status_code == 422

@@ -284,10 +284,9 @@ def upload_document_version_service(
     )
     _require_admin_or_owner(membership)
 
-    # Hold the database row lock across the external vector purge. This is
-    # intentional: releasing the lock before Qdrant cleanup would allow a
-    # processing worker to claim the document while its vectors are being
-    # replaced, producing a transiently inconsistent index.
+    # Hold the document row lock across legacy-vector cleanup and file
+    # replacement. The generation-aware processing pipeline stages new vectors
+    # separately; active generation vectors must not be purged here.
     document = get_document_by_id_for_update(
         db=db,
         document_id=document_id,

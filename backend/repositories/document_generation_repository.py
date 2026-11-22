@@ -146,8 +146,10 @@ def get_active_generation_chunks(
 ) -> list[DocumentGenerationChunk]:
     """Return chunks only from each document's active generation.
 
-    Tenant, document readiness, active pointer, and generation status are
-    validated in SQL so staging/retired generations cannot enter retrieval.
+    Tenant, active pointer, and generation status are validated in SQL so
+    staging/retired generations cannot enter retrieval. Document processing
+    status is intentionally independent: the prior active generation remains
+    retrievable while a replacement is processing or has failed.
     """
     query = (
         db.query(DocumentGenerationChunk)

@@ -430,7 +430,7 @@ def test_upload_version_purges_existing_chunks_and_vectors(
 
     assert response.status_code == 201
 
-    qdrant.delete_document_chunks.assert_called_once_with(
+    qdrant.delete_legacy_document_chunks.assert_called_once_with(
         document_id=document_id,
         organization_id=organization_id,
     )
@@ -589,7 +589,7 @@ def test_member_cannot_upload_version(
         "detail": "Organization admin access required"
     }
 
-    qdrant.delete_document_chunks.assert_not_called()
+    qdrant.delete_legacy_document_chunks.assert_not_called()
 
     db.expire_all()
 
@@ -667,7 +667,7 @@ def test_non_member_cannot_upload_version(
         "detail": "Organization membership required"
     }
 
-    qdrant.delete_document_chunks.assert_not_called()
+    qdrant.delete_legacy_document_chunks.assert_not_called()
 
     db.expire_all()
 
@@ -741,7 +741,7 @@ def test_cross_tenant_cannot_upload_version(
 
     assert response.status_code == 403
 
-    qdrant.delete_document_chunks.assert_not_called()
+    qdrant.delete_legacy_document_chunks.assert_not_called()
 
     db.expire_all()
 
@@ -832,7 +832,7 @@ def test_upload_version_fails_when_vectors_cannot_be_purged(
     original_key = _storage_key(db, document_id)
 
     qdrant = Mock()
-    qdrant.delete_document_chunks.side_effect = RuntimeError(
+    qdrant.delete_legacy_document_chunks.side_effect = RuntimeError(
         "Qdrant is unreachable",
     )
 
@@ -930,7 +930,7 @@ def test_upload_version_rejects_invalid_content(
         "detail": "Uploaded content is not a valid PDF"
     }
 
-    qdrant.delete_document_chunks.assert_not_called()
+    qdrant.delete_legacy_document_chunks.assert_not_called()
 
     assert stored_file_names(
         tmp_path,

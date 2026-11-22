@@ -816,3 +816,25 @@ def test_active_generation_chunk_reader_excludes_staging_and_wrong_tenant(db):
         organization_id=active_document.organization_id,
         document_ids=[],
     ) == []
+
+    active_document.status = DocumentStatus.PROCESSING
+    db.commit()
+    assert len(
+        get_active_generation_chunks(
+            db,
+            organization_id=active_document.organization_id,
+            document_ids=[active_document.id],
+        )
+    ) == 2
+
+    active_document.status = DocumentStatus.FAILED
+    db.commit()
+    failed_document_chunks = get_active_generation_chunks(
+        db,
+        organization_id=active_document.organization_id,
+        document_ids=[active_document.id],
+    )
+    assert [(chunk.chunk_index, chunk.text) for chunk in failed_document_chunks] == [
+        (0, "active generation content"),
+        (1, "second active chunk"),
+    ]

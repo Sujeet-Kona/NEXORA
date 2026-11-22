@@ -780,3 +780,39 @@ def test_generation_chunk_index_listing_rejects_malformed_point_objects(
         )
 
     assert isinstance(exc_info.value.__cause__, AttributeError)
+
+
+def test_delete_legacy_document_chunks_preserves_generation_vectors(repository):
+    vector = [1.0] + [0.0] * 1023
+    generation = "12121212-1212-4121-8121-121212121212"
+    _seed(
+        repository,
+        chunk_id=901,
+        vector=vector,
+        organization_id=19,
+        document_id=190,
+        chunk_index=0,
+    )
+    repository.upsert_generation_chunks(
+        [(generation, vector, 19, 190, 0, 2)]
+    )
+
+    repository.delete_legacy_document_chunks(
+        document_id=190,
+        organization_id=19,
+    )
+
+    legacy = repository.search(
+        query_vector=vector,
+        organization_id=19,
+        limit=5,
+    )
+    generated = repository.search_generation(
+        query_vector=vector,
+        organization_id=19,
+        generation_ids=[generation],
+        limit=5,
+    )
+    assert legacy.points == []
+    assert len(generated.points) == 1
+    assert generated.points[0].payload["generation_id"] == generation

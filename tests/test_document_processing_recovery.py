@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update
 
-from backend.db.models import Document, DocumentStatus, User
+from backend.db.models import (\n    Document,\n    DocumentProcessingGeneration,\n    DocumentStatus,\n    User,\n)
 from backend.dependencies.database import get_session_factory
 from backend.main import app, recover_stale_processing_jobs
 from backend.repositories.document_repository import create_document
@@ -180,3 +180,68 @@ def test_document_processing_attempt_fields_round_trip(db):
     assert persisted is not None
     assert persisted.processing_attempt_id == attempt_id
     assert persisted.processing_lease_expires_at == lease_expiry
+
+def _add_staging_generation(db, document, attempt_id, generation_id):
+    generation = DocumentProcessingGeneration(
+        id=generation_id,
+        document_id=document.id,
+        organization_id=document.organization_id,
+        attempt_id=attempt_id,
+        status="staging",
+    )
+    db.add(generation)
+    db.commit()
+    return generation
+
+
+def test_single_recovery_abandons_only_stale_attempt_staging_generations(db):
+    document = create_processing_document(
+        db,
+        "recovery-abandon-single@example.com",
+    )
+    _add_staging_generation(
+        db, document, "stale-attempt-token", "stale-generation-id"
+    )
+    _add_staging_generation(
+        db, document, "different-attempt-token", "unrelated-generation-id"
+    )
+
+    assert recover_stale_document_processing(db, document.id) is True
+    db.expire_all()
+
+    stale_generation = db.get(
+        DocumentProcessingGeneration, "stale-generation-id"
+    )
+    unrelated_generation = db.get(
+        DocumentProcessingGeneration, "unrelated-generation-id"
+    )
+    recovered = db.get(Document, document.id)
+    assert recovered.status == DocumentStatus.PENDING
+    assert recovered.processing_attempt_id is None
+    assert stale_generation.status == "abandoned"
+    assert unrelated_generation.status == "staging"
+
+
+def test_bulk_recovery_abandons_staging_generation_for_each_stale_attempt(db):
+    first = create_processing_document(
+        db, "recovery-abandon-bulk-one@example.com"
+    )
+    second = create_processing_document(
+        db, "recovery-abandon-bulk-two@example.com"
+    )
+    _add_staging_generation(
+        db, first, "stale-attempt-token", "bulk-stale-generation-one"
+    )
+    _add_staging_generation(
+        db, second, "stale-attempt-token", "bulk-stale-generation-two"
+    )
+
+    assert recover_stale_processing_documents(db) == 2
+    db.expire_all()
+
+    assert db.get(
+        DocumentProcessingGeneration, "bulk-stale-generation-one"
+    ).status == "abandoned"
+    assert db.get(
+        DocumentProcessingGeneration, "bulk-stale-generation-two"
+    ).status == "abandoned"

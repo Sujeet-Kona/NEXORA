@@ -393,7 +393,7 @@ def cleanup_failed_generation_artifacts(
             Document.status == DocumentStatus.PROCESSING,
             Document.processing_attempt_id == attempt_id,
             Document.processing_lease_expires_at > now,
-            Document.active_generation_id != generation_id,
+            Document.active_generation_id.is_distinct_from(generation_id),
         )
         .with_for_update()
         .first()

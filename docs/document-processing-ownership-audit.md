@@ -256,3 +256,36 @@ This is artifact-retention/resource cleanup, not evidence that failed generation
 - Add tests for failure finalization clearing attempt token, cleanup candidate coverage, retries, active-generation exclusion, Qdrant delete/count failure, and delayed upsert after purge.
 
 **Verification:** remote source inspection only; no tests executed. This finding is limited to the code paths reviewed.
+
+
+## Failed-generation cleanup protocol design checkpoint (not implemented)
+
+This checkpoint refines the already-confirmed post-finalization cleanup gap into a proposed state protocol, based on the current generation model/repository/service source review.
+
+
+### Model constraints relevant to cleanup
+
+- `DocumentProcessingGeneration` currently has generation ID, document ID, organization ID, attempt ID, status, and creation time. There is no independent cleanup lease/claim, retry counter, or cleanup timestamp.
+- Generation and generation-chunk rows have document/organization ownership constraints and document-delete cascades. This is appropriate for SQL lifecycle cleanup, but a cleanup worker relying on the document join cannot discover artifacts after SQL document deletion; external Qdrant artifacts may still exist if a write was delayed after a purge.
+- Existing candidate discovery is document-joined and status-filtered, so it covers only rows for existing documents with `abandoned` status. It does not cover `failed` candidates after attempt finalization.
+
+### Proposed durable state machine
+
+Keep processing status and cleanup status conceptually separate. A minimal cleanup state should be independently claimable, with states such as `pending`, `claimed`, `retry`, and `complete`; claim metadata should include a cleanup token, expiry, attempt counter, and last error (sanitized). A migration must add constraints/indexes only after checking existing rows. Candidate eligibility must be derived by tenant/document/generation and exclude the active pointer under a SQL lock. Failed and abandoned inactive generations should become eligible; active generations must never be cleaned.
+
+Worker sequence:
+1. Claim a bounded candidate in a short SQL transaction using a lease/token and row locking (skip locked where supported); commit claim.
+2. Revalidate the generation/document/tenant relationship and active pointer immediately before vector cleanup. Do not hold SQL transactions during vector deletion/count network calls unless the lock strategy is explicitly justified and bounded.
+3. Delete generation vectors using the exact generation/document/tenant filter, then verify count is zero. Any exception or nonzero count marks/retries cleanup and retains SQL chunks.
+4. Delete SQL chunk rows only after vector absence is confirmed. Commit chunk removal and cleanup completion atomically, guarded by the cleanup token. Preserve the generation record as a cleaned tombstone unless retention rules explicitly authorize deleting it.
+5. Make claim expiry/retry safe and observable; cap retries or use backoff without permanently hiding candidates. A stale cleanup claimant must not finalize another claimant's work.
+
+### Required fencing before implementation
+
+This protocol alone does **not** prevent a delayed generation upsert from arriving after the vector count check/purge. Existing deterministic point IDs are generation-scoped but do not prevent recreation. Cleanup must be paired with an external-write barrier/fence (or another verified Qdrant-side mechanism) that proves no accepted write can recreate the generation after cleanup's final delete. The previously reviewed SQL row-lock barrier remains a candidate, but its sufficiency is not established because a client timeout/disconnect may not prove remote cancellation. Do not implement the cleanup worker until that external write fence is selected and testable.
+
+### Test gate
+
+Before enabling worker behavior, add deterministic tests for: post-failure finalized attempts discoverable; abandoned candidates discoverable; active generation excluded; cross-tenant mismatch excluded; two concurrent claims cannot own one generation; expired claim recovery; vector-delete exception/nonzero count retains SQL chunks; successful count-zero cleanup deletes only scoped chunks; stale claimant cannot finalize; delayed upsert after purge is fenced; document deletion and cleanup interaction. Migration must be exercised against the current Alembic chain and representative preexisting rows.
+
+**Verification:** static inspection of model and repository/service source via GitHub only. This is a design checkpoint; no source code or migrations changed and no local tests were run.

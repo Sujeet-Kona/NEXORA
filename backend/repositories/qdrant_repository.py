@@ -1,4 +1,5 @@
-﻿from uuid import UUID, uuid5
+﻿from collections.abc import Mapping
+from uuid import UUID, uuid5
 
 from qdrant_client import QdrantClient, models
 
@@ -442,7 +443,11 @@ class QdrantRepository:
                     with_vectors=False,
                 )
                 for point in points:
-                    payload = point.payload or {}
+                    payload = point.payload
+                    if payload is None:
+                        payload = {}
+                    elif not isinstance(payload, Mapping):
+                        raise TypeError("Generation chunk payload must be a mapping")
                     chunk_index = payload.get("chunk_index")
                     if isinstance(chunk_index, bool) or not isinstance(chunk_index, int) or chunk_index < 0:
                         raise ValueError("Invalid generation chunk index payload")

@@ -97,3 +97,29 @@ The row-lock protocol fences database claims but cannot cancel an already-runnin
 ### Exit criteria
 
 The design is not implementation-ready until migrations and ownership constraints are reviewed, all read/claim/update paths are enumerated, and concurrency tests cover claim-vs-intent, replacement-vs-intent, retrieval during deletion, retry idempotency, and delayed vector writes after cleanup.
+
+
+## External Qdrant write-fence review (checkpoint)
+
+**Reviewed:** 2026-11-22 at PR head `d459685816815b002332b2afe5344916bf3fb4cf`.
+
+### Confirmed write/cleanup ordering
+
+- The generation processor renews the SQL attempt lease immediately before each Qdrant upsert batch, then calls the repository upsert. Lease renewal is a preflight check; it does not cancel or fence a request that is already in flight in Qdrant.
+- Qdrant generation point IDs are deterministic within a generation (generation UUID + chunk index), and vectors carry tenant, document, and generation scope. Active-generation retrieval is SQL-pointer constrained, so a delayed write from an abandoned generation should not become visible merely by arriving late.
+- Document deletion currently purges all vectors for tenant/document, then separately deletes the SQL document row. A stale worker may already have passed lease renewal and still have an upsert request in flight when recovery makes the document PENDING and deletion becomes allowed. The deletion purge can finish first; the delayed upsert can then repopulate vectors for the deleted document. SQL hydration prevents those vectors from becoming returned content, but this leaves orphaned external data and means vector purge is not a final cleanup guarantee.
+
+### Concurrency timeline to reproduce
+
+1. Worker A renews its attempt lease and submits a generation upsert; the request is delayed before Qdrant applies it.
+2. A's lease expires and recovery abandons the generation and resets the document to PENDING.
+3. A deletion request locks the now-non-PROCESSING document, purges tenant/document vectors, and deletes the SQL document.
+4. The delayed Qdrant upsert from A completes after the purge.
+
+This sequence is not prevented by SQL row locks because the external request already passed its SQL ownership check. It is a stale-write-after-purge race, not a retrieval disclosure demonstrated by this audit.
+
+### Decision
+
+No safe small code change was identified from the remote review alone. Adding another lease check after the upsert cannot undo a write that completed after deletion, and deleting abandoned generation vectors automatically would have the same race. Keep cleanup conservative. Before implementation, add a deterministic test with a blocked Qdrant upsert and explicit recovery/deletion ordering; then implement an external-write barrier or a visibility/namespace design that makes late writes non-visible and retireable. The deletion-intent protocol must coordinate with this fence rather than treating the SQL intent alone as cancellation.
+
+**Verification limitation:** reviewed GitHub source only; no local test execution or CI run for this checkpoint.

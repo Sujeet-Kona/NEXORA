@@ -1,4 +1,6 @@
-﻿from qdrant_client import QdrantClient, models
+﻿from uuid import UUID, uuid5
+
+from qdrant_client import QdrantClient, models
 
 from backend.core.config import settings
 from backend.core.exceptions import VectorStoreError
@@ -259,14 +261,14 @@ class QdrantRepository:
             document_version,
         ) in chunks:
             try:
-                namespace = __import__("uuid").UUID(generation_id)
+                namespace = UUID(generation_id)
             except (ValueError, AttributeError) as exc:
                 raise ValueError("Generation ID must be a valid UUID") from exc
             if len(vector) != settings.embedding_dimension:
                 raise ValueError(
                     "Embedding dimension does not match Qdrant configuration"
                 )
-            point_id = str(__import__("uuid").uuid5(namespace, str(chunk_index)))
+            point_id = str(uuid5(namespace, str(chunk_index)))
             points.append(
                 models.PointStruct(
                     id=point_id,

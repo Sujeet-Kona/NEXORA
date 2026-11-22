@@ -513,6 +513,7 @@ def list_abandoned_generation_cleanup_candidates(
         )
         .filter(
             DocumentProcessingGeneration.status == "abandoned",
+            # Enforce tenant consistency across the joined document and generation.
             Document.organization_id
             == DocumentProcessingGeneration.organization_id,
             Document.active_generation_id.is_distinct_from(

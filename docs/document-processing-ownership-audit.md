@@ -340,3 +340,26 @@ A less expensive single-collection design with generation UUIDs and SQL active-p
 The PR summary still describes worker lifecycle as not fully wired, while the audit's opening status paragraph describes generation processing, promotion, and retrieval as integrated. These statements are inconsistent and need source-level reconciliation before the audit is used as a status document. This checkpoint intentionally does not resolve that discrepancy without re-reviewing the exact worker/service files.
 
 **Verification:** official Qdrant documentation review only; no source changes to application code, no local test run, and no live Qdrant experiment.
+
+
+## Qdrant server write ordering vs collection deletion (checkpoint)
+
+**Reviewed:** 2026-11-22; official Qdrant storage, optimizer, collection docs, and server collection deletion source.
+
+### Confirmed semantics
+
+- Qdrant persists update operations to a shard WAL, assigns ordered sequence numbers, and update workers apply operations sequentially. An accepted WAL operation can remain pending before it is searchable.
+- Official optimizer docs explicitly say a `wait=true` request may time out client-side while Qdrant retains the durable operation and eventually indexes it. This is direct evidence that client timeout is not cancellation.
+- `wait=true` normally waits for application of the update; `wait=false` returns after acceptance. Neither option establishes a cross-request fence by itself.
+- The current collection-delete implementation acquires a collection-creation guard, removes the collection from the in-memory map, stops it gracefully, attempts to unwrap it with a bounded wait, and moves its collection directory to a deleted/temp path. If it cannot unwrap in time, it logs that the collection remains busy and proceeds to file removal. This source behavior is not a documented guarantee that every request accepted before deletion has completed or that late accepted writes are cancelled.
+- Collection creation and deletion API use names. Documentation reviewed does not expose an immutable collection incarnation ID that callers can use as a write target fence.
+
+### Decision
+
+The evidence **rejects client timeout as cancellation** and does not prove collection deletion is a sufficient late-write fence. Therefore per-generation collection naming remains a candidate, not an approved remediation. Name non-reuse is necessary but not sufficient unless requests accepted against a deleted collection cannot reapply/recreate data and the server guarantees this under timeout and crash conditions.
+
+### Next step
+
+The next useful engineering process is a safe design comparison of fences: (A) external writer quiescence and SQL barrier, (B) unique generation collection names plus retirement, (C) a retrieval-only visibility boundary with durable namespace registry and delayed cleanup. Specify safety, failure modes, operational costs, and tests for each. No cleanup automation should be enabled before a candidate passes a delayed accepted-write test.
+
+**Verification:** source/docs review only; no live Qdrant experiment, application tests, or local CI execution.

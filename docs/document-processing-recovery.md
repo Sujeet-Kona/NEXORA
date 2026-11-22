@@ -58,9 +58,13 @@ worker, recovery, indexing, Qdrant, chunk repository, and retrieval code:
   cleanup can therefore interfere with newer work.
 - Startup recovery resets stale documents to `pending`, but the startup
   routine does not dispatch the recovered IDs. They wait for another trigger.
-- The single-document recovery path and the processing pipeline status checks
-  are not an atomic worker claim. A status check followed by update is not a
-  concurrency-safe ownership protocol.
+- The current worker entry path does acquire a PostgreSQL row lock through
+  `get_document_by_id_unscoped`, then checks `pending` and commits the
+  `processing` transition before releasing the lock. That serializes the initial
+  claim on PostgreSQL; the earlier concern about an unlocked check/update is not
+  accurate for this path. However, it does not provide attempt ownership after
+  the claim: recovery can reset a stale row and a newer worker can claim it,
+  while the original worker has no token to prove it was invalidated.
 
 These are audit findings, not proof that every race has occurred in practice.
 

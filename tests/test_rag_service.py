@@ -126,3 +126,36 @@ def test_stream_tokens_never_expose_out_of_range_markers():
     assert "[1]" in streamed
     assert events[-1]["answer"] == "Leave is 20 days [1] and a bonus."
     assert streamed == events[-1]["answer"]
+
+def test_default_rag_retrieval_uses_active_generations(monkeypatch):
+    import backend.services.rag_service as rag_service
+
+    captured = []
+
+    def active_retrieval(**kwargs):
+        captured.append(kwargs)
+        return [make_chunk()]
+
+    monkeypatch.setattr(rag_service, "hybrid_retrieve_chunks", active_retrieval)
+    response = answer_question(
+        db=None,
+        organization_id=2,
+        question="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeLLM(),
+    )
+    assert response.sources
+    assert captured[-1]["use_active_generations"] is True
+
+    captured.clear()
+    events = list(stream_answer_question(
+        db=None,
+        organization_id=2,
+        question="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeStreamLLM(deltas=["Leave is 20 days."]),
+    ))
+    assert events[-1]["type"] == "done"
+    assert captured[-1]["use_active_generations"] is True

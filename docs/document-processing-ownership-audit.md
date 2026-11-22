@@ -123,3 +123,25 @@ This sequence is not prevented by SQL row locks because the external request alr
 No safe small code change was identified from the remote review alone. Adding another lease check after the upsert cannot undo a write that completed after deletion, and deleting abandoned generation vectors automatically would have the same race. Keep cleanup conservative. Before implementation, add a deterministic test with a blocked Qdrant upsert and explicit recovery/deletion ordering; then implement an external-write barrier or a visibility/namespace design that makes late writes non-visible and retireable. The deletion-intent protocol must coordinate with this fence rather than treating the SQL intent alone as cancellation.
 
 **Verification limitation:** reviewed GitHub source only; no local test execution or CI run for this checkpoint.
+
+
+## Write-barrier feasibility checkpoint
+
+### Candidate: SQL document-row lock held across each Qdrant upsert batch
+
+Remote source inspection confirms the current upsert repository is synchronous and uses Qdrant `wait=True`. The processing service renews the lease in a separate committed transaction before calling upsert; no document-row lock is held across the external call. The deletion service already obtains a tenant-scoped document row lock and holds its transaction across Qdrant purge and SQL delete. Stale recovery also locks the document row before resetting ownership.
+
+
+A minimally invasive candidate protocol is therefore to acquire the same document row lock in the processing worker immediately before each external upsert batch, revalidate status/token/unexpired lease under that lock, perform the synchronous Qdrant write while retaining the lock, then commit/rollback to release it. Recovery and deletion must continue to acquire the same row lock. This would serialize the external write with recovery and deletion: if the write wins, cleanup waits and purges afterward; if deletion/recovery wins, the stale attempt's revalidation fails and it cannot start the write.
+
+### Required caveats before implementation
+
+- Holding a SQL row lock during network I/O increases lock duration and can block deletion/recovery. Upsert must have a bounded timeout; lock wait and request timeout behavior must be explicit.
+- The protocol depends on every generation upsert path using the barrier, and recovery/deletion/version replacement using the same document row lock. Audit all writers before implementation.
+- A process crash releases the database lock, but an external request could outlive its client timeout. This candidate is only sound if the Qdrant client call's return/error behavior is understood and the test can model an operation continuing after timeout. If an operation can continue after the lock is released, SQL locking alone remains insufficient; a stronger fence or delayed cleanup grace/verification is required.
+- Do not hold a SQL transaction open across embedding generation—only the narrow upsert batch window.
+- Deterministic regression test must block the upsert while the DB lock is held, attempt recovery/deletion from another session, then release the upsert and verify purge happens after it. Also test barrier acquisition after recovery/deletion and lease/token mismatch.
+
+This is a feasibility proposal, not an implementation or proof. It appears less invasive than a distributed lock service, but timeout semantics and complete writer coverage must be proven first.
+
+**Verification limitation:** remote source review only; no local tests or CI run.

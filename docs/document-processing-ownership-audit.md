@@ -227,3 +227,32 @@ Reviewed `backend/api/v1/documents.py`, `backend/services/document_processing_wo
 - Consequently, generation attempt fencing is the visible upload scheduling path, while legacy indexing remains a mutation API requiring its own caller-coverage assessment before being treated as safely unreachable.
 
 **Verification:** static source review of the API and worker files only; no runtime/test execution.
+
+
+## Failed-generation cleanup lifecycle gap (confirmed source-level)
+
+Reviewed `document_generation_repository.py` cleanup primitives and `document_generation_processing_service.py` failure finalization.
+
+### Evidence
+
+1. `retire_failed_staging_generation` transitions an owned staging generation to `failed` while the document is still PROCESSING and its attempt lease is valid.
+2. The processing exception handler then calls `finalize_document_processing_attempt(... FAILED ...)`; the repository finalization path changes document state and clears the attempt ownership/lease (confirmed in the repository source review).
+3. `cleanup_failed_generation_artifacts` only accepts generation status `failed`, but also requires the document to remain PROCESSING with the same current attempt token and a non-expired lease. After normal failure finalization, these preconditions no longer hold. The cleanup primitive is therefore not a post-failure cleanup path.
+4. `list_abandoned_generation_cleanup_candidates` discovers only status `abandoned`; it does not discover `failed` generations. Its own docstring says discovery-only and no cleanup claim or external fencing exists.
+5. Repository tree review did not find a generation cleanup/reconciliation worker or task module by matching cleanup/reconciler naming. This search is not proof of absence of all indirect scheduling.
+
+### Conclusion
+
+**Confirmed lifecycle gap:** failed candidate generations can retain SQL chunk rows and generation-scoped Qdrant vectors after the document attempt has been finalized, and the currently inspected cleanup primitive cannot clean them in that post-finalization state. The abandoned-candidate discovery API also does not cover failed rows. No cleanup worker was identified in this tree/source review.
+
+This is artifact-retention/resource cleanup, not evidence that failed generations are exposed by retrieval: active-generation SQL pointer filters continue to exclude non-active generations.
+
+### Safe remediation requirements (not implemented)
+
+- Add a durable cleanup claim/state that is independent of the document's live processing attempt (e.g., generation cleanup ownership/lease), rather than reusing an expired processing token.
+- Candidate discovery must include inactive `failed` and `abandoned` generations, tenant/document consistency, and exclude active pointers.
+- Cleanup must re-check active-generation status under SQL lock/claim, delete Qdrant vectors scoped by generation/document/tenant, verify vector count zero, then delete SQL chunk rows; retain the generation record as cleaned/tombstone or delete it only under a clear retention policy.
+- Make retries bounded and observable, and fence cleanup against late generation writes; a cleanup claim alone does not solve a stale upsert arriving after purge.
+- Add tests for failure finalization clearing attempt token, cleanup candidate coverage, retries, active-generation exclusion, Qdrant delete/count failure, and delayed upsert after purge.
+
+**Verification:** remote source inspection only; no tests executed. This finding is limited to the code paths reviewed.

@@ -441,3 +441,21 @@ This is a lifecycle-policy decision as well as a race fix. Three options were co
 - Verify worker claim remains the only unowned-to-owned transition and that status patch does not leave a PROCESSING row without ownership metadata.
 
 **Verification:** design/source review only; no application code changed and tests/CI were not run.
+
+## Manual PROCESSING transition re-check (branch head `6e782cc209403e8d4bf7b3f7f0530bfbd1ec8c8b`)
+
+The earlier manual-status checkpoint is resolved in the current branch: the
+`ALLOWED_STATUS_TRANSITIONS` map does not allow `PENDING -> PROCESSING`, and
+`tests/test_document_status_lifecycle.py` asserts that an admin status PATCH
+returns HTTP 409 with the transition error. The API therefore cannot manufacture
+an ownerless PROCESSING state through this transition. This only resolves the
+status-API entry point; processing ownership must still be established by the
+worker's claim operation. The branch has also re-read and row-locked the
+organization-scoped document before status transition validation, and recovery
+out of PROCESSING clears attempt/lease metadata and abandons only that attempt's
+inactive staging generations.
+
+
+**Verification note:** this was verified by source and test inspection on the
+branch, not by executing the test. CI for the exact branch commit must be checked
+before calling the change validated.

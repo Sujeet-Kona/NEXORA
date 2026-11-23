@@ -69,3 +69,10 @@ should not be deleted automatically.
 
 These are explicit limitations, not claims of production-grade distributed
 concurrency guarantees.
+
+The repository also contains `cleanup_failed_generation_artifacts`, a narrowly scoped
+SQL/vector cleanup primitive for a failed candidate while the same processing attempt
+still owns a valid lease. It is not a reconciler and is not invoked automatically
+by the processing worker. Its delete-and-count verification cannot rule out a late
+Qdrant write completing after the count, so it must not be treated as a safe
+solution to the abandoned-generation race described above.

@@ -73,7 +73,7 @@ Documents move through PENDING, PROCESSING, READY, and FAILED states. The API ba
 
 Security controls include JWT access tokens, refresh-token rotation and revocation, JTI denylisting, Argon2 password hashing, login throttling, upload size/type/signature validation, guarded local file storage, static error responses, request IDs, and allowlisted audit details.
 
-**Consistency boundary:** PostgreSQL and Qdrant do not participate in a single distributed transaction. A process failure can leave stale external index state in some failure windows; retrieval excludes chunks belonging to documents that are not READY. The implementation does not claim perfect two-phase consistency.
+**Consistency boundary:** PostgreSQL and Qdrant do not participate in a single distributed transaction. Legacy retrieval excludes chunks from documents that are not READY; generation retrieval intentionally may keep serving the previous active generation while a replacement is PROCESSING or FAILED. A process failure or delayed external write can still leave stale/orphan Qdrant state. Automatic generation cleanup and durable deletion-intent/retry are not implemented, so the implementation does not claim perfect cross-store consistency.
 
 ## Live retrieval evaluation
 

@@ -1,3 +1,6 @@
+> **Current-status notice (2026-11-26):** The live background worker is now integrated with attempt-owned generation staging, Qdrant generation writes, readiness-gated promotion, and active-generation retrieval. Several checkpoint paragraphs below explicitly say these pieces are not integrated; those statements are historical and were true at their checkpoint dates, not current. For the authoritative implementation/risk checklist, see [document-processing-lifecycle-current-status.md](document-processing-lifecycle-current-status.md). Cleanup/reconciliation and external-write fencing remain incomplete.
+
+
 ## Retry-safe failed generation cleanup
 
 Cleanup now targets only a generation already marked failed and still owned by the current processing attempt. It rejects the active generation pointer, deletes Qdrant points using generation + document + tenant filters, verifies the exact remaining point count is zero, and only then deletes SQL generation chunks. The generation row remains as a failed audit record.

@@ -1,8 +1,9 @@
 # Document processing ownership and lifecycle audit
 
-**Audit date:** 2026-11-22  
+**Audit date:** 2026-11-26  
 **Branch:** `feat/document-processing-attempt-ownership`  
 **Scope:** Live background processing, attempt ownership, staging generations, promotion, retrieval, and failure/recovery behavior.
+**Current-status detail:** [document-processing-lifecycle-current-status.md](document-processing-lifecycle-current-status.md).
 
 ## Current implementation status
 
@@ -31,7 +32,7 @@ Do not enable automatic abandoned-generation deletion until the write/cleanup fe
 
 ## Verification notes
 
-The PR branch had a successful CI run previously recorded at commit `3ad7a91611685cc345581940dea2a9b725919ea6`. This audit review did not execute local tests. Re-run CI on any documentation/code commit and inspect its result before considering that commit verified.
+At source head `14fde31300b8f8b1854e00dc3be4fa1700cf8271`, GitHub Actions run [#392](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45240579052) completed on 2026-11-23: **685 passed, 2 skipped**, dependency audit reported no known vulnerabilities, migrations applied, and byte-compilation succeeded. This was CI—not a local run—and it does not prove delayed external-write or deletion races are safe. Any subsequent commit must be verified on its exact SHA.
 
 
 ## Deletion lifecycle audit (checkpoint)

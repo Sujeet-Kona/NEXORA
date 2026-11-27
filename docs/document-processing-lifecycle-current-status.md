@@ -1,9 +1,9 @@
 # NEXORA document-processing lifecycle: current status
 
-**Reviewed:** 2026-11-26  
+**Reviewed:** 2026-11-27  
 **PR:** [#23](https://github.com/Sujeet-Kona/NEXORA/pull/23)  
 **Branch:** `feat/document-processing-attempt-ownership`  
-**Source head at review:** `14fde31300b8f8b1854e00dc3be4fa1700cf8271`
+**Source head at review:** `e967f83d547808732d28417b4f8c044aeee18c06`
 
 This document is the current-status reference for the generation-based document lifecycle. Older design checkpoints in `document-processing-attempt-generation-design.md` are historical and must not be treated as the present implementation.
 
@@ -13,7 +13,7 @@ This document is the current-status reference for the generation-based document 
 - A pending document is claimed with an attempt token and expiring lease. Guarded SQL writes, lease renewal, failure finalization, and promotion require current ownership.
 - Each attempt stages generation-specific SQL chunks and Qdrant vectors. Generation vector point IDs are UUID-derived and generation-scoped; staging does not intentionally delete the previous active index.
 - Readiness validates the SQL chunk indexes against the generation-scoped Qdrant chunk indexes. Promotion is conditional on ownership and activates the new generation and `READY` state in a SQL transaction.
-- Dense and lexical retrieval use the SQL active-generation pointer. Dense hits are hydrated from active SQL chunks; SQL is the authority for returned text and tenant scope.
+- Dense and lexical retrieval use the SQL active-generation pointer. Dense hits are hydrated from active SQL chunks; SQL is the authority for returned text and tenant scope. Dense hit payloads are now checked for generation, tenant/document scope, a non-boolean nonnegative chunk index, and the deterministic UUID5 point ID before hydration.
 - Stale recovery returns an expired `PROCESSING` document to `PENDING`, clears the attempt token/lease, and marks that attempt's staging generations abandoned. Recovery does not delete vectors.
 - Failed candidates can be marked failed without changing the active pointer.
 
@@ -25,6 +25,7 @@ This document is the current-status reference for the generation-based document 
 | Generation-isolated staging | Implemented | SQL chunk and Qdrant point IDs/payloads scoped by generation |
 | Active-generation retrieval | Implemented | Dense and lexical SQL active-pointer filters |
 | Promotion readiness | Implemented | SQL chunk indexes must match exact Qdrant generation indexes before conditional promotion |
+| Dense hit identity validation | Implemented in code; CI pending | Reject malformed or mismatched Qdrant payload scope/index/point ID before SQL hydration; focused regression test added |
 | Stale attempt recovery | Implemented | SQL-only recovery; does not cancel already-issued Qdrant requests |
 | Failed candidate cleanup | Primitive only | Delete-and-count helper exists, but late writes can race; not automated |
 | Abandoned-generation reconciler | **Missing** | Discovery only; no durable claim/retry/terminal cleanup |
@@ -45,12 +46,19 @@ Do not enable automatic cleanup or claim deletion is fully reconciled until dete
 
 ## Next engineering order
 
+- [ ] Verify dense-hit identity validation on CI run #399 for code commit `e967f83d547808732d28417b4f8c044aeee18c06`.
 - [ ] Reproduce late-write-after-cleanup and late-write-after-delete races with controllable Qdrant upsert barriers in tests.
 - [ ] Specify and validate a write/deletion fencing protocol. A SQL lock held across a synchronous external write is only a candidate; timeout/accepted-but-unacknowledged writes and lock duration must be handled explicitly.
 - [ ] Implement durable deletion intent/tombstone and retry checkpoints only after the fence and visibility contract are specified. Cover document detail/list, retrieval, processing claim, and version replacement.
 - [ ] Add a durable abandoned-generation claim/reconciler, with idempotent SQL/Qdrant cleanup and explicit terminal/tombstone policy; prove it cannot race late writes.
 - [ ] Audit legacy processor callsites, document-wide deletion, storage cleanup, and migration downgrade/upgrade paths. Restrict unsafe legacy operations where feasible without breaking benchmark compatibility.
 - [ ] Add focused concurrency/failure tests and run the full CI suite on the exact final commit. Review code, migrations, and docs before declaring the PR complete.
+
+## CI verification history
+
+- Run [#397](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45831907585) passed for code/docs commit `d4fe18d4e18c469c6fc8cd4b077285602c9913c2` (685 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded).
+- Run [#399](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46016882587) is **in progress** for retrieval-integrity fix commit `e967f83d547808732d28417b4f8c044aeee18c06`.
+
 
 ## CI baseline (before this documentation commit)
 

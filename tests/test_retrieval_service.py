@@ -1,5 +1,6 @@
 ﻿from unittest.mock import Mock
 from types import SimpleNamespace
+from uuid import UUID, uuid5
 
 import pytest
 
@@ -519,7 +520,9 @@ def test_retrieve_chunks_document_filter_is_tenant_scoped(db):
 def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
     db, monkeypatch,
 ):
-    generation_id = "active-generation-uuid"
+    generation_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    inactive_generation_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    valid_point_id = str(uuid5(UUID(generation_id), "3"))
     active = SimpleNamespace(
         id=91,
         generation_id=generation_id,
@@ -532,7 +535,7 @@ def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
     )
     inactive = SimpleNamespace(
         id=92,
-        generation_id="retired-generation-uuid",
+        generation_id=inactive_generation_id,
         document_id=12,
         organization_id=4,
         chunk_index=3,
@@ -553,14 +556,59 @@ def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
     qdrant = Mock()
     qdrant.search_generation.return_value.points = [
         SimpleNamespace(
-            id="uuid-point-active",
+            id=valid_point_id,
             score=0.91,
-            payload={"generation_id": generation_id, "chunk_index": 3},
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": 3,
+                "organization_id": 4,
+                "document_id": 12,
+            },
         ),
+        # Payload alone must not hydrate a hit whose deterministic vector ID
+        # belongs to a different generation/chunk.
         SimpleNamespace(
-            id="uuid-point-retired",
+            id="uuid-point-mismatch",
             score=0.99,
-            payload={"generation_id": inactive.generation_id, "chunk_index": 3},
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": 3,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+        # Python bool is an int subclass; reject it explicitly as an index.
+        SimpleNamespace(
+            id=str(uuid5(UUID(generation_id), "True")),
+            score=0.98,
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": True,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+        # A correctly formed point from a retired generation must not hydrate.
+        SimpleNamespace(
+            id=str(uuid5(UUID(inactive.generation_id), "3")),
+            score=0.97,
+            payload={
+                "generation_id": inactive.generation_id,
+                "chunk_index": 3,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+        # Tenant/document payload scope is also checked before SQL hydration.
+        SimpleNamespace(
+            id=valid_point_id,
+            score=0.96,
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": 3,
+                "organization_id": 99,
+                "document_id": 12,
+            },
         ),
     ]
 

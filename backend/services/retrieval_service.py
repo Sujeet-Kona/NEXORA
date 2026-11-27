@@ -1,4 +1,5 @@
 ﻿from dataclasses import dataclass
+from uuid import UUID, uuid5
 
 from sqlalchemy.orm import Session
 
@@ -159,11 +160,46 @@ def retrieve_active_generation_chunks(
 
     hydrated = []
     for point in points:
-        payload = point.payload or {}
-        key = (payload.get("generation_id"), payload.get("chunk_index"))
-        chunk = active_keys.get(key)
+        payload = point.payload
+        if not isinstance(payload, dict):
+            continue
+
+        generation_id = payload.get("generation_id")
+        chunk_index = payload.get("chunk_index")
+        if (
+            not isinstance(generation_id, str)
+            or not generation_id
+            or isinstance(chunk_index, bool)
+            or not isinstance(chunk_index, int)
+            or chunk_index < 0
+        ):
+            continue
+
+        chunk = active_keys.get((generation_id, chunk_index))
         if chunk is None:
             continue
+
+        payload_organization_id = payload.get("organization_id")
+        payload_document_id = payload.get("document_id")
+        if (
+            isinstance(payload_organization_id, bool)
+            or not isinstance(payload_organization_id, int)
+            or payload_organization_id != organization_id
+            or isinstance(payload_document_id, bool)
+            or not isinstance(payload_document_id, int)
+            or payload_document_id != chunk.document_id
+        ):
+            continue
+
+        try:
+            expected_point_id = str(
+                uuid5(UUID(generation_id), str(chunk_index))
+            )
+        except (ValueError, TypeError):
+            continue
+        if str(point.id) != expected_point_id:
+            continue
+
         hydrated.append((chunk, float(point.score)))
 
     if not hydrated:

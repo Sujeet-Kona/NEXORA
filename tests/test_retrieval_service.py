@@ -568,7 +568,7 @@ def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
         # Payload alone must not hydrate a hit whose deterministic vector ID
         # belongs to a different generation/chunk.
         SimpleNamespace(
-            id="uuid-point-mismatch",
+            id=str(uuid5(UUID(inactive.generation_id), "3")),
             score=0.99,
             payload={
                 "generation_id": generation_id,
@@ -599,17 +599,6 @@ def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
                 "document_id": 12,
             },
         ),
-        # Tenant/document payload scope is also checked before SQL hydration.
-        SimpleNamespace(
-            id=valid_point_id,
-            score=0.96,
-            payload={
-                "generation_id": generation_id,
-                "chunk_index": 3,
-                "organization_id": 99,
-                "document_id": 12,
-            },
-        ),
     ]
 
     results = retrieve_active_generation_chunks(
@@ -634,6 +623,56 @@ def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
         limit=2,
         document_ids=None,
     )
+
+
+@pytest.mark.parametrize(
+    ("scope_field", "scope_value"),
+    [("organization_id", 99), ("document_id", 99)],
+)
+def test_active_generation_dense_retrieval_rejects_payload_scope_mismatch(
+    db, monkeypatch, scope_field, scope_value,
+):
+    generation_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    active = SimpleNamespace(
+        id=91,
+        generation_id=generation_id,
+        document_id=12,
+        organization_id=4,
+        chunk_index=3,
+        text="Active generation content",
+        page_start=2,
+        page_end=3,
+    )
+    monkeypatch.setattr(
+        "backend.services.retrieval_service.get_active_generation_chunks",
+        lambda **kwargs: [active],
+    )
+    embedding = Mock()
+    embedding.embed_query.return_value = [0.25] * 1024
+    qdrant = Mock()
+    payload = {
+        "generation_id": generation_id,
+        "chunk_index": 3,
+        "organization_id": 4,
+        "document_id": 12,
+    }
+    payload[scope_field] = scope_value
+    qdrant.search_generation.return_value.points = [
+        SimpleNamespace(
+            id=str(uuid5(UUID(generation_id), "3")),
+            score=0.91,
+            payload=payload,
+        )
+    ]
+
+    assert retrieve_active_generation_chunks(
+        db=db,
+        organization_id=4,
+        query="active content",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+        limit=2,
+    ) == []
 
 
 def test_active_generation_dense_retrieval_skips_embedding_without_active_chunks(

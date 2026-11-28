@@ -7,7 +7,12 @@ from backend.core.exceptions import (
     DocumentNotFoundError,
     EmptyDocumentTextError,
 )
-from backend.db.models import DocumentChunk, DocumentStatus, User
+from backend.db.models import (
+    DocumentChunk,
+    DocumentProcessingGeneration,
+    DocumentStatus,
+    User,
+)
 from backend.services import bm25_service
 from backend.repositories.document_chunk_repository import (
     create_document_chunks,
@@ -758,3 +763,64 @@ def test_cleanup_failure_does_not_mask_original_processing_error(
         document_id=document.id,
         organization_id=organization.id,
     )
+
+
+def test_legacy_processor_skips_documents_with_generation_history(
+    db,
+    monkeypatch,
+):
+    owner = create_user(
+        db,
+        "legacy-generation-guard@example.com",
+        "Legacy Generation Guard",
+    )
+    organization = create_organization_service(
+        db=db,
+        name="Legacy Generation Guard Company",
+        user_id=owner.id,
+    )
+    document = create_document(
+        db=db,
+        organization_id=organization.id,
+        uploaded_by=owner.id,
+        name="generation-managed.pdf",
+        storage_key="documents/generation-managed.pdf",
+        content_type="application/pdf",
+    )
+    db.add(
+        DocumentProcessingGeneration(
+            id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            document_id=document.id,
+            organization_id=organization.id,
+            attempt_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            status="abandoned",
+        )
+    )
+    db.commit()
+
+    monkeypatch.setattr(
+        "backend.services.document_processing_service.LocalStorage.read",
+        lambda *args: pytest.fail(
+            "Legacy processor must not read generation-managed documents"
+        ),
+    )
+    embedding = Mock()
+    qdrant = Mock()
+
+    process_document(
+        db=db,
+        document_id=document.id,
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+    )
+
+    db.refresh(document)
+    assert document.status == DocumentStatus.PENDING
+    assert db.query(DocumentChunk).filter(
+        DocumentChunk.document_id == document.id,
+        DocumentChunk.organization_id == organization.id,
+    ).count() == 0
+    embedding.embed_documents.assert_not_called()
+    qdrant.upsert_chunks.assert_not_called()
+    qdrant.delete_legacy_document_chunks.assert_not_called()
+

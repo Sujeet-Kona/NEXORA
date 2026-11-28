@@ -32,7 +32,7 @@ This document is the current-status reference for the generation-based document 
 | Abandoned-generation reconciler | **Missing** | Discovery only; no durable claim/retry/terminal cleanup |
 | Late Qdrant write fence | **Unproven / missing** | Lease preflight is not cancellation for an in-flight request |
 | Durable deletion intent / retry | **Missing** | Current deletion spans Qdrant, SQL, and local storage without a persisted workflow intent |
-| Legacy processor isolation | Implemented; CI pending | Atomic `PENDING` claim; refuses active-generation pointers, generation history, and attempt/lease metadata; regression test added |
+| Legacy processor isolation | Code/test committed; CI pending | Atomic `PENDING` claim; refuses active-generation pointers, generation history, and attempt/lease metadata; regression test added |
 | Legacy path | **Still present** | Used by benchmark/evaluation code; generation-managed documents are blocked, but legacy work has no attempt lease or external-write fence |\n| Cross-store atomicity | **Unavailable** | PostgreSQL and Qdrant do not share a transaction |
 | Durable work queue | **Missing** | Processing is an in-process FastAPI background task |
 
@@ -69,4 +69,4 @@ GitHub Actions run [#392](https://github.com/Sujeet-Kona/NEXORA/actions/runs/452
 - `pip-audit -r requirements.txt`: **No known vulnerabilities found**.
 - Byte-compilation step completed successfully.
 
-This is an exact-SHA CI result, not a local test run and not proof of lifecycle concurrency safety. The documentation commit below will need its own CI result. NEXORA is not being represented as production-ready.
+This is an exact-SHA CI result, not a local test run and not proof of lifecycle concurrency safety. Newer exact-SHA results are listed above; the latest commit's CI must still be terminal before the checklist can close. NEXORA is not being represented as production-ready.

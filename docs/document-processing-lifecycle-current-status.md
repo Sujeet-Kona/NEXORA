@@ -1,9 +1,9 @@
 # NEXORA document-processing lifecycle: current status
 
-**Reviewed:** 2026-11-27  
+**Reviewed:** 2026-11-28  
 **PR:** [#23](https://github.com/Sujeet-Kona/NEXORA/pull/23)  
 **Branch:** `feat/document-processing-attempt-ownership`  
-**Source head at review:** `e967f83d547808732d28417b4f8c044aeee18c06`
+**Source head at review:** `a4289fa9d4e2991811004146c6474c77f33130fd`
 
 This document is the current-status reference for the generation-based document lifecycle. Older design checkpoints in `document-processing-attempt-generation-design.md` are historical and must not be treated as the present implementation.
 
@@ -16,6 +16,7 @@ This document is the current-status reference for the generation-based document 
 - Dense and lexical retrieval use the SQL active-generation pointer. Dense hits are hydrated from active SQL chunks; SQL is the authority for returned text and tenant scope. Dense hit payloads are now checked for generation, tenant/document scope, a non-boolean nonnegative chunk index, and the deterministic UUID5 point ID before hydration.
 - Stale recovery returns an expired `PROCESSING` document to `PENDING`, clears the attempt token/lease, and marks that attempt's staging generations abandoned. Recovery does not delete vectors.
 - Failed candidates can be marked failed without changing the active pointer.
+- The legacy processor now uses an atomic `PENDING` claim and refuses documents with an active-generation pointer, generation history, or processing attempt/lease metadata. A focused regression test covers an abandoned generation; CI is pending for this change.
 
 ## Lifecycle checklist
 
@@ -25,14 +26,14 @@ This document is the current-status reference for the generation-based document 
 | Generation-isolated staging | Implemented | SQL chunk and Qdrant point IDs/payloads scoped by generation |
 | Active-generation retrieval | Implemented | Dense and lexical SQL active-pointer filters |
 | Promotion readiness | Implemented | SQL chunk indexes must match exact Qdrant generation indexes before conditional promotion |
-| Dense hit identity validation | Implemented in code; CI pending | Reject malformed or mismatched Qdrant payload scope/index/point ID before SQL hydration; focused regression test added |
+| Dense hit identity validation | CI verified on `bcc175d0` (Run #401) | Reject malformed or mismatched Qdrant payload scope/index/point ID before SQL hydration; focused regression test added |
 | Stale attempt recovery | Implemented | SQL-only recovery; does not cancel already-issued Qdrant requests |
 | Failed candidate cleanup | Primitive only | Delete-and-count helper exists, but late writes can race; not automated |
 | Abandoned-generation reconciler | **Missing** | Discovery only; no durable claim/retry/terminal cleanup |
 | Late Qdrant write fence | **Unproven / missing** | Lease preflight is not cancellation for an in-flight request |
 | Durable deletion intent / retry | **Missing** | Current deletion spans Qdrant, SQL, and local storage without a persisted workflow intent |
-| Legacy path | **Still present** | API worker uses generation path; legacy processor is still used by benchmark/evaluation code and should not be treated as fenced |
-| Cross-store atomicity | **Unavailable** | PostgreSQL and Qdrant do not share a transaction |
+| Legacy processor isolation | Implemented; CI pending | Atomic `PENDING` claim; refuses active-generation pointers, generation history, and attempt/lease metadata; regression test added |
+| Legacy path | **Still present** | Used by benchmark/evaluation code; generation-managed documents are blocked, but legacy work has no attempt lease or external-write fence |\n| Cross-store atomicity | **Unavailable** | PostgreSQL and Qdrant do not share a transaction |
 | Durable work queue | **Missing** | Processing is an in-process FastAPI background task |
 
 ## Confirmed cleanup and deletion hazards
@@ -46,7 +47,7 @@ Do not enable automatic cleanup or claim deletion is fully reconciled until dete
 
 ## Next engineering order
 
-- [ ] Verify dense-hit identity validation on CI run #399 for code commit `e967f83d547808732d28417b4f8c044aeee18c06`.
+- [x] Verify dense-hit identity validation on CI Run #401 for commit `bcc175d02d9202e584aae197fbbd768f1648899a` (687 passed, 2 skipped).
 - [ ] Reproduce late-write-after-cleanup and late-write-after-delete races with controllable Qdrant upsert barriers in tests.
 - [ ] Specify and validate a write/deletion fencing protocol. A SQL lock held across a synchronous external write is only a candidate; timeout/accepted-but-unacknowledged writes and lock duration must be handled explicitly.
 - [ ] Implement durable deletion intent/tombstone and retry checkpoints only after the fence and visibility contract are specified. Cover document detail/list, retrieval, processing claim, and version replacement.
@@ -56,7 +57,7 @@ Do not enable automatic cleanup or claim deletion is fully reconciled until dete
 
 ## CI verification history
 
-- Run [#397](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45831907585) passed for code/docs commit `d4fe18d4e18c469c6fc8cd4b077285602c9913c2` (685 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded).
+- Run [#401](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46017324303) passed for retrieval identity and scope validation commit `bcc175d02d9202e584aae197fbbd768f1648899a`: 687 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.\n- Run [#403](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46152993501) was in progress for the legacy-processor atomic-claim code/test commit `a4289fa9d4e2991811004146c6474c77f33130fd` at the time of this update.\n- Run [#397](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45831907585) passed for code/docs commit `d4fe18d4e18c469c6fc8cd4b077285602c9913c2` (685 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded).
 - Run [#399](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46016882587) is **in progress** for retrieval-integrity fix commit `e967f83d547808732d28417b4f8c044aeee18c06`.
 
 

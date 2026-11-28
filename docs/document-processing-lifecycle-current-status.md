@@ -55,15 +55,25 @@ Do not enable automatic cleanup or claim deletion is fully reconciled until dete
 - [ ] Audit legacy processor callsites, document-wide deletion, storage cleanup, and migration downgrade/upgrade paths. Restrict unsafe legacy operations where feasible without breaking benchmark compatibility.
 - [ ] Add focused concurrency/failure tests and run the full CI suite on the exact final commit. Review code, migrations, and docs before declaring the PR complete.
 
+## Engineering changes in this run
+
+- `16391b948ec353e8497d4eab4f79bf6b9967f414` — atomically claim legacy processing and reject generation-managed documents.
+- `a4289fa9d4e2991811004146c6474c77f33130fd` — regression test for abandoned-generation documents entering the legacy processor.
+- `4d333b10c285fa71d070ee80e3e6e7807390be3e` — lifecycle checklist/status update.
+- `25a6c7a58c6086a4014f6c3d32a3413a19e8970a` — corrected stale CI history (this file is being reviewed again because the first update accidentally inserted literal newline escapes).
+
 ## CI verification history
 
-- Run [#401](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46017324303) passed for retrieval identity and scope validation commit `bcc175d02d9202e584aae197fbbd768f1648899a`: 687 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.\n- Run [#403](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46152993501) was in progress for the legacy-processor atomic-claim code/test commit `a4289fa9d4e2991811004146c6474c77f33130fd` at the time of this update.\n- Run [#397](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45831907585) passed for code/docs commit `d4fe18d4e18c469c6fc8cd4b077285602c9913c2` (685 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded).
-- Run [#399](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46016882587) is **in progress** for retrieval-integrity fix commit `e967f83d547808732d28417b4f8c044aeee18c06`.
-
+- Run [#399](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46016882587) passed for retrieval-integrity commit `e967f83d547808732d28417b4f8c044aeee18c06`: 685 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.
+- Run [#401](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46017324303) passed for dense retrieval identity/scope regression commit `bcc175d02d9202e584aae197fbbd768f1648899a`: 687 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.
+- Run [#403](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46152993501) was in progress for legacy-processor atomic-claim code/test commit `a4289fa9d4e2991811004146c6474c77f33130fd`.
+- Run [#404](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153096586) was in progress for status-document commit `4d333b10c285fa71d070ee80e3e6e7807390be3e`.
+- Run [#405](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153203472) was in progress for the latest CI-history correction commit `25a6c7a58c6086a4014f6c3d32a3413a19e8970a`.
+- Run [#397](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45831907585) passed for commit `d4fe18d4e18c469c6fc8cd4b077285602c9913c2`: 685 passed, 2 skipped, 5 warnings.
 
 ## CI baseline (before this documentation commit)
 
-GitHub Actions run [#392](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45240579052) completed successfully for the source head above on **2026-11-23**:
+GitHub Actions run [#392](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45240579052) completed successfully for commit `14fde31300b8f8b1854e00dc3be4fa1700cf8271` on **2026-11-23**:
 - Test job: **685 passed, 2 skipped**, 5 warnings (119.45 seconds).
 - PostgreSQL 17 service initialized and migrations applied in CI.
 - `pip-audit -r requirements.txt`: **No known vulnerabilities found**.

@@ -67,7 +67,7 @@ Do not enable automatic cleanup or claim deletion is fully reconciled until dete
 
 - Run [#399](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46016882587) passed for retrieval-integrity commit `e967f83d547808732d28417b4f8c044aeee18c06`: 685 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.
 - Run [#401](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46017324303) passed for dense retrieval identity/scope regression commit `bcc175d02d9202e584aae197fbbd768f1648899a`: 687 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.
-- Run [#403](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46152993501) was in progress for legacy-processor atomic-claim code/test commit `a4289fa9d4e2991811004146c6474c77f33130fd`.
+- Run [#403](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46152993501) passed for legacy-processor atomic-claim code/test commit `a4289fa9d4e2991811004146c6474c77f33130fd`: 688 passed, 2 skipped, 5 warnings; PostgreSQL 17 migrations, pip-audit, and byte-compilation succeeded.
 - Run [#404](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153096586) was in progress for status-document commit `4d333b10c285fa71d070ee80e3e6e7807390be3e`.
 - Run [#405](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153203472) was in progress for the latest CI-history correction commit `25a6c7a58c6086a4014f6c3d32a3413a19e8970a`.
 - Run [#406](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153268586) was in progress for the newline/CI-history correction commit `c775c99dc916b7a8118d4a0484902e6c2c7f8dcd`.

@@ -33,7 +33,8 @@ This document is the current-status reference for the generation-based document 
 | Late Qdrant write fence | **Unproven / missing** | Lease preflight is not cancellation for an in-flight request |
 | Durable deletion intent / retry | **Missing** | Current deletion spans Qdrant, SQL, and local storage without a persisted workflow intent |
 | Legacy processor isolation | Code/test committed; CI pending | Atomic `PENDING` claim; refuses active-generation pointers, generation history, and attempt/lease metadata; regression test added |
-| Legacy path | **Still present** | Used by benchmark/evaluation code; generation-managed documents are blocked, but legacy work has no attempt lease or external-write fence |\n| Cross-store atomicity | **Unavailable** | PostgreSQL and Qdrant do not share a transaction |
+| Legacy path | **Still present** | Used by benchmark/evaluation code; generation-managed documents are blocked, but legacy work has no attempt lease or external-write fence |
+| Cross-store atomicity | **Unavailable** | PostgreSQL and Qdrant do not share a transaction |
 | Durable work queue | **Missing** | Processing is an in-process FastAPI background task |
 
 ## Confirmed cleanup and deletion hazards
@@ -69,6 +70,7 @@ Do not enable automatic cleanup or claim deletion is fully reconciled until dete
 - Run [#403](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46152993501) was in progress for legacy-processor atomic-claim code/test commit `a4289fa9d4e2991811004146c6474c77f33130fd`.
 - Run [#404](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153096586) was in progress for status-document commit `4d333b10c285fa71d070ee80e3e6e7807390be3e`.
 - Run [#405](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153203472) was in progress for the latest CI-history correction commit `25a6c7a58c6086a4014f6c3d32a3413a19e8970a`.
+- Run [#406](https://github.com/Sujeet-Kona/NEXORA/actions/runs/46153268586) was in progress for the newline/CI-history correction commit `c775c99dc916b7a8118d4a0484902e6c2c7f8dcd`.
 - Run [#397](https://github.com/Sujeet-Kona/NEXORA/actions/runs/45831907585) passed for commit `d4fe18d4e18c469c6fc8cd4b077285602c9913c2`: 685 passed, 2 skipped, 5 warnings.
 
 ## CI baseline (before this documentation commit)

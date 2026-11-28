@@ -5,6 +5,7 @@ from backend.repositories.document_repository import create_document
 from backend.services.document_processing_worker import (
     process_document_background,
 )
+from backend.core.config import settings
 from backend.services.document_extraction import (
     ExtractedDocument,
     ExtractedPage,
@@ -73,14 +74,38 @@ def make_extracted_document():
 
 
 def stub_rag_services(monkeypatch):
+    embedding = Mock()
+    embedding.embed_documents.side_effect = lambda texts: [
+        [0.0] * settings.embedding_dimension for _ in texts
+    ]
+    vector_repo = Mock()
+    indexed_records = []
+    vector_repo.upsert_generation_chunks.side_effect = lambda records: indexed_records.extend(records)
+    vector_repo.list_generation_chunk_indexes.side_effect = lambda **kwargs: sorted(
+        record[4] for record in indexed_records
+    )
     monkeypatch.setattr(
         "backend.services.document_processing_worker.get_embedding_service",
-        lambda: Mock(),
+        lambda: embedding,
     )
-
     monkeypatch.setattr(
         "backend.services.document_processing_worker.get_qdrant_repository",
-        lambda: Mock(),
+        lambda: vector_repo,
+    )
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service.LocalStorage.read",
+        lambda self, key: b"fake pdf",
+    )
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service.extract_document",
+        lambda **kwargs: make_extracted_document(),
+    )
+    monkeypatch.setattr(
+        "backend.services.document_generation_processing_service.split_document",
+        lambda document: [
+            Mock(text="employee leave policy chunk", page_start=1, page_end=1),
+            Mock(text="another policy chunk", page_start=1, page_end=1),
+        ],
     )
 
 
@@ -91,7 +116,7 @@ def record_worker_errors(monkeypatch):
         logged_messages.append(message)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_worker.logger.exception",
+        "backend.services.document_generation_processing_service.logger.exception",
         fake_logger_exception,
     )
 
@@ -111,18 +136,13 @@ def test_background_processing_marks_document_ready(
     stub_rag_services(monkeypatch)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.LocalStorage.read",
+        "backend.services.document_generation_processing_service.LocalStorage.read",
         lambda self, key: b"fake pdf",
     )
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.extract_document",
+        "backend.services.document_generation_processing_service.extract_document",
         lambda **kwargs: make_extracted_document(),
-    )
-
-    monkeypatch.setattr(
-        "backend.services.document_processing_service.index_document_chunks",
-        lambda **kwargs: None,
     )
 
     process_document_background(
@@ -156,7 +176,7 @@ def test_background_processing_failure_is_contained(
     stub_rag_services(monkeypatch)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_service.LocalStorage.read",
+        "backend.services.document_generation_processing_service.LocalStorage.read",
         lambda self, key: (_ for _ in ()).throw(
             FileNotFoundError("Stored file not found")
         ),
@@ -174,7 +194,7 @@ def test_background_processing_failure_is_contained(
         document.id,
     ).status == DocumentStatus.FAILED
     assert logged_messages == [
-        "Background document processing failed"
+        "Generation-based document processing failed",
     ]
 
 
@@ -192,9 +212,7 @@ def test_background_processing_missing_document_is_contained(
         session_factory,
     )
 
-    assert logged_messages == [
-        "Background document processing failed"
-    ]
+    assert logged_messages == []
 
 
 def test_background_processing_closes_session(monkeypatch):
@@ -203,7 +221,7 @@ def test_background_processing_closes_session(monkeypatch):
     stub_rag_services(monkeypatch)
 
     monkeypatch.setattr(
-        "backend.services.document_processing_worker.process_document",
+        "backend.services.document_processing_worker.process_document_generation",
         lambda **kwargs: (_ for _ in ()).throw(
             RuntimeError("boom")
         ),

@@ -14,7 +14,7 @@
 - Relevance filtering, grounded citations, and SSE response streaming.
 - Tenant-scoped authorization across application and retrieval data.
 - Deterministic refusal when sufficient evidence is unavailable.
-- Explicit document lifecycle states, stale-processing recovery, and database locking.
+- Attempt-owned document processing with generation-scoped staging, active-generation retrieval, stale recovery, and SQL-guarded promotion.
 
 ## Architecture
 
@@ -69,11 +69,11 @@ The core retrieval orchestration, rank fusion, authorization, lifecycle handling
 
 ### Document lifecycle and reliability
 
-Documents move through explicit PENDING, PROCESSING, READY, and FAILED states. Failed work can be retried; stale processing can be recovered. PostgreSQL row locking protects processing claims and conflicting replacement/deletion operations. Tenant scope is enforced in PostgreSQL and Qdrant, and retrieved hits are checked against authoritative document/chunk state before text is exposed.
+Documents move through PENDING, PROCESSING, READY, and FAILED states. The API background worker uses attempt tokens and leases, generation-scoped SQL chunks/Qdrant vectors, readiness-gated promotion, and SQL active-generation retrieval. Stale attempts are recovered and abandoned staging generations are retained for later cleanup. PostgreSQL row locking protects processing claims and conflicting replacement/deletion operations. Tenant scope is enforced in PostgreSQL and Qdrant, and retrieved hits are hydrated from authoritative SQL state before text is exposed. The external index and SQL are not a distributed transaction; automatic abandoned-generation cleanup and durable deletion retries are not implemented.
 
 Security controls include JWT access tokens, refresh-token rotation and revocation, JTI denylisting, Argon2 password hashing, login throttling, upload size/type/signature validation, guarded local file storage, static error responses, request IDs, and allowlisted audit details.
 
-**Consistency boundary:** PostgreSQL and Qdrant do not participate in a single distributed transaction. A process failure can leave stale external index state in some failure windows; retrieval excludes chunks belonging to documents that are not READY. The implementation does not claim perfect two-phase consistency.
+**Consistency boundary:** PostgreSQL and Qdrant do not participate in a single distributed transaction. Legacy retrieval excludes chunks from documents that are not READY; generation retrieval intentionally may keep serving the previous active generation while a replacement is PROCESSING or FAILED. A process failure or delayed external write can still leave stale/orphan Qdrant state. Automatic generation cleanup and durable deletion-intent/retry are not implemented, so the implementation does not claim perfect cross-store consistency.
 
 ## Live retrieval evaluation
 
@@ -127,6 +127,7 @@ See [Evaluation](docs/evaluation.md) for methodology, reproduction steps, limita
 
 - [Architecture](docs/architecture.md) — components, request paths, ingestion and query flows.
 - [Evaluation](docs/evaluation.md) — benchmark protocol, metrics, results, and limitations.
+- [Document processing lifecycle status](docs/document-processing-lifecycle-current-status.md) — implemented generation path, cleanup/deletion risks, and remaining correctness checklist.
 - backend/api/ — HTTP endpoints and SSE entry points.
 - backend/services/ — ingestion, retrieval, generation, and lifecycle logic.
 - backend/repositories/ — persistence and tenant-scoped data access.
@@ -139,3 +140,4 @@ See [Evaluation](docs/evaluation.md) for methodology, reproduction steps, limita
 - Retrieval benchmark results do not establish answer correctness or production performance.
 - The reranker has not shown an aggregate improvement in the reported benchmark.
 - The application is not represented as a deployed, managed production SaaS service.
+- Generation-scoped abandoned-artifact reconciliation and durable document-deletion intent/retry are not implemented.

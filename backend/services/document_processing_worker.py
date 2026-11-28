@@ -11,7 +11,7 @@ from backend.services.providers import (
     get_embedding_service,
     get_qdrant_repository,
 )
-from backend.services.document_processing_service import process_document
+from backend.services.document_generation_processing_service import process_document_generation
 
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -35,7 +35,7 @@ def process_document_background(
                 extra={"document_id": document_id},
             )
 
-        process_document(
+        process_document_generation(
             db=db,
             document_id=document_id,
             embedding_service=get_embedding_service(),

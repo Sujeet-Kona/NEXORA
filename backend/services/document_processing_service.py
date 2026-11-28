@@ -1,4 +1,6 @@
-﻿import logging
+﻿from datetime import datetime, timezone
+
+import logging
 
 from sqlalchemy.orm import Session
 
@@ -9,7 +11,11 @@ from backend.core.exceptions import (
     EmptyDocumentTextError,
 )
 from backend.core.logging import LOGGER_NAME
-from backend.db.models import DocumentStatus
+from backend.db.models import (
+    Document,
+    DocumentProcessingGeneration,
+    DocumentStatus,
+)
 from backend.repositories.document_chunk_repository import (
     delete_chunks_for_document,
     replace_document_chunks,
@@ -41,6 +47,49 @@ def _failure_reason(exc: Exception) -> str:
         return "Document text extraction failed"
 
     return "Document processing failed"
+
+
+def _claim_legacy_document_processing(db: Session, document) -> bool:
+    """Atomically claim only documents that have never entered generation processing.
+
+    The legacy processor has no attempt lease or external-write fence. It must
+    not run on generation-managed documents, and it must not race the generation
+    worker's PENDING claim.
+    """
+    generation_exists = (
+        db.query(DocumentProcessingGeneration.id)
+        .filter(
+            DocumentProcessingGeneration.document_id == document.id,
+            DocumentProcessingGeneration.organization_id == document.organization_id,
+        )
+        .exists()
+    )
+    claimed = (
+        db.query(Document)
+        .filter(
+            Document.id == document.id,
+            Document.organization_id == document.organization_id,
+            Document.status == DocumentStatus.PENDING,
+            Document.active_generation_id.is_(None),
+            Document.processing_attempt_id.is_(None),
+            Document.processing_lease_expires_at.is_(None),
+            ~generation_exists,
+        )
+        .update(
+            {
+                Document.status: DocumentStatus.PROCESSING,
+                Document.failure_reason: None,
+                Document.updated_at: datetime.now(timezone.utc).replace(tzinfo=None),
+            },
+            synchronize_session=False,
+        )
+    )
+    if claimed != 1:
+        db.rollback()
+        return False
+    db.commit()
+    db.refresh(document)
+    return True
 
 
 def process_document(
@@ -102,13 +151,13 @@ def process_document(
         )
         return
 
-    document.failure_reason = None
-
-    update_document_status(
-        db=db,
-        document=document,
-        status=DocumentStatus.PROCESSING,
-    )
+    if not _claim_legacy_document_processing(db, document):
+        logger.warning(
+            "Legacy processing claim rejected for document %d",
+            document.id,
+            extra={"document_id": document.id},
+        )
+        return
 
     try:
         if not document.storage_key:
@@ -216,7 +265,7 @@ def process_document(
             invalidate_bm25_index(organization_id)
 
             try:
-                qdrant_repository.delete_document_chunks(
+                qdrant_repository.delete_legacy_document_chunks(
                     document_id=document_id,
                     organization_id=organization_id,
                 )

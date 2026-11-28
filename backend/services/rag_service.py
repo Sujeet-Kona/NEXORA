@@ -16,8 +16,71 @@ from backend.services.generation_service import (
     usable_chunks,
 )
 from backend.services.hybrid_retrieval_service import hybrid_retrieve_chunks
+from backend.repositories.document_generation_repository import get_legacy_document_ids
 from backend.services.llm.base import LLMClient, LLMUsage
 from backend.services.retrieval_service import RetrievedChunk
+
+def _retrieve_chunks(
+    *,
+    db: Session,
+    organization_id: int,
+    query: str,
+    embedding_service: EmbeddingService,
+    qdrant_repository: QdrantRepository,
+    limit: int,
+    document_ids: list[int] | None,
+    retrieve_fn: Callable | None,
+) -> list[RetrievedChunk]:
+    # Production RAG must use the generation-based pipeline. Custom injected
+    # retrieval functions retain their existing signature for tests/extensions.
+    if retrieve_fn is None:
+        chunks = hybrid_retrieve_chunks(
+            db=db,
+            organization_id=organization_id,
+            query=query,
+            embedding_service=embedding_service,
+            qdrant_repository=qdrant_repository,
+            limit=limit,
+            document_ids=document_ids,
+            use_active_generations=True,
+        )
+        # Retrieve legacy documents independently even when active-generation
+        # retrieval has hits. Mixed tenants must not silently lose older files.
+        legacy_document_ids = get_legacy_document_ids(
+            db=db,
+            organization_id=organization_id,
+            document_ids=document_ids,
+        )
+        if not legacy_document_ids:
+            return chunks
+        legacy_chunks = hybrid_retrieve_chunks(
+            db=db,
+            organization_id=organization_id,
+            query=query,
+            embedding_service=embedding_service,
+            qdrant_repository=qdrant_repository,
+            limit=limit,
+            document_ids=legacy_document_ids,
+            use_active_generations=False,
+        )
+        merged = {}
+        for chunk in [*chunks, *legacy_chunks]:
+            identity = (chunk.organization_id, chunk.document_id, chunk.chunk_id, chunk.generation_id)
+            current = merged.get(identity)
+            if current is None or chunk.score > current.score:
+                merged[identity] = chunk
+        return sorted(merged.values(), key=lambda chunk: chunk.score, reverse=True)[:limit]
+    return retrieve_fn(
+        db=db,
+        organization_id=organization_id,
+        query=query,
+        embedding_service=embedding_service,
+        qdrant_repository=qdrant_repository,
+        limit=limit,
+        document_ids=document_ids,
+    )
+
+
 
 
 @dataclass(frozen=True)
@@ -36,14 +99,14 @@ class RAGResponse:
     usage: LLMUsage | None
 
 
-def answer_question(*, db: Session, organization_id: int, question: str, embedding_service: EmbeddingService, qdrant_repository: QdrantRepository, llm_client: LLMClient, retrieval_limit: int = 5, document_ids: list[int] | None = None, retrieve_fn: Callable = hybrid_retrieve_chunks) -> RAGResponse:
+def answer_question(*, db: Session, organization_id: int, question: str, embedding_service: EmbeddingService, qdrant_repository: QdrantRepository, llm_client: LLMClient, retrieval_limit: int = 5, document_ids: list[int] | None = None, retrieve_fn: Callable | None = None) -> RAGResponse:
     if not question.strip():
         raise ValueError("Question cannot be empty")
 
     start = time.perf_counter()
     normalized_question = question.strip()
     retrieval_start = time.perf_counter()
-    chunks = retrieve_fn(db=db, organization_id=organization_id, query=normalized_question, embedding_service=embedding_service, qdrant_repository=qdrant_repository, limit=retrieval_limit, document_ids=document_ids)
+    chunks = _retrieve_chunks(db=db, organization_id=organization_id, query=normalized_question, embedding_service=embedding_service, qdrant_repository=qdrant_repository, limit=retrieval_limit, document_ids=document_ids, retrieve_fn=retrieve_fn)
     retrieval_ms = (time.perf_counter() - retrieval_start) * 1000
 
     generation_start = time.perf_counter()
@@ -54,13 +117,13 @@ def answer_question(*, db: Session, organization_id: int, question: str, embeddi
     return RAGResponse(answer=generated.answer, sources=generated.sources, timing=RAGTiming(retrieval_ms=retrieval_ms, generation_ms=generation_ms, ttft_ms=None, total_ms=total_ms), usage=llm_client.last_usage)
 
 
-def stream_answer_question(*, db: Session, organization_id: int, question: str, embedding_service: EmbeddingService, qdrant_repository: QdrantRepository, llm_client: LLMClient, retrieval_limit: int = 5, document_ids: list[int] | None = None, retrieve_fn: Callable = hybrid_retrieve_chunks) -> Iterator[dict]:
+def stream_answer_question(*, db: Session, organization_id: int, question: str, embedding_service: EmbeddingService, qdrant_repository: QdrantRepository, llm_client: LLMClient, retrieval_limit: int = 5, document_ids: list[int] | None = None, retrieve_fn: Callable | None = None) -> Iterator[dict]:
     if not question.strip():
         raise ValueError("Question cannot be empty")
 
     start = time.perf_counter()
     retrieval_start = time.perf_counter()
-    chunks = retrieve_fn(db=db, organization_id=organization_id, query=question.strip(), embedding_service=embedding_service, qdrant_repository=qdrant_repository, limit=retrieval_limit, document_ids=document_ids)
+    chunks = _retrieve_chunks(db=db, organization_id=organization_id, query=question.strip(), embedding_service=embedding_service, qdrant_repository=qdrant_repository, limit=retrieval_limit, document_ids=document_ids, retrieve_fn=retrieve_fn)
     retrieval_ms = (time.perf_counter() - retrieval_start) * 1000
 
     return _stream_events(question=question, chunks=chunks, llm_client=llm_client, start=start, retrieval_ms=retrieval_ms)

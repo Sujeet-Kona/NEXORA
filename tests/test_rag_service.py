@@ -126,3 +126,84 @@ def test_stream_tokens_never_expose_out_of_range_markers():
     assert "[1]" in streamed
     assert events[-1]["answer"] == "Leave is 20 days [1] and a bonus."
     assert streamed == events[-1]["answer"]
+
+def test_default_rag_retrieval_merges_active_and_legacy_results(monkeypatch):
+    import backend.services.rag_service as rag_service
+
+    active = make_chunk()
+    legacy = RetrievedChunk(chunk_id=202, document_id=8, organization_id=2, chunk_index=1, text="legacy text", score=0.87, page_start=3, page_end=3, document_name="legacy.pdf")
+    calls = []
+    monkeypatch.setattr(rag_service, "get_legacy_document_ids", lambda **kwargs: [8])
+
+    def retrieve(**kwargs):
+        calls.append(kwargs)
+        return [active] if kwargs["use_active_generations"] else [legacy]
+
+
+    monkeypatch.setattr(rag_service, "hybrid_retrieve_chunks", retrieve)
+    result = answer_question(db=None, organization_id=2, question="policy", embedding_service=None, qdrant_repository=None, llm_client=FakeLLM(), retrieval_limit=5)
+    assert {chunk.document_id for chunk in result.sources} == {7, 8}
+    assert len(calls) == 2
+    assert calls[1]["document_ids"] == [8]
+
+
+
+def test_default_rag_retrieval_falls_back_to_legacy_only_documents(monkeypatch):
+    import backend.services.rag_service as rag_service
+
+    captured = []
+    monkeypatch.setattr(rag_service, "get_legacy_document_ids", lambda **kwargs: [7, 8])
+
+    def retrieve(**kwargs):
+        captured.append(kwargs)
+        return [make_chunk()] if kwargs["use_active_generations"] is False else []
+
+    monkeypatch.setattr(rag_service, "hybrid_retrieve_chunks", retrieve)
+    response = answer_question(
+        db=None,
+        organization_id=2,
+        question="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeLLM(),
+    )
+    assert response.sources
+    assert captured[0]["use_active_generations"] is True
+    assert captured[1]["use_active_generations"] is False
+    assert captured[1]["document_ids"] == [7, 8]
+
+
+
+def test_default_rag_retrieval_uses_active_generations(monkeypatch):
+    import backend.services.rag_service as rag_service
+
+    captured = []
+
+    def active_retrieval(**kwargs):
+        captured.append(kwargs)
+        return [make_chunk()]
+
+    monkeypatch.setattr(rag_service, "hybrid_retrieve_chunks", active_retrieval)
+    monkeypatch.setattr(rag_service, "get_legacy_document_ids", lambda **kwargs: [])
+    response = answer_question(
+        db=None,
+        organization_id=2,
+        question="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeLLM(),
+    )
+    assert response.sources
+    assert captured[-1]["use_active_generations"] is True
+
+    captured.clear()
+    events = list(stream_answer_question(
+        db=None,
+        organization_id=2,
+        question="annual leave",
+        embedding_service=None,
+        qdrant_repository=None,
+        llm_client=FakeStreamLLM(deltas=["Leave is 20 days."]),
+    ))
+    assert events[-1]["type"] == "done"
+    assert captured[-1]["use_active_generations"] is True

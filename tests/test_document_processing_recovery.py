@@ -2,7 +2,12 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import update
 
-from backend.db.models import Document, DocumentStatus, User
+from backend.db.models import (
+    Document,
+    DocumentProcessingGeneration,
+    DocumentStatus,
+    User,
+)
 from backend.dependencies.database import get_session_factory
 from backend.main import app, recover_stale_processing_jobs
 from backend.repositories.document_repository import create_document
@@ -48,6 +53,8 @@ def create_processing_document(db, email):
         .where(Document.id == document.id)
         .values(
             status=DocumentStatus.PROCESSING,
+            processing_attempt_id="stale-attempt-token",
+            processing_lease_expires_at=stale_at,
             updated_at=stale_at,
         )
     )
@@ -75,6 +82,8 @@ def test_stale_processing_document_is_recovered(db):
     assert recovered.failure_reason == (
         "Previous processing worker expired; document queued for retry"
     )
+    assert recovered.processing_attempt_id is None
+    assert recovered.processing_lease_expires_at is None
 
 
 def test_fresh_processing_document_is_not_recovered(db):
@@ -87,6 +96,10 @@ def test_fresh_processing_document_is_not_recovered(db):
         .where(Document.id == document.id)
         .values(
             status=DocumentStatus.PROCESSING,
+            processing_lease_expires_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                + timedelta(minutes=30)
+            ),
             updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
     )
@@ -116,8 +129,14 @@ def test_startup_recovery_handles_multiple_stale_documents(db):
     assert recover_stale_processing_documents(db) == 2
 
     db.expire_all()
-    assert db.get(Document, first.id).status == DocumentStatus.PENDING
-    assert db.get(Document, second.id).status == DocumentStatus.PENDING
+    recovered_first = db.get(Document, first.id)
+    recovered_second = db.get(Document, second.id)
+    assert recovered_first.status == DocumentStatus.PENDING
+    assert recovered_second.status == DocumentStatus.PENDING
+    assert recovered_first.processing_attempt_id is None
+    assert recovered_first.processing_lease_expires_at is None
+    assert recovered_second.processing_attempt_id is None
+    assert recovered_second.processing_lease_expires_at is None
 
 
 def test_startup_recovery_resolves_overridden_session_factory(
@@ -143,3 +162,185 @@ def test_startup_recovery_resolves_overridden_session_factory(
 
     assert recovered is not None
     assert recovered.status == DocumentStatus.PENDING
+
+
+def test_document_processing_attempt_fields_round_trip(db):
+    document = create_processing_document(
+        db,
+        "recovery-attempt-schema@example.com",
+    )
+
+    attempt_id = "12345678-1234-1234-1234-123456789abc"
+    lease_expiry = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=30)
+
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_attempt_id=attempt_id,
+            processing_lease_expires_at=lease_expiry,
+        )
+    )
+    db.commit()
+
+    db.expire_all()
+    persisted = db.get(Document, document.id)
+
+    assert persisted is not None
+    assert persisted.processing_attempt_id == attempt_id
+    assert persisted.processing_lease_expires_at == lease_expiry
+
+def _add_staging_generation(db, document, attempt_id, generation_id):
+    generation = DocumentProcessingGeneration(
+        id=generation_id,
+        document_id=document.id,
+        organization_id=document.organization_id,
+        attempt_id=attempt_id,
+        status="staging",
+    )
+    db.add(generation)
+    db.commit()
+    return generation
+
+
+def test_single_recovery_abandons_only_stale_attempt_staging_generations(db):
+    # An unrelated document with a NULL active pointer must not satisfy the
+    # active-generation exclusion predicate for this document.
+    create_processing_document(db, "recovery-active-pointer-unrelated@example.com")
+    document = create_processing_document(
+        db,
+        "recovery-abandon-single@example.com",
+    )
+    _add_staging_generation(
+        db, document, "stale-attempt-token", "stale-generation-id"
+    )
+    _add_staging_generation(
+        db, document, "different-attempt-token", "unrelated-generation-id"
+    )
+    _add_staging_generation(
+        db, document, "stale-attempt-token", "active-pointer-generation"
+    )
+    document.active_generation_id = "active-pointer-generation"
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is True
+    db.expire_all()
+
+    stale_generation = db.get(
+        DocumentProcessingGeneration, "stale-generation-id"
+    )
+    unrelated_generation = db.get(
+        DocumentProcessingGeneration, "unrelated-generation-id"
+    )
+    recovered = db.get(Document, document.id)
+    assert recovered.status == DocumentStatus.PENDING
+    assert recovered.processing_attempt_id is None
+    active_pointer_generation = db.get(
+        DocumentProcessingGeneration, "active-pointer-generation"
+    )
+    assert stale_generation.status == "abandoned"
+    assert unrelated_generation.status == "staging"
+    assert active_pointer_generation.status == "staging"
+    assert recovered.active_generation_id == "active-pointer-generation"
+
+
+def test_bulk_recovery_abandons_staging_generation_for_each_stale_attempt(db):
+    first = create_processing_document(
+        db, "recovery-abandon-bulk-one@example.com"
+    )
+    second = create_processing_document(
+        db, "recovery-abandon-bulk-two@example.com"
+    )
+    _add_staging_generation(
+        db, first, "stale-attempt-token", "bulk-stale-generation-one"
+    )
+    _add_staging_generation(
+        db, second, "stale-attempt-token", "bulk-stale-generation-two"
+    )
+
+    assert recover_stale_processing_documents(db) == 2
+    db.expire_all()
+
+    assert db.get(
+        DocumentProcessingGeneration, "bulk-stale-generation-one"
+    ).status == "abandoned"
+    assert db.get(
+        DocumentProcessingGeneration, "bulk-stale-generation-two"
+    ).status == "abandoned"
+
+
+def test_expired_lease_is_recovered_even_with_recent_updated_at(db):
+    document = create_processing_document(
+        db,
+        "recovery-expired-lease-recent-update@example.com",
+    )
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_lease_expires_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - timedelta(seconds=1)
+            ),
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+    )
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is True
+    db.expire_all()
+    assert db.get(Document, document.id).status == DocumentStatus.PENDING
+
+
+def test_unexpired_lease_is_not_recovered_when_updated_at_is_old(db):
+    document = create_processing_document(
+        db,
+        "recovery-live-lease-old-update@example.com",
+    )
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_lease_expires_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                + timedelta(minutes=10)
+            ),
+            updated_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - STALE_PROCESSING_AFTER
+                - timedelta(minutes=5)
+            ),
+        )
+    )
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is False
+    db.expire_all()
+    assert db.get(Document, document.id).status == DocumentStatus.PROCESSING
+
+
+def test_missing_lease_with_attempt_token_uses_stale_timestamp_fallback(db):
+    document = create_processing_document(
+        db,
+        "recovery-missing-lease-attempt@example.com",
+    )
+    db.execute(
+        update(Document)
+        .where(Document.id == document.id)
+        .values(
+            processing_attempt_id="malformed-attempt-without-lease",
+            processing_lease_expires_at=None,
+            updated_at=(
+                datetime.now(timezone.utc).replace(tzinfo=None)
+                - STALE_PROCESSING_AFTER
+                - timedelta(minutes=1)
+            ),
+        )
+    )
+    db.commit()
+
+    assert recover_stale_document_processing(db, document.id) is True
+    db.expire_all()
+    recovered = db.get(Document, document.id)
+    assert recovered.status == DocumentStatus.PENDING
+    assert recovered.processing_attempt_id is None

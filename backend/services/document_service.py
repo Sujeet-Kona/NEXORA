@@ -17,6 +17,7 @@ from backend.core.logging import LOGGER_NAME
 from backend.db.models import (
     AuditAction,
     Document,
+    DocumentProcessingGeneration,
     DocumentStatus,
     OrganizationRole,
     User,
@@ -57,11 +58,9 @@ ALLOWED_CONTENT_TYPES = {
 
 ALLOWED_STATUS_TRANSITIONS = {
     DocumentStatus.PENDING: {
-        DocumentStatus.PROCESSING,
         DocumentStatus.FAILED,
     },
     DocumentStatus.PROCESSING: {
-        DocumentStatus.READY,
         DocumentStatus.FAILED,
         # Explicit recovery path for a crashed BackgroundTask. The startup
         # recovery service uses the same transition after a stale lease.
@@ -284,10 +283,9 @@ def upload_document_version_service(
     )
     _require_admin_or_owner(membership)
 
-    # Hold the database row lock across the external vector purge. This is
-    # intentional: releasing the lock before Qdrant cleanup would allow a
-    # processing worker to claim the document while its vectors are being
-    # replaced, producing a transiently inconsistent index.
+    # Hold the document row lock across legacy-vector cleanup and file
+    # replacement. The generation-aware processing pipeline stages new vectors
+    # separately; active generation vectors must not be purged here.
     document = get_document_by_id_for_update(
         db=db,
         document_id=document_id,
@@ -316,7 +314,7 @@ def upload_document_version_service(
         )
 
         try:
-            qdrant_repository.delete_document_chunks(
+            qdrant_repository.delete_legacy_document_chunks(
                 document_id=document.id,
                 organization_id=document.organization_id,
             )
@@ -454,7 +452,10 @@ def update_document_status_service(
     )
     _require_admin_or_owner(membership)
 
-    document = get_document_by_id(
+    # Validate against the current status while holding the same row lock
+    # used by processing claims and other lifecycle mutations. A plain read here
+    # could authorize a transition based on a stale status under concurrency.
+    document = get_document_by_id_for_update(
         db=db,
         document_id=document_id,
         organization_id=organization_id,
@@ -467,6 +468,36 @@ def update_document_status_service(
         current_status=document.status,
         new_status=status,
     )
+
+    # PROCESSING and READY are worker-owned states. The admin API cannot
+    # manufacture PROCESSING without an attempt token/lease or mark READY
+    # without generation promotion. Admin recovery out of PROCESSING must
+    # invalidate the old worker's ownership metadata.
+    if document.status == DocumentStatus.PROCESSING:
+        # Admin recovery invalidates the current attempt. Abandon only that
+        # attempt's inactive staging generations in this same SQL transaction,
+        # before update_document_status commits the status/token change.
+        old_attempt_id = document.processing_attempt_id
+        if old_attempt_id is not None:
+            (
+                db.query(DocumentProcessingGeneration)
+                .filter(
+                    DocumentProcessingGeneration.document_id == document.id,
+                    DocumentProcessingGeneration.organization_id
+                    == document.organization_id,
+                    DocumentProcessingGeneration.attempt_id == old_attempt_id,
+                    DocumentProcessingGeneration.status == "staging",
+                    DocumentProcessingGeneration.id.is_distinct_from(
+                        document.active_generation_id
+                    ),
+                )
+                .update(
+                    {DocumentProcessingGeneration.status: "abandoned"},
+                    synchronize_session=False,
+                )
+            )
+        document.processing_attempt_id = None
+        document.processing_lease_expires_at = None
 
     updated_document = update_document_status(
         db=db,
@@ -542,7 +573,17 @@ def delete_document_service(
     invalidate_bm25_index(organization_id)
 
     if storage_key:
-        storage.delete(storage_key)
+        try:
+            storage.delete(storage_key)
+        except Exception:
+            # SQL deletion and vector purge are already committed. A local
+            # file-cleanup failure must not turn a successful delete into an
+            # API error; report it for later operational cleanup instead.
+            logger.warning(
+                "Deleted document file could not be removed",
+                extra={"document_id": document_id},
+                exc_info=True,
+            )
 
     record_audit_event(
         db,

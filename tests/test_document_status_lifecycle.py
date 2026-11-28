@@ -117,7 +117,7 @@ def patch_status(
     )
 
 
-def test_pending_to_processing_is_allowed(client):
+def test_pending_to_processing_is_rejected_for_worker_ownership(client):
     token = register_and_login(
         client,
         "lifecycle-pending-processing@example.com",
@@ -143,11 +143,14 @@ def test_pending_to_processing_is_allowed(client):
         "processing",
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "processing"
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Cannot change document status from 'pending' to 'processing'"
+    }
 
 
-def test_processing_to_ready_is_allowed(client):
+
+def test_processing_to_ready_is_rejected_without_worker_promotion(client, db):
     token = register_and_login(
         client,
         "lifecycle-processing-ready@example.com",
@@ -165,13 +168,14 @@ def test_processing_to_ready_is_allowed(client):
         organization_id,
     )
 
-    assert patch_status(
-        client,
-        token,
-        organization_id,
-        document_id,
-        "processing",
-    ).status_code == 200
+    # Simulate a worker-owned PROCESSING state; the admin API cannot
+    # create this state because it must be paired with an attempt token/lease.
+    from backend.db.models import Document, DocumentStatus
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.PROCESSING
+    db.commit()
 
     response = patch_status(
         client,
@@ -181,8 +185,11 @@ def test_processing_to_ready_is_allowed(client):
         "ready",
     )
 
-    assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Cannot change document status from 'processing' to 'ready'"
+    }
+
 
 
 def test_pending_to_failed_is_allowed(client):
@@ -288,7 +295,7 @@ def test_pending_to_ready_is_rejected(client):
     }
 
 
-def test_ready_to_pending_is_rejected(client):
+def test_ready_to_pending_is_rejected(client, db):
     token = register_and_login(
         client,
         "lifecycle-ready-pending@example.com",
@@ -306,21 +313,12 @@ def test_ready_to_pending_is_rejected(client):
         organization_id,
     )
 
-    assert patch_status(
-        client,
-        token,
-        organization_id,
-        document_id,
-        "processing",
-    ).status_code == 200
+    from backend.db.models import Document, DocumentStatus
 
-    assert patch_status(
-        client,
-        token,
-        organization_id,
-        document_id,
-        "ready",
-    ).status_code == 200
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.READY
+    db.commit()
 
     response = patch_status(
         client,
@@ -339,7 +337,7 @@ def test_ready_to_pending_is_rejected(client):
     }
 
 
-def test_ready_to_processing_is_rejected(client):
+def test_ready_to_processing_is_rejected(client, db):
     token = register_and_login(
         client,
         "lifecycle-ready-processing@example.com",
@@ -357,21 +355,12 @@ def test_ready_to_processing_is_rejected(client):
         organization_id,
     )
 
-    assert patch_status(
-        client,
-        token,
-        organization_id,
-        document_id,
-        "processing",
-    ).status_code == 200
+    from backend.db.models import Document, DocumentStatus
 
-    assert patch_status(
-        client,
-        token,
-        organization_id,
-        document_id,
-        "ready",
-    ).status_code == 200
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.READY
+    db.commit()
 
     response = patch_status(
         client,
@@ -500,3 +489,131 @@ def test_member_is_denied_before_transition_validation(
     assert response.json() == {
         "detail": "Organization admin access required"
     }
+
+
+def test_processing_recovery_clears_attempt_ownership(client, db):
+    token = register_and_login(
+        client,
+        "lifecycle-recovery-ownership@example.com",
+    )
+    organization_id = create_organization(
+        client,
+        token,
+        "Lifecycle Recovery Ownership Company",
+    )
+    document_id = create_document(
+        client,
+        token,
+        organization_id,
+    )
+
+    from datetime import datetime, timedelta
+    from backend.db.models import Document, DocumentStatus
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.PROCESSING
+    document.processing_attempt_id = "manual-test-attempt"
+    document.processing_lease_expires_at = datetime.utcnow() + timedelta(minutes=5)
+    db.commit()
+
+    response = patch_status(
+        client,
+        token,
+        organization_id,
+        document_id,
+        "pending",
+    )
+    assert response.status_code == 200
+    db.refresh(document)
+    assert document.status == DocumentStatus.PENDING
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None
+
+
+
+def test_admin_recovery_abandons_only_inactive_staging_generations(
+    client,
+    db,
+):
+    token = register_and_login(
+        client,
+        "lifecycle-recovery-generations@example.com",
+    )
+    organization_id = create_organization(
+        client,
+        token,
+        "Lifecycle Recovery Generations Company",
+    )
+    document_id = create_document(
+        client,
+        token,
+        organization_id,
+    )
+
+    from datetime import datetime, timedelta
+    from backend.db.models import (
+        Document,
+        DocumentProcessingGeneration,
+        DocumentStatus,
+    )
+
+    document = db.query(Document).filter(Document.id == document_id).first()
+    assert document is not None
+    document.status = DocumentStatus.PROCESSING
+    document.processing_attempt_id = "recovery-generation-attempt"
+    document.processing_lease_expires_at = datetime.utcnow() + timedelta(
+        minutes=5
+    )
+    document.active_generation_id = "active-pointer"
+    db.add_all(
+        [
+            DocumentProcessingGeneration(
+                id="inactive-staging",
+                document_id=document_id,
+                organization_id=organization_id,
+                attempt_id="recovery-generation-attempt",
+                status="staging",
+            ),
+            DocumentProcessingGeneration(
+                id="active-pointer",
+                document_id=document_id,
+                organization_id=organization_id,
+                attempt_id="recovery-generation-attempt",
+                status="staging",
+            ),
+            DocumentProcessingGeneration(
+                id="other-attempt",
+                document_id=document_id,
+                organization_id=organization_id,
+                attempt_id="different-attempt",
+                status="staging",
+            ),
+        ]
+    )
+    db.commit()
+
+    response = patch_status(
+        client,
+        token,
+        organization_id,
+        document_id,
+        "pending",
+    )
+    assert response.status_code == 200
+
+    generations = {
+        generation.id: generation.status
+        for generation in db.query(DocumentProcessingGeneration)
+        .filter(DocumentProcessingGeneration.document_id == document_id)
+        .all()
+    }
+    assert generations == {
+        "inactive-staging": "abandoned",
+        "active-pointer": "staging",
+        "other-attempt": "staging",
+    }
+    db.refresh(document)
+    assert document.active_generation_id == "active-pointer"
+    assert document.processing_attempt_id is None
+    assert document.processing_lease_expires_at is None

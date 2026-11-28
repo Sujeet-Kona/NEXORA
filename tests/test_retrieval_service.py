@@ -1,4 +1,6 @@
 ﻿from unittest.mock import Mock
+from types import SimpleNamespace
+from uuid import UUID, uuid5
 
 import pytest
 
@@ -14,7 +16,10 @@ from backend.services.organization_service import (
 )
 from backend.services.retrieval_service import (
     retrieve_chunks,
+    retrieve_active_generation_chunks,
 )
+
+from backend.services.retrievers import ActiveGenerationLexicalRetriever
 
 
 def create_user(db, email, name):
@@ -510,3 +515,244 @@ def test_retrieve_chunks_document_filter_is_tenant_scoped(db):
     )
 
     assert results == []
+
+
+def test_active_generation_dense_retrieval_hydrates_only_active_sql_chunks(
+    db, monkeypatch,
+):
+    generation_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    inactive_generation_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    valid_point_id = str(uuid5(UUID(generation_id), "3"))
+    active = SimpleNamespace(
+        id=91,
+        generation_id=generation_id,
+        document_id=12,
+        organization_id=4,
+        chunk_index=3,
+        text="Active generation content",
+        page_start=2,
+        page_end=3,
+    )
+    inactive = SimpleNamespace(
+        id=92,
+        generation_id=inactive_generation_id,
+        document_id=12,
+        organization_id=4,
+        chunk_index=3,
+        text="Must not hydrate retired generation",
+        page_start=2,
+        page_end=3,
+    )
+    monkeypatch.setattr(
+        "backend.services.retrieval_service.get_active_generation_chunks",
+        lambda **kwargs: [active],
+    )
+    monkeypatch.setattr(
+        "backend.services.retrieval_service.get_document_names",
+        lambda **kwargs: {12: "active.pdf"},
+    )
+    embedding = Mock()
+    embedding.embed_query.return_value = [0.25] * 1024
+    qdrant = Mock()
+    qdrant.search_generation.return_value.points = [
+        SimpleNamespace(
+            id=valid_point_id,
+            score=0.91,
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": 3,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+        # Payload alone must not hydrate a hit whose deterministic vector ID
+        # belongs to a different generation/chunk.
+        SimpleNamespace(
+            id=str(uuid5(UUID(inactive.generation_id), "3")),
+            score=0.99,
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": 3,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+        # Python bool is an int subclass; reject it explicitly as an index.
+        SimpleNamespace(
+            id=str(uuid5(UUID(generation_id), "True")),
+            score=0.98,
+            payload={
+                "generation_id": generation_id,
+                "chunk_index": True,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+        # A correctly formed point from a retired generation must not hydrate.
+        SimpleNamespace(
+            id=str(uuid5(UUID(inactive.generation_id), "3")),
+            score=0.97,
+            payload={
+                "generation_id": inactive.generation_id,
+                "chunk_index": 3,
+                "organization_id": 4,
+                "document_id": 12,
+            },
+        ),
+    ]
+
+    results = retrieve_active_generation_chunks(
+        db=db,
+        organization_id=4,
+        query="active content",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+        limit=2,
+    )
+
+    assert len(results) == 1
+    assert results[0].chunk_id == active.id
+    assert results[0].generation_id == generation_id
+    assert results[0].text == active.text
+    assert results[0].document_name == "active.pdf"
+    assert results[0].score == 0.91
+    qdrant.search_generation.assert_called_once_with(
+        query_vector=[0.25] * 1024,
+        organization_id=4,
+        generation_ids=[generation_id],
+        limit=2,
+        document_ids=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("scope_field", "scope_value"),
+    [("organization_id", 99), ("document_id", 99)],
+)
+def test_active_generation_dense_retrieval_rejects_payload_scope_mismatch(
+    db, monkeypatch, scope_field, scope_value,
+):
+    generation_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    active = SimpleNamespace(
+        id=91,
+        generation_id=generation_id,
+        document_id=12,
+        organization_id=4,
+        chunk_index=3,
+        text="Active generation content",
+        page_start=2,
+        page_end=3,
+    )
+    monkeypatch.setattr(
+        "backend.services.retrieval_service.get_active_generation_chunks",
+        lambda **kwargs: [active],
+    )
+    embedding = Mock()
+    embedding.embed_query.return_value = [0.25] * 1024
+    qdrant = Mock()
+    payload = {
+        "generation_id": generation_id,
+        "chunk_index": 3,
+        "organization_id": 4,
+        "document_id": 12,
+    }
+    payload[scope_field] = scope_value
+    qdrant.search_generation.return_value.points = [
+        SimpleNamespace(
+            id=str(uuid5(UUID(generation_id), "3")),
+            score=0.91,
+            payload=payload,
+        )
+    ]
+
+    assert retrieve_active_generation_chunks(
+        db=db,
+        organization_id=4,
+        query="active content",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+        limit=2,
+    ) == []
+
+
+def test_active_generation_dense_retrieval_skips_embedding_without_active_chunks(
+    db, monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.services.retrieval_service.get_active_generation_chunks",
+        lambda **kwargs: [],
+    )
+    embedding = Mock()
+    qdrant = Mock()
+    assert retrieve_active_generation_chunks(
+        db=db,
+        organization_id=4,
+        query="valid query",
+        embedding_service=embedding,
+        qdrant_repository=qdrant,
+    ) == []
+    embedding.embed_query.assert_not_called()
+    qdrant.search_generation.assert_not_called()
+
+
+def test_active_generation_lexical_retriever_hydrates_generation_provenance(
+    monkeypatch,
+):
+    chunks = [
+        __import__("types").SimpleNamespace(
+            id=101,
+            document_id=7,
+            organization_id=2,
+            chunk_index=0,
+            text="annual leave policy details",
+            page_start=2,
+            page_end=4,
+            generation_id="active-gen",
+        ),
+        __import__("types").SimpleNamespace(
+            id=102,
+            document_id=7,
+            organization_id=2,
+            chunk_index=1,
+            text="password security controls",
+            page_start=5,
+            page_end=6,
+            generation_id="active-gen",
+        ),
+    ]
+    monkeypatch.setattr(
+        "backend.services.retrievers.get_active_generation_chunks",
+        lambda **kwargs: chunks,
+    )
+    monkeypatch.setattr(
+        "backend.services.retrievers.get_document_names",
+        lambda **kwargs: {7: "policy.pdf"},
+    )
+
+    results = ActiveGenerationLexicalRetriever(limit=3).retrieve(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+    )
+
+    assert len(results) == 1
+    assert results[0].chunk_id == 101
+    assert results[0].generation_id == "active-gen"
+    assert results[0].document_name == "policy.pdf"
+    assert results[0].page_start == 2
+    assert results[0].page_end == 4
+
+
+def test_active_generation_lexical_retriever_returns_empty_without_chunks(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "backend.services.retrievers.get_active_generation_chunks",
+        lambda **kwargs: [],
+    )
+    result = ActiveGenerationLexicalRetriever().retrieve(
+        db=None,
+        organization_id=2,
+        query="annual leave",
+    )
+    assert result == []

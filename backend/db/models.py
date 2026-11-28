@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     String,
     UniqueConstraint,
@@ -273,8 +274,138 @@ class DocumentChunk(Base):
     organization: Mapped[Organization] = relationship(
         back_populates="document_chunks",
     )
+
+class DocumentProcessingGeneration(Base):
+    __tablename__ = "document_processing_generations"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "document_id",
+            "organization_id",
+            name="uq_document_generation_ownership",
+        ),
+        ForeignKeyConstraint(
+            ["document_id", "organization_id"],
+            ["documents.id", "documents.organization_id"],
+            name="fk_generation_document_organization",
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    attempt_id: Mapped[str] = mapped_column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="staging",
+        server_default="staging",
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+
+class DocumentGenerationChunk(Base):
+    __tablename__ = "document_generation_chunks"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "generation_id",
+            "chunk_index",
+            name="uq_document_generation_chunk_index",
+        ),
+        ForeignKeyConstraint(
+            ["generation_id", "document_id", "organization_id"],
+            [
+                "document_processing_generations.id",
+                "document_processing_generations.document_id",
+                "document_processing_generations.organization_id",
+            ],
+            name="fk_generation_chunk_generation_ownership",
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+    )
+
+    generation_id: Mapped[str] = mapped_column(
+        ForeignKey("document_processing_generations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    organization_id: Mapped[int] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    chunk_index: Mapped[int] = mapped_column(
+        nullable=False,
+    )
+
+    page_start: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    page_end: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    text: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+    default=lambda: datetime.now(timezone.utc),
+    nullable=False,
+    )
+
 class Document(Base):
     __tablename__ = "documents"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "organization_id",
+            name="uq_document_id_organization",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         primary_key=True,
@@ -331,6 +462,23 @@ class Document(Base):
 
     failure_reason: Mapped[str | None] = mapped_column(
         String(500),
+        nullable=True,
+    )
+
+    # Token and expiry used to fence stale document-processing workers.
+    processing_attempt_id: Mapped[str | None] = mapped_column(
+        String(36),
+        nullable=True,
+    )
+
+    processing_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    # Active staged-index generation; promotion is guarded by attempt ownership.
+    active_generation_id: Mapped[str | None] = mapped_column(
+        String(36),
         nullable=True,
     )
 
